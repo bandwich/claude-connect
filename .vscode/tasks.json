@@ -1,0 +1,17 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Voice Input",
+            "type": "shell",
+            "command": "~/.claude/voice-mode/voice-chat.sh",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "never",
+                "panel": "dedicated",
+                "showReuseMessage": false,
+                "clear": false
+            }
+        }
+    ]
+}

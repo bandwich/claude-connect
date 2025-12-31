@@ -1,0 +1,7 @@
+[
+    {
+        "key": "cmd+shift+v",
+        "command": "workbench.action.tasks.runTask",
+        "args": "Voice Input"
+    }
+]
