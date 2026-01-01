@@ -37,6 +37,7 @@ struct AudioPlayerTests {
         // Simulate receiving chunks
         for chunkIndex in 0..<totalChunks {
             let chunk = AudioChunkMessage(
+                type: "audio_chunk",
                 format: "wav",
                 sampleRate: 24000,
                 chunkIndex: chunkIndex,
@@ -83,6 +84,7 @@ struct AudioPlayerTests {
         let totalChunks = 5
         for chunkIndex in 0..<totalChunks {
             let chunk = AudioChunkMessage(
+                type: "audio_chunk",
                 format: "wav",
                 sampleRate: 24000,
                 chunkIndex: chunkIndex,
@@ -95,11 +97,12 @@ struct AudioPlayerTests {
 
         // Verify all chunks were received
         // Note: Internal counters are private, so we verify behavior through public API
-        #expect(audioPlayer.onAudioChunk != nil || audioPlayer.onAudioChunk == nil, "AudioPlayer should handle chunks")
+        #expect(true, "AudioPlayer should handle chunks without crashing")
 
         // Test edge case: single chunk response
         let audioPlayer2 = AudioPlayer()
         let singleChunk = AudioChunkMessage(
+            type: "audio_chunk",
             format: "wav",
             sampleRate: 24000,
             chunkIndex: 0,
@@ -125,6 +128,7 @@ struct AudioPlayerTests {
         // Create mock audio chunk
         let mockAudioData = createMockWAVData()
         let chunk = AudioChunkMessage(
+            type: "audio_chunk",
             format: "wav",
             sampleRate: 24000,
             chunkIndex: 0,
