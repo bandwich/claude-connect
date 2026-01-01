@@ -1,5 +1,4 @@
 """Tests for transcript_injector.py"""
-import pytest
 import json
 import os
 import sys
