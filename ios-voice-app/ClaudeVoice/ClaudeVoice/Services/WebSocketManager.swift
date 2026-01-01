@@ -13,7 +13,9 @@ class WebSocketManager: NSObject, ObservableObject {
 
     var onAudioChunk: ((AudioChunkMessage) -> Void)?
     var onStatusUpdate: ((StatusMessage) -> Void)?
+    var onAssistantResponse: ((AssistantResponseMessage) -> Void)?  // NEW
     var isPlayingAudio: Bool = false // Tracks if audio is currently playing
+    private var lastContentBlocks: [ContentBlock] = []  // NEW: store for future UI
 
     private var webSocketTask: URLSessionWebSocketTask?
     private var urlSession: URLSession?
@@ -196,14 +198,18 @@ class WebSocketManager: NSObject, ObservableObject {
                 return
             }
 
-            if let statusMessage = try? JSONDecoder().decode(StatusMessage.self, from: data) {
+            // Try to decode as AssistantResponseMessage FIRST (before status/audio)
+            if let assistantResponse = try? JSONDecoder().decode(AssistantResponseMessage.self, from: data) {
+                logToFile("✅ Decoded as AssistantResponseMessage")
+                handleAssistantResponse(assistantResponse)
+            } else if let statusMessage = try? JSONDecoder().decode(StatusMessage.self, from: data) {
                 logToFile("✅ Decoded as StatusMessage: \(statusMessage.state)")
                 handleStatusMessage(statusMessage)
             } else if let audioChunk = try? JSONDecoder().decode(AudioChunkMessage.self, from: data) {
                 logToFile("✅ Decoded as AudioChunk: \(audioChunk.chunkIndex + 1)/\(audioChunk.totalChunks)")
                 handleAudioChunk(audioChunk)
             } else {
-                print("❌ Failed to decode message as StatusMessage or AudioChunkMessage")
+                print("❌ Failed to decode message as any known type")
                 print("   Raw data: \(String(data: data, encoding: .utf8) ?? "N/A")")
                 logToFile("❌ Failed to decode: \(String(data: data, encoding: .utf8) ?? "N/A")")
             }
@@ -211,7 +217,10 @@ class WebSocketManager: NSObject, ObservableObject {
         case .data(let data):
             print("📥 RECEIVED BINARY MESSAGE: \(data.count) bytes")
             logToFile("📥 BINARY: \(data.count) bytes")
-            if let statusMessage = try? JSONDecoder().decode(StatusMessage.self, from: data) {
+            // Try AssistantResponseMessage first for binary too
+            if let assistantResponse = try? JSONDecoder().decode(AssistantResponseMessage.self, from: data) {
+                handleAssistantResponse(assistantResponse)
+            } else if let statusMessage = try? JSONDecoder().decode(StatusMessage.self, from: data) {
                 handleStatusMessage(statusMessage)
             } else if let audioChunk = try? JSONDecoder().decode(AudioChunkMessage.self, from: data) {
                 handleAudioChunk(audioChunk)
@@ -250,6 +259,32 @@ class WebSocketManager: NSObject, ObservableObject {
     private func handleAudioChunk(_ chunk: AudioChunkMessage) {
         print("🎵 RECEIVED AUDIO CHUNK: \(chunk.chunkIndex + 1)/\(chunk.totalChunks)")
         onAudioChunk?(chunk)
+    }
+
+    private func handleAssistantResponse(_ message: AssistantResponseMessage) {
+        print("📦 RECEIVED ASSISTANT RESPONSE: \(message.contentBlocks.count) blocks")
+        logToFile("📦 ASSISTANT RESPONSE: \(message.contentBlocks.count) blocks")
+
+        // Store content blocks
+        lastContentBlocks = message.contentBlocks
+
+        // Log block types for debugging
+        for (index, block) in message.contentBlocks.enumerated() {
+            switch block {
+            case .text(let textBlock):
+                print("  Block \(index): text - \(textBlock.text.prefix(50))...")
+                logToFile("  Block \(index): text")
+            case .thinking(let thinkingBlock):
+                print("  Block \(index): thinking - \(thinkingBlock.thinking.prefix(50))...")
+                logToFile("  Block \(index): thinking")
+            case .toolUse(let toolBlock):
+                print("  Block \(index): tool_use - \(toolBlock.name)")
+                logToFile("  Block \(index): tool_use - \(toolBlock.name)")
+            }
+        }
+
+        // Notify callback (for future UI)
+        onAssistantResponse?(message)
     }
 
     private func attemptReconnect() {

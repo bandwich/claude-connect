@@ -28,170 +28,20 @@ class TestTranscriptHandler:
         callback = Mock()
         loop = Mock()
         server = Mock()
-        handler = TranscriptHandler(callback, loop, server)
+        handler = TranscriptHandler(None, callback, loop, server)
 
-        assert handler.callback == callback
+        assert handler.audio_callback == callback
         assert handler.loop == loop
         assert handler.server == server
         assert handler.last_message is None
         assert handler.last_modified == 0
-
-    def test_extract_assistant_response_to_user_message_string_content(self):
-        """Test extracting assistant response after specific user message"""
-        callback = Mock()
-        loop = Mock()
-        server = Mock()
-        handler = TranscriptHandler(callback, loop, server)
-
-        # Create test transcript file
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
-            f.write(json.dumps({"role": "user", "content": "Hello"}) + "\n")
-            f.write(json.dumps({"role": "assistant", "content": "Hi there!"}) + "\n")
-            filepath = f.name
-
-        try:
-            result = handler.extract_assistant_response_to_user_message(filepath, "Hello")
-            assert result == "Hi there!"
-        finally:
-            os.unlink(filepath)
-
-    def test_extract_assistant_response_to_user_message_list_content(self):
-        """Test extracting assistant response with list/block content"""
-        callback = Mock()
-        loop = Mock()
-        server = Mock()
-        handler = TranscriptHandler(callback, loop, server)
-
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
-            f.write(json.dumps({"role": "user", "content": "Question"}) + "\n")
-            f.write(json.dumps({
-                "role": "assistant",
-                "content": [
-                    {"type": "text", "text": "Hello"},
-                    {"type": "text", "text": "world"}
-                ]
-            }) + "\n")
-            filepath = f.name
-
-        try:
-            result = handler.extract_assistant_response_to_user_message(filepath, "Question")
-            assert result == "Hello world"
-        finally:
-            os.unlink(filepath)
-
-    def test_extract_assistant_response_to_user_message_message_wrapper(self):
-        """Test extracting when content is nested in 'message' key"""
-        callback = Mock()
-        loop = Mock()
-        server = Mock()
-        handler = TranscriptHandler(callback, loop, server)
-
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
-            f.write(json.dumps({
-                "message": {
-                    "role": "user",
-                    "content": "Question"
-                }
-            }) + "\n")
-            f.write(json.dumps({
-                "message": {
-                    "role": "assistant",
-                    "content": "Nested message"
-                }
-            }) + "\n")
-            filepath = f.name
-
-        try:
-            result = handler.extract_assistant_response_to_user_message(filepath, "Question")
-            assert result == "Nested message"
-        finally:
-            os.unlink(filepath)
-
-    def test_extract_assistant_response_to_user_message_mixed_roles(self):
-        """Test extracts correct assistant response after specific user message"""
-        callback = Mock()
-        loop = Mock()
-        server = Mock()
-        handler = TranscriptHandler(callback, loop, server)
-
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
-            f.write(json.dumps({"role": "user", "content": "First question"}) + "\n")
-            f.write(json.dumps({"role": "assistant", "content": "First response"}) + "\n")
-            f.write(json.dumps({"role": "user", "content": "Second question"}) + "\n")
-            f.write(json.dumps({"role": "assistant", "content": "Second response"}) + "\n")
-            filepath = f.name
-
-        try:
-            result = handler.extract_assistant_response_to_user_message(filepath, "Second question")
-            assert result == "Second response"
-        finally:
-            os.unlink(filepath)
-
-    def test_extract_assistant_response_to_user_message_no_match(self):
-        """Test when user message doesn't match"""
-        callback = Mock()
-        loop = Mock()
-        server = Mock()
-        handler = TranscriptHandler(callback, loop, server)
-
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
-            f.write(json.dumps({"role": "user", "content": "Hello"}) + "\n")
-            f.write(json.dumps({"role": "assistant", "content": "Response"}) + "\n")
-            filepath = f.name
-
-        try:
-            result = handler.extract_assistant_response_to_user_message(filepath, "Different question")
-            assert result is None
-        finally:
-            os.unlink(filepath)
-
-    def test_extract_assistant_response_to_user_message_no_assistant(self):
-        """Test when no assistant response follows user message"""
-        callback = Mock()
-        loop = Mock()
-        server = Mock()
-        handler = TranscriptHandler(callback, loop, server)
-
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
-            f.write(json.dumps({"role": "user", "content": "Hello"}) + "\n")
-            filepath = f.name
-
-        try:
-            result = handler.extract_assistant_response_to_user_message(filepath, "Hello")
-            assert result is None
-        finally:
-            os.unlink(filepath)
-
-    def test_extract_assistant_response_to_user_message_filters_thinking(self):
-        """Test that thinking blocks are filtered out"""
-        callback = Mock()
-        loop = Mock()
-        server = Mock()
-        handler = TranscriptHandler(callback, loop, server)
-
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
-            f.write(json.dumps({"role": "user", "content": "Question"}) + "\n")
-            f.write(json.dumps({
-                "role": "assistant",
-                "content": [
-                    {"type": "thinking", "text": "Internal thoughts"},
-                    {"type": "text", "text": "Actual response"}
-                ]
-            }) + "\n")
-            filepath = f.name
-
-        try:
-            result = handler.extract_assistant_response_to_user_message(filepath, "Question")
-            assert result == "Actual response"
-        finally:
-            os.unlink(filepath)
 
     def test_on_modified_non_jsonl_files(self):
         """Test ignores non-.jsonl files"""
         callback = Mock()
         loop = Mock()
         server = Mock()
-        handler = TranscriptHandler(callback, loop, server)
+        handler = TranscriptHandler(None, callback, loop, server)
 
         event = Mock()
         event.is_directory = False
@@ -206,7 +56,7 @@ class TestTranscriptHandler:
         callback = Mock()
         loop = Mock()
         server = Mock()
-        handler = TranscriptHandler(callback, loop, server)
+        handler = TranscriptHandler(None, callback, loop, server)
 
         event = Mock()
         event.is_directory = True
@@ -222,7 +72,7 @@ class TestTranscriptHandler:
         loop = Mock()
         server = Mock()
         server.last_voice_input = "User question"
-        handler = TranscriptHandler(callback, loop, server)
+        handler = TranscriptHandler(None, callback, loop, server)
         handler.last_message = "Same message"
 
         with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
@@ -545,79 +395,6 @@ class TestVoiceServer:
 
 
     # MARK: - NEW TESTS FOR BUG #2: iOS server couldn't find latest assistant message
-
-    def test_extract_message_exact_match(self):
-        """
-        Test 13: Verify baseline transcript parsing works
-        Tests Bug #2: Exact string match requirement
-        """
-        callback = Mock()
-        loop = Mock()
-        server = Mock()
-        handler = TranscriptHandler(callback, loop, server)
-
-        # Create transcript with exact match
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
-            f.write(json.dumps({"role": "user", "content": "Hello world"}) + "\n")
-            f.write(json.dumps({"role": "assistant", "content": "Hi there!"}) + "\n")
-            filepath = f.name
-
-        try:
-            result = handler.extract_assistant_response_to_user_message(filepath, "Hello world")
-            assert result == "Hi there!", "Should extract assistant message with exact match"
-        finally:
-            os.unlink(filepath)
-
-    def test_extract_message_whitespace_differences(self):
-        """
-        Test 14: Document the exact match limitation ⚠️ EXPECTED FAILURE
-        Tests Bug #2: Whitespace differences cause extraction to fail
-        """
-        callback = Mock()
-        loop = Mock()
-        server = Mock()
-        handler = TranscriptHandler(callback, loop, server)
-
-        # Create transcript with double space (simulating what Claude Code might write)
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
-            f.write(json.dumps({"role": "user", "content": "Hello  world"}) + "\n")  # Double space
-            f.write(json.dumps({"role": "assistant", "content": "Response text"}) + "\n")
-            filepath = f.name
-
-        try:
-            # Try to extract with single space (what was sent to server)
-            result = handler.extract_assistant_response_to_user_message(filepath, "Hello world")
-
-            # Known limitation: exact match required, whitespace differences cause failure
-            assert result is None, "KNOWN BUG: Whitespace differences prevent message extraction"
-
-            # This test documents the bug - it's expected to pass (finding None)
-            # In production, this causes the "couldn't find latest assistant message" bug
-        finally:
-            os.unlink(filepath)
-
-    def test_extract_message_no_assistant_response(self):
-        """
-        Test 15: Verify graceful handling of incomplete transcript
-        Tests Bug #2: Transcript with user message but no assistant response yet
-        """
-        callback = Mock()
-        loop = Mock()
-        server = Mock()
-        handler = TranscriptHandler(callback, loop, server)
-
-        # Create transcript with only user message (no assistant response yet)
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
-            f.write(json.dumps({"role": "user", "content": "Hello"}) + "\n")
-            # No assistant response
-            filepath = f.name
-
-        try:
-            result = handler.extract_assistant_response_to_user_message(filepath, "Hello")
-            assert result is None, "Should return None when no assistant response found"
-            # Should not crash - defensive coding check
-        finally:
-            os.unlink(filepath)
 
 
 if __name__ == '__main__':

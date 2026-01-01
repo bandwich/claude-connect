@@ -13,6 +13,7 @@ import subprocess
 import time
 import glob
 import base64
+from typing import Optional
 
 # Add venv to path
 sys.path.insert(0, '/Users/aaron/Desktop/max/.venv/lib/python3.9/site-packages')
@@ -20,50 +21,98 @@ sys.path.insert(0, '/Users/aaron/Desktop/max/.venv/lib/python3.9/site-packages')
 from tts_utils import generate_tts_audio, samples_to_wav_bytes
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+from content_models import TextBlock, ThinkingBlock, ToolUseBlock, ContentBlock, AssistantResponse
 
 # Configuration
 PORT = 8765
 TRANSCRIPT_DIR = os.path.expanduser("~/.claude/projects/")
 
 
+def extract_text_for_tts(content_blocks: list[ContentBlock]) -> str:
+    """Extract only text blocks for TTS (maintains current behavior)"""
+    text_parts = []
+    for block in content_blocks:
+        if isinstance(block, TextBlock):
+            text_parts.append(block.text)
+    return ' '.join(text_parts).strip()
+
+
 class TranscriptHandler(FileSystemEventHandler):
     """Monitors transcript file for new assistant messages"""
 
-    def __init__(self, callback, loop, server):
-        self.callback = callback
+    def __init__(self, content_callback, audio_callback, loop, server):
+        self.content_callback = content_callback  # New: sends AssistantResponse
+        self.audio_callback = audio_callback       # Existing: sends text for TTS
         self.loop = loop
         self.server = server
         self.last_message = None
         self.last_modified = 0
+        # Track what we've already sent
+        self.sent_blocks_by_message = {}  # {message_id: num_blocks_sent}
+        self.current_message_id = None
 
     def on_modified(self, event):
         if event.is_directory or not event.src_path.endswith('.jsonl'):
             return
 
         current_time = time.time()
-        if current_time - self.last_modified < 0.5:
+        if current_time - self.last_modified < 0.05:  # Reduced from 0.5s to 50ms
             return
         self.last_modified = current_time
 
         try:
-            # Extract the assistant response to the last voice input
+            # Extract only NEW blocks since last check
             if self.server.last_voice_input:
-                print(f"[DEBUG] File modified, extracting response...")
-                message = self.extract_assistant_response_to_user_message(
+                print(f"[DEBUG] File modified, extracting new blocks...")
+                new_blocks = self.extract_new_blocks(
                     event.src_path,
                     self.server.last_voice_input
                 )
-                print(f"[DEBUG] Extracted message: {message[:50] if message else 'None'}...")
-                if message and message != self.last_message:
-                    self.last_message = message
-                    # Schedule coroutine on the event loop from this thread
-                    asyncio.run_coroutine_threadsafe(self.callback(message), self.loop)
+                print(f"[DEBUG] Extracted {len(new_blocks)} new blocks")
+
+                if new_blocks:
+                    # Create response with ONLY the new blocks
+                    response = AssistantResponse(
+                        content_blocks=new_blocks,
+                        timestamp=time.time(),
+                        is_incremental=True  # Signal that more blocks may arrive
+                    )
+
+                    # 1. Send structured content immediately
+                    asyncio.run_coroutine_threadsafe(
+                        self.content_callback(response),
+                        self.loop
+                    )
+
+                    # 2. Extract text for TTS
+                    text = extract_text_for_tts(new_blocks)
+                    print(f"[DEBUG] Extracted text for TTS: '{text}'")
+
+                    # 3. Send for audio generation
+                    if text:
+                        print(f"[DEBUG] Calling audio_callback with text")
+                        asyncio.run_coroutine_threadsafe(
+                            self.audio_callback(text),
+                            self.loop
+                        )
+                    else:
+                        print(f"[DEBUG] No text in this batch - non-text blocks only")
         except Exception as e:
             print(f"Error processing transcript: {e}")
+            import traceback
+            traceback.print_exc()
 
-    def extract_assistant_response_to_user_message(self, filepath, user_message):
-        """Extract the first assistant message that comes after the specified user message"""
+    def extract_new_blocks(self, filepath, user_message) -> list[ContentBlock]:
+        """Extract only NEW blocks that haven't been sent yet
+
+        Returns:
+            List of new ContentBlock objects that haven't been sent
+        """
         found_user_message = False
+        collecting_response = False
+        all_parsed_blocks = []
+        current_msg_id = None
+
         print(f"[DEBUG] Looking for user message: '{user_message[:50]}...'")
 
         with open(filepath, 'r') as f:
@@ -92,36 +141,68 @@ class TranscriptHandler(FileSystemEventHandler):
                         if user_text.strip() == user_message.strip():
                             print(f"[DEBUG] Found matching user message!")
                             found_user_message = True
+                            collecting_response = True
                             continue
-                        else:
-                            print(f"[DEBUG] User message doesn't match: '{user_text[:50]}...'")
 
-                    # If we found the user message, return the next assistant message
-                    if found_user_message and role == 'assistant':
-                        print(f"[DEBUG] Found assistant response after user message!")
-                        content = msg.get('content', entry.get('content', ''))
+                    # Collect ALL consecutive assistant messages
+                    if collecting_response:
+                        if role == 'assistant':
+                            msg_id = msg.get('id', 'no-id')
+                            current_msg_id = msg_id
+                            content = msg.get('content', entry.get('content', ''))
 
-                        if isinstance(content, str):
-                            result = content.strip()
-                            if result:
-                                return result
-                        elif isinstance(content, list):
-                            # Extract text from text blocks only (skip thinking, tool_use, etc.)
-                            text_parts = []
-                            for block in content:
-                                if isinstance(block, dict) and block.get('type') == 'text':
-                                    text_content = block.get('text', '')
-                                    if text_content:
-                                        text_parts.append(text_content)
-
-                            if text_parts:
-                                return ' '.join(text_parts).strip()
-
+                            if isinstance(content, str):
+                                # String content - create single text block
+                                result = content.strip()
+                                if result:
+                                    all_parsed_blocks.append(TextBlock(type="text", text=result))
+                            elif isinstance(content, list):
+                                # Parse structured content blocks
+                                for block in content:
+                                    if isinstance(block, dict):
+                                        block_type = block.get('type')
+                                        try:
+                                            if block_type == 'text':
+                                                all_parsed_blocks.append(TextBlock(**block))
+                                            elif block_type == 'thinking':
+                                                all_parsed_blocks.append(ThinkingBlock(**block))
+                                            elif block_type == 'tool_use':
+                                                all_parsed_blocks.append(ToolUseBlock(**block))
+                                        except Exception as e:
+                                            print(f"[DEBUG] Error parsing block: {e}")
+                                            continue
+                        elif role == 'user':
+                            # Hit another user message, stop collecting
+                            print(f"[DEBUG] Hit next user message, stopping collection")
+                            break
                 except:
                     continue
 
-        return None
+        # Update tracking state
+        if current_msg_id:
+            self.current_message_id = current_msg_id
 
+        # Calculate how many blocks we've already sent for this message
+        already_sent = self.sent_blocks_by_message.get(self.current_message_id, 0)
+
+        # Return only the NEW blocks
+        new_blocks = all_parsed_blocks[already_sent:]
+
+        if new_blocks:
+            print(f"[DEBUG] Found {len(new_blocks)} new blocks (already sent {already_sent})")
+            # Update the count
+            self.sent_blocks_by_message[self.current_message_id] = already_sent + len(new_blocks)
+        else:
+            print(f"[DEBUG] No new blocks (total: {len(all_parsed_blocks)}, sent: {already_sent})")
+
+        return new_blocks
+
+    def reset_tracking_state(self):
+        """Reset tracking state for a new voice input conversation"""
+        print("[DEBUG] Resetting block tracking state for new conversation")
+        self.sent_blocks_by_message = {}
+        self.current_message_id = None
+        self.last_message = None
 
 class VoiceServer:
     """WebSocket server for iOS voice mode"""
@@ -130,9 +211,11 @@ class VoiceServer:
         self.clients = set()
         self.transcript_path = None
         self.observer = None
+        self.transcript_handler = None
         self.loop = None
         self.waiting_for_response = False  # Track if we're waiting for a response to voice input
         self.last_voice_input = None  # Track the last voice input text
+        self.last_content_blocks = []  # New: store for future reference
 
     def find_transcript_path(self):
         """Find the most recent transcript file"""
@@ -207,6 +290,11 @@ end tell
         if text:
             print(f"[{time.strftime('%H:%M:%S')}] Sending to VS Code...")
             await self.send_status(websocket, "processing", "Sending to Claude...")
+
+            # Reset tracking state for new conversation
+            if self.transcript_handler:
+                self.transcript_handler.reset_tracking_state()
+
             self.waiting_for_response = True  # Mark that we're waiting for Claude's response
             self.last_voice_input = text  # Store the voice input text
             await self.send_to_vs_code(text)
@@ -214,17 +302,26 @@ end tell
         else:
             print("Empty text received, ignoring")
 
+    async def handle_content_response(self, response: AssistantResponse):
+        """Send structured content to iOS clients"""
+        print(f"[{time.strftime('%H:%M:%S')}] Sending structured content: {len(response.content_blocks)} blocks")
+
+        # Serialize using Pydantic
+        message = response.model_dump()
+
+        for websocket in list(self.clients):
+            try:
+                await websocket.send(json.dumps(message))
+                print(f"[{time.strftime('%H:%M:%S')}] Sent content to client")
+            except Exception as e:
+                print(f"Error sending content: {e}")
+
     async def handle_claude_response(self, text):
-        """Handle Claude's response"""
+        """Handle Claude's response - generate and stream TTS audio"""
         print(f"[{time.strftime('%H:%M:%S')}] Claude response received: '{text[:100]}...'")
 
-        # Only process if we're waiting for a response to voice input
-        if not self.waiting_for_response:
-            print(f"[{time.strftime('%H:%M:%S')}] Ignoring response (not from voice input)")
-            return
-
-        # Mark that we've processed the response
-        self.waiting_for_response = False
+        # NOTE: With streaming, this is called multiple times (once per text block)
+        # Don't check/reset waiting_for_response here - let reset happen on new voice input
 
         for websocket in list(self.clients):
             print(f"[{time.strftime('%H:%M:%S')}] Sending 'speaking' status to client")
@@ -266,9 +363,14 @@ end tell
         self.transcript_path = self.find_transcript_path()
 
         if self.transcript_path:
-            handler = TranscriptHandler(self.handle_claude_response, self.loop, self)
+            self.transcript_handler = TranscriptHandler(
+                self.handle_content_response,  # New: content callback
+                self.handle_claude_response,   # Existing: audio callback
+                self.loop,
+                self
+            )
             self.observer = Observer()
-            self.observer.schedule(handler, os.path.dirname(self.transcript_path))
+            self.observer.schedule(self.transcript_handler, os.path.dirname(self.transcript_path))
             self.observer.start()
 
         import socket
