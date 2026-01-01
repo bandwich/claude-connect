@@ -11,17 +11,18 @@ import Foundation
 class E2ETestBase: XCTestCase {
 
     static var app: XCUIApplication!
-    var serverPID: Int?
     var transcriptPath: String?
 
     let testServerHost = "127.0.0.1"
     let testServerPort = 8765
     let pythonHelperPath: String = {
-        let bundle = Bundle(for: E2ETestBase.self)
-        // Updated path for tests/e2e_support location
-        return bundle.bundlePath
-            .replacingOccurrences(of: "/Build/Products/", with: "/")
-            .replacingOccurrences(of: "ClaudeVoiceUITests-Runner.app", with: "tests/e2e_support")
+        // Get path from environment or use default
+        if let envPath = ProcessInfo.processInfo.environment["E2E_SUPPORT_PATH"] {
+            return envPath
+        }
+        // Fallback to relative path
+        let currentDir = FileManager.default.currentDirectoryPath
+        return "\(currentDir)/../../tests/e2e_support"
     }()
 
     var app: XCUIApplication! {
@@ -48,13 +49,17 @@ class E2ETestBase: XCTestCase {
 
         continueAfterFailure = false
 
-        // Create temp transcript file
-        let timestamp = Int(Date().timeIntervalSince1970)
-        transcriptPath = "/tmp/claude_voice_e2e_tests/transcript_\(timestamp).jsonl"
+        // Get transcript path from environment (set by test runner script)
+        if let envPath = ProcessInfo.processInfo.environment["TEST_TRANSCRIPT_PATH"] {
+            transcriptPath = envPath
+        } else {
+            // Fallback: create temp transcript file
+            let timestamp = Int(Date().timeIntervalSince1970)
+            transcriptPath = "/tmp/claude_voice_e2e_tests/transcript_\(timestamp).jsonl"
+        }
 
-        // Start real server
-        print("📡 Starting real ios_server.py...")
-        try startServer()
+        // Note: Server should already be running (started by run_e2e_tests.sh)
+        print("📡 Assuming server is already running at \(testServerHost):\(testServerPort)")
 
         // Launch app
         Self.app.launch()
@@ -71,15 +76,7 @@ class E2ETestBase: XCTestCase {
             disconnectFromServer()
         }
 
-        // Stop server
-        if let pid = serverPID {
-            stopServer(pid: pid)
-        }
-
-        // Clean up transcript file
-        if let path = transcriptPath, FileManager.default.fileExists(atPath: path) {
-            try? FileManager.default.removeItem(atPath: path)
-        }
+        // Note: Server cleanup handled by test runner script
 
         try super.tearDownWithError()
     }
@@ -91,55 +88,7 @@ class E2ETestBase: XCTestCase {
     }
 
     // MARK: - Server Management
-
-    private func startServer() throws {
-        guard let transcriptPath = transcriptPath else {
-            throw E2ETestError.noTranscriptPath
-        }
-
-        let serverManagerScript = "\(pythonHelperPath)/server_manager.py"
-        let pythonPath = "\(pythonHelperPath)/../../.venv/bin/python3"
-
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: pythonPath)
-        task.arguments = [serverManagerScript, "start", "--transcript", transcriptPath]
-
-        let pipe = Pipe()
-        task.standardOutput = pipe
-        task.standardError = pipe
-
-        try task.run()
-        task.waitUntilExit()
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        guard let output = String(data: data, encoding: .utf8) else {
-            throw E2ETestError.serverStartupFailed(reason: "No output")
-        }
-
-        // Parse JSON output
-        guard let jsonData = output.data(using: .utf8),
-              let result = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
-              let pid = result["pid"] as? Int else {
-            throw E2ETestError.serverStartupFailed(reason: "Invalid JSON: \(output)")
-        }
-
-        serverPID = pid
-        print("✅ Server started with PID: \(pid)")
-    }
-
-    private func stopServer(pid: Int) {
-        let serverManagerScript = "\(pythonHelperPath)/server_manager.py"
-        let pythonPath = "\(pythonHelperPath)/../../.venv/bin/python3"
-
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: pythonPath)
-        task.arguments = [serverManagerScript, "stop", "--pid", "\(pid)"]
-
-        try? task.run()
-        task.waitUntilExit()
-
-        print("🛑 Server stopped (PID: \(pid))")
-    }
+    // Note: Server lifecycle managed by run_e2e_tests.sh script
 
     // MARK: - Helper Methods
 
@@ -233,15 +182,30 @@ class E2ETestBase: XCTestCase {
             return
         }
 
-        let injectorScript = "\(pythonHelperPath)/transcript_injector.py"
-        let pythonPath = "\(pythonHelperPath)/../../.venv/bin/python3"
+        // Create JSON entry
+        let entry: [String: Any] = [
+            "role": "assistant",
+            "content": text,
+            "timestamp": Date().timeIntervalSince1970
+        ]
 
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: pythonPath)
-        task.arguments = [injectorScript, "--transcript", transcriptPath, "--message", text]
-
-        try? task.run()
-        task.waitUntilExit()
+        // Write to transcript file
+        do {
+            let jsonData = try JSONSerialization.data(withJSONObject: entry)
+            if let jsonString = String(data: jsonData, encoding: .utf8) {
+                let fileHandle = FileHandle(forWritingAtPath: transcriptPath)
+                if let handle = fileHandle {
+                    handle.seekToEndOfFile()
+                    handle.write((jsonString + "\n").data(using: .utf8)!)
+                    handle.closeFile()
+                } else {
+                    // File doesn't exist, create it
+                    try (jsonString + "\n").write(toFile: transcriptPath, atomically: true, encoding: .utf8)
+                }
+            }
+        } catch {
+            XCTFail("Failed to inject response: \(error)")
+        }
 
         // Wait for server to process
         sleep(1)
