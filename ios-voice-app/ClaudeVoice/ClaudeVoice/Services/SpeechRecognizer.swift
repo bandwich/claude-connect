@@ -170,4 +170,21 @@ class SpeechRecognizer: ObservableObject {
         case recognizerNotAvailable
         case unableToCreateRequest
     }
+
+    #if DEBUG
+    /// Inject mock speech result for testing (bypasses real recognition)
+    func injectMockSpeechResult(text: String) {
+        // Trigger same code path as real recognition
+        DispatchQueue.main.async {
+            self.transcribedText = text
+            self.isRecording = false
+            self.onRecordingStopped?()
+
+            if !text.isEmpty {
+                self.onFinalTranscription?(text)
+                self.transcribedText = ""
+            }
+        }
+    }
+    #endif
 }
