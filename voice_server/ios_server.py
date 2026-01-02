@@ -22,6 +22,7 @@ from tts_utils import generate_tts_audio, samples_to_wav_bytes
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from content_models import TextBlock, ThinkingBlock, ToolUseBlock, ContentBlock, AssistantResponse
+from session_manager import SessionManager
 
 # Configuration
 PORT = 8765
@@ -216,6 +217,7 @@ class VoiceServer:
         self.waiting_for_response = False  # Track if we're waiting for a response to voice input
         self.last_voice_input = None  # Track the last voice input text
         self.last_content_blocks = []  # New: store for future reference
+        self.session_manager = SessionManager()
 
     def find_transcript_path(self):
         """Find the transcript file to watch.
@@ -346,12 +348,72 @@ end tell
             print(f"[{time.strftime('%H:%M:%S')}] Audio streaming complete, sending 'idle' status")
             await self.send_status(websocket, "idle", "Ready")
 
+    async def handle_list_projects(self, websocket):
+        """Handle list_projects request"""
+        projects = self.session_manager.list_projects()
+        response = {
+            "type": "projects",
+            "projects": [
+                {
+                    "path": p.path,
+                    "name": p.name,
+                    "session_count": p.session_count
+                }
+                for p in projects
+            ]
+        }
+        await websocket.send(json.dumps(response))
+
+    async def handle_list_sessions(self, websocket, data):
+        """Handle list_sessions request"""
+        project_path = data.get("project_path", "")
+        sessions = self.session_manager.list_sessions(project_path)
+        response = {
+            "type": "sessions",
+            "sessions": [
+                {
+                    "id": s.id,
+                    "title": s.title,
+                    "timestamp": s.timestamp,
+                    "message_count": s.message_count
+                }
+                for s in sessions
+            ]
+        }
+        await websocket.send(json.dumps(response))
+
+    async def handle_get_session(self, websocket, data):
+        """Handle get_session request"""
+        project_path = data.get("project_path", "")
+        session_id = data.get("session_id", "")
+        messages = self.session_manager.get_session_history(project_path, session_id)
+        response = {
+            "type": "session_history",
+            "messages": [
+                {
+                    "role": m.role,
+                    "content": m.content,
+                    "timestamp": m.timestamp
+                }
+                for m in messages
+            ]
+        }
+        await websocket.send(json.dumps(response))
+
     async def handle_message(self, websocket, message):
         """Handle incoming message"""
         try:
             data = json.loads(message)
-            if data.get('type') == 'voice_input':
+            msg_type = data.get('type')
+
+            if msg_type == 'voice_input':
                 await self.handle_voice_input(websocket, data)
+            elif msg_type == 'list_projects':
+                await self.handle_list_projects(websocket)
+            elif msg_type == 'list_sessions':
+                await self.handle_list_sessions(websocket, data)
+            elif msg_type == 'get_session':
+                await self.handle_get_session(websocket, data)
         except Exception as e:
             print(f"Error: {e}")
 
