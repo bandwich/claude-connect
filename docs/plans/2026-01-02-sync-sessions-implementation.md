@@ -1346,6 +1346,388 @@ Expected: Server starts and prints "Server running on ws://..."
 
 ---
 
+## Task 15: Add E2E Test Fixtures Helper
+
+Add helper to E2ETestBase that creates mock project/session directories for testing sync-sessions UI.
+
+**Files:**
+- Modify: `ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/E2ETestBase.swift`
+
+### Step 1: Add test fixture creation helper
+
+```swift
+// Add to E2ETestBase.swift
+
+/// Test fixture paths
+let testProjectsDir = "/Users/aaron/.claude/projects"
+let testProject1Path = "/Users/aaron/.claude/projects/-e2e-test-project1"
+let testProject2Path = "/Users/aaron/.claude/projects/-e2e-test-project2"
+
+/// Create mock project directories with session files for testing
+func createTestFixtures() {
+    let fileManager = FileManager.default
+
+    // Project 1: 2 sessions
+    try? fileManager.createDirectory(atPath: testProject1Path, withIntermediateDirectories: true)
+
+    // Session 1: Hello conversation
+    let session1 = """
+    {"type":"user","message":{"role":"user","content":"Hello Claude"},"timestamp":"2026-01-01T10:00:00Z"}
+    {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hi! How can I help?"}]},"timestamp":"2026-01-01T10:00:05Z"}
+    """
+    try? session1.write(toFile: "\(testProject1Path)/session1.jsonl", atomically: true, encoding: .utf8)
+
+    // Session 2: Code question
+    let session2 = """
+    {"type":"user","message":{"role":"user","content":"How do I write a Swift function?"},"timestamp":"2026-01-02T10:00:00Z"}
+    {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Here's how to write a Swift function..."}]},"timestamp":"2026-01-02T10:00:05Z"}
+    {"type":"user","message":{"role":"user","content":"Thanks!"},"timestamp":"2026-01-02T10:00:10Z"}
+    """
+    try? session2.write(toFile: "\(testProject1Path)/session2.jsonl", atomically: true, encoding: .utf8)
+
+    // Project 2: 1 session
+    try? fileManager.createDirectory(atPath: testProject2Path, withIntermediateDirectories: true)
+
+    let session3 = """
+    {"type":"user","message":{"role":"user","content":"What is TDD?"},"timestamp":"2026-01-01T09:00:00Z"}
+    """
+    try? session3.write(toFile: "\(testProject2Path)/session1.jsonl", atomically: true, encoding: .utf8)
+}
+
+/// Clean up test fixtures
+func cleanupTestFixtures() {
+    let fileManager = FileManager.default
+    try? fileManager.removeItem(atPath: testProject1Path)
+    try? fileManager.removeItem(atPath: testProject2Path)
+}
+```
+
+### Step 2: Update setUpWithError and tearDownWithError
+
+```swift
+// In setUpWithError, after clearing transcript:
+createTestFixtures()
+
+// In tearDownWithError, before super.tearDownWithError():
+cleanupTestFixtures()
+```
+
+### Step 3: Commit
+
+```bash
+git add ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/E2ETestBase.swift
+git commit -m "test: add E2E test fixtures for sync-sessions"
+```
+
+---
+
+## Task 16: Add E2EProjectsListTests
+
+Test that projects list loads and displays correctly.
+
+**Files:**
+- Create: `ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/E2EProjectsListTests.swift`
+
+### Step 1: Create test file
+
+```swift
+// ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/E2EProjectsListTests.swift
+import XCTest
+
+final class E2EProjectsListTests: E2ETestBase {
+
+    @MainActor
+    func test_projects_list_loads_on_connect() throws {
+        // After connecting (done in setUp), projects list should load
+        // Wait for projects to appear
+        let project1 = app.staticTexts["test-project1"]
+        XCTAssertTrue(project1.waitForExistence(timeout: 5), "Should show project1")
+
+        let project2 = app.staticTexts["test-project2"]
+        XCTAssertTrue(project2.waitForExistence(timeout: 5), "Should show project2")
+    }
+
+    @MainActor
+    func test_projects_list_shows_session_counts() throws {
+        // Project 1 has 2 sessions, Project 2 has 1 session
+        let project1Row = app.buttons.containing(.staticText, identifier: "test-project1").firstMatch
+        XCTAssertTrue(project1Row.waitForExistence(timeout: 5), "Should find project1 row")
+
+        // Look for session count badge "2"
+        let count2 = app.staticTexts["2"]
+        XCTAssertTrue(count2.exists, "Should show session count 2 for project1")
+    }
+
+    @MainActor
+    func test_settings_button_opens_settings() throws {
+        let settingsButton = app.buttons["gearshape.fill"]
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 5), "Settings button should exist")
+
+        settingsButton.tap()
+
+        let settingsTitle = app.staticTexts["Settings"]
+        XCTAssertTrue(settingsTitle.waitForExistence(timeout: 5), "Should show Settings view")
+
+        // Dismiss
+        app.buttons["Done"].tap()
+    }
+}
+```
+
+### Step 2: Build and run test
+
+Run: `cd /Users/aaron/Desktop/max/ios-voice-app/ClaudeVoice && xcodebuild test -scheme ClaudeVoice -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:ClaudeVoiceUITests/E2EProjectsListTests 2>&1 | tail -30`
+Expected: Tests pass
+
+### Step 3: Commit
+
+```bash
+git add ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/E2EProjectsListTests.swift
+git commit -m "test: add E2E tests for projects list"
+```
+
+---
+
+## Task 17: Add E2ESessionsListTests
+
+Test navigation from projects to sessions list.
+
+**Files:**
+- Create: `ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/E2ESessionsListTests.swift`
+
+### Step 1: Create test file
+
+```swift
+// ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/E2ESessionsListTests.swift
+import XCTest
+
+final class E2ESessionsListTests: E2ETestBase {
+
+    @MainActor
+    func test_tap_project_shows_sessions() throws {
+        // Wait for projects to load
+        let project1 = app.staticTexts["test-project1"]
+        XCTAssertTrue(project1.waitForExistence(timeout: 5), "Should show project1")
+
+        // Tap project
+        project1.tap()
+
+        // Should show sessions list with project name as title
+        let navTitle = app.navigationBars["test-project1"]
+        XCTAssertTrue(navTitle.waitForExistence(timeout: 5), "Should navigate to sessions list")
+
+        // Should show session titles (first user message)
+        let session1Title = app.staticTexts["Hello Claude"]
+        XCTAssertTrue(session1Title.waitForExistence(timeout: 5), "Should show session 1 title")
+
+        let session2Title = app.staticTexts["How do I write a Swift function?"]
+        XCTAssertTrue(session2Title.waitForExistence(timeout: 5), "Should show session 2 title")
+    }
+
+    @MainActor
+    func test_sessions_show_message_counts() throws {
+        // Navigate to project1
+        let project1 = app.staticTexts["test-project1"]
+        XCTAssertTrue(project1.waitForExistence(timeout: 5))
+        project1.tap()
+
+        // Session 1 has 2 messages, Session 2 has 3 messages
+        let count2 = app.staticTexts["2 messages"]
+        XCTAssertTrue(count2.waitForExistence(timeout: 5), "Should show message count")
+    }
+
+    @MainActor
+    func test_back_navigation_returns_to_projects() throws {
+        // Navigate to sessions
+        let project1 = app.staticTexts["test-project1"]
+        XCTAssertTrue(project1.waitForExistence(timeout: 5))
+        project1.tap()
+
+        // Wait for sessions list
+        let navTitle = app.navigationBars["test-project1"]
+        XCTAssertTrue(navTitle.waitForExistence(timeout: 5))
+
+        // Tap back
+        let backButton = app.navigationBars.buttons.element(boundBy: 0)
+        backButton.tap()
+
+        // Should return to projects list
+        let projectsTitle = app.navigationBars["Projects"]
+        XCTAssertTrue(projectsTitle.waitForExistence(timeout: 5), "Should return to projects list")
+    }
+}
+```
+
+### Step 2: Build and run test
+
+Run: `cd /Users/aaron/Desktop/max/ios-voice-app/ClaudeVoice && xcodebuild test -scheme ClaudeVoice -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:ClaudeVoiceUITests/E2ESessionsListTests 2>&1 | tail -30`
+Expected: Tests pass
+
+### Step 3: Commit
+
+```bash
+git add ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/E2ESessionsListTests.swift
+git commit -m "test: add E2E tests for sessions list"
+```
+
+---
+
+## Task 18: Add E2ESessionViewTests
+
+Test session view with message history and voice input.
+
+**Files:**
+- Create: `ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/E2ESessionViewTests.swift`
+
+### Step 1: Create test file
+
+```swift
+// ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/E2ESessionViewTests.swift
+import XCTest
+
+final class E2ESessionViewTests: E2ETestBase {
+
+    /// Navigate to a specific session for testing
+    private func navigateToSession1() {
+        // Tap project1
+        let project1 = app.staticTexts["test-project1"]
+        XCTAssertTrue(project1.waitForExistence(timeout: 5))
+        project1.tap()
+
+        // Wait for sessions list
+        let navTitle = app.navigationBars["test-project1"]
+        XCTAssertTrue(navTitle.waitForExistence(timeout: 5))
+
+        // Tap first session
+        let session1 = app.staticTexts["Hello Claude"]
+        XCTAssertTrue(session1.waitForExistence(timeout: 5))
+        session1.tap()
+    }
+
+    @MainActor
+    func test_tap_session_shows_message_history() throws {
+        navigateToSession1()
+
+        // Should show session view with messages
+        let userMessage = app.staticTexts["Hello Claude"]
+        XCTAssertTrue(userMessage.waitForExistence(timeout: 5), "Should show user message")
+
+        let assistantMessage = app.staticTexts["Hi! How can I help?"]
+        XCTAssertTrue(assistantMessage.waitForExistence(timeout: 5), "Should show assistant message")
+    }
+
+    @MainActor
+    func test_session_view_shows_voice_controls() throws {
+        navigateToSession1()
+
+        // Should have talk button
+        let talkButton = app.buttons["Tap to Talk"]
+        XCTAssertTrue(talkButton.waitForExistence(timeout: 5), "Should show talk button")
+
+        // Should have voice indicator
+        let voiceIndicator = app.otherElements["VoiceIndicator"]
+        XCTAssertTrue(voiceIndicator.waitForExistence(timeout: 5), "Should show voice indicator")
+    }
+
+    @MainActor
+    func test_voice_input_from_session_view() throws {
+        navigateToSession1()
+
+        // Wait for view to settle
+        sleep(1)
+
+        // Simulate conversation turn using the session's transcript
+        // Note: Need to update transcriptPath to point to session1.jsonl
+        // For now, inject directly to see if voice flow works
+
+        simulateConversationTurn(
+            userInput: "Follow up question",
+            assistantResponse: "Here's my follow up answer"
+        )
+
+        // Should transition to speaking
+        XCTAssertTrue(waitForVoiceState("Speaking", timeout: 10), "Should enter Speaking state")
+
+        // Should return to idle
+        XCTAssertTrue(waitForVoiceState("Idle", timeout: 10), "Should return to Idle")
+    }
+
+    @MainActor
+    func test_settings_accessible_from_session_view() throws {
+        navigateToSession1()
+
+        let settingsButton = app.buttons["gearshape.fill"]
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 5), "Settings button should exist")
+
+        settingsButton.tap()
+
+        let settingsTitle = app.staticTexts["Settings"]
+        XCTAssertTrue(settingsTitle.waitForExistence(timeout: 5), "Should show Settings view")
+
+        app.buttons["Done"].tap()
+    }
+}
+```
+
+### Step 2: Build and run test
+
+Run: `cd /Users/aaron/Desktop/max/ios-voice-app/ClaudeVoice && xcodebuild test -scheme ClaudeVoice -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:ClaudeVoiceUITests/E2ESessionViewTests 2>&1 | tail -30`
+Expected: Tests pass
+
+### Step 3: Commit
+
+```bash
+git add ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/E2ESessionViewTests.swift
+git commit -m "test: add E2E tests for session view"
+```
+
+---
+
+## Task 19: Update run_e2e_tests.sh for Sync-Sessions Tests
+
+Update the E2E test runner to include the new test classes.
+
+**Files:**
+- Modify: `ios-voice-app/ClaudeVoice/run_e2e_tests.sh`
+
+### Step 1: Add new test classes to xcodebuild command
+
+```bash
+# Update the xcodebuild test command to include new tests:
+xcodebuild test \
+    -scheme ClaudeVoice \
+    -sdk iphonesimulator \
+    -destination 'platform=iOS Simulator,name=iPhone 16' \
+    -only-testing:ClaudeVoiceUITests/E2EHappyPathTests \
+    -only-testing:ClaudeVoiceUITests/E2EConnectionTests \
+    -only-testing:ClaudeVoiceUITests/E2EErrorHandlingTests \
+    -only-testing:ClaudeVoiceUITests/E2EProjectsListTests \
+    -only-testing:ClaudeVoiceUITests/E2ESessionsListTests \
+    -only-testing:ClaudeVoiceUITests/E2ESessionViewTests \
+    -parallel-testing-enabled NO \
+    2>&1 | tee /tmp/e2e_test.log
+```
+
+### Step 2: Commit
+
+```bash
+git add ios-voice-app/ClaudeVoice/run_e2e_tests.sh
+git commit -m "test: add sync-sessions E2E tests to test runner"
+```
+
+---
+
+## Task 20: Run Full E2E Test Suite
+
+### Step 1: Run all E2E tests
+
+Run: `cd /Users/aaron/Desktop/max/ios-voice-app/ClaudeVoice && ./run_e2e_tests.sh`
+Expected: All E2E tests pass
+
+### Step 2: Fix any failures and re-run
+
+---
+
 ## Future Tasks (Not in This Plan)
 
 These items from the design are deferred for a future implementation:
