@@ -14,6 +14,9 @@ class WebSocketManager: NSObject, ObservableObject {
     var onAudioChunk: ((AudioChunkMessage) -> Void)?
     var onStatusUpdate: ((StatusMessage) -> Void)?
     var onAssistantResponse: ((AssistantResponseMessage) -> Void)?  // NEW
+    var onProjectsReceived: (([Project]) -> Void)?
+    var onSessionsReceived: (([Session]) -> Void)?
+    var onSessionHistoryReceived: (([SessionHistoryMessage]) -> Void)?
     var isPlayingAudio: Bool = false // Tracks if audio is currently playing
     private var lastContentBlocks: [ContentBlock] = []  // NEW: store for future UI
 
@@ -149,6 +152,45 @@ class WebSocketManager: NSObject, ObservableObject {
         logToFile("🔵 sendVoiceInput: send() initiated")
     }
 
+    // MARK: - Session Management Methods
+
+    func requestProjects() {
+        let message = ["type": "list_projects"]
+        sendJSON(message)
+    }
+
+    func requestSessions(projectPath: String) {
+        let message: [String: Any] = [
+            "type": "list_sessions",
+            "project_path": projectPath
+        ]
+        sendJSON(message)
+    }
+
+    func requestSessionHistory(projectPath: String, sessionId: String) {
+        let message: [String: Any] = [
+            "type": "get_session",
+            "project_path": projectPath,
+            "session_id": sessionId
+        ]
+        sendJSON(message)
+    }
+
+    private func sendJSON(_ dict: [String: Any]) {
+        guard let data = try? JSONSerialization.data(withJSONObject: dict),
+              let jsonString = String(data: data, encoding: .utf8) else {
+            print("❌ Failed to encode JSON")
+            return
+        }
+
+        let wsMessage = URLSessionWebSocketTask.Message.string(jsonString)
+        webSocketTask?.send(wsMessage) { error in
+            if let error = error {
+                print("Send error: \(error)")
+            }
+        }
+    }
+
     private func receiveMessage() {
         webSocketTask?.receive { [weak self] result in
             guard let self = self else { return }
@@ -208,6 +250,21 @@ class WebSocketManager: NSObject, ObservableObject {
             } else if let audioChunk = try? JSONDecoder().decode(AudioChunkMessage.self, from: data) {
                 logToFile("✅ Decoded as AudioChunk: \(audioChunk.chunkIndex + 1)/\(audioChunk.totalChunks)")
                 handleAudioChunk(audioChunk)
+            } else if let projectsResponse = try? JSONDecoder().decode(ProjectsResponse.self, from: data) {
+                logToFile("✅ Decoded as ProjectsResponse: \(projectsResponse.projects.count) projects")
+                DispatchQueue.main.async {
+                    self.onProjectsReceived?(projectsResponse.projects)
+                }
+            } else if let sessionsResponse = try? JSONDecoder().decode(SessionsResponse.self, from: data) {
+                logToFile("✅ Decoded as SessionsResponse: \(sessionsResponse.sessions.count) sessions")
+                DispatchQueue.main.async {
+                    self.onSessionsReceived?(sessionsResponse.sessions)
+                }
+            } else if let historyResponse = try? JSONDecoder().decode(SessionHistoryResponse.self, from: data) {
+                logToFile("✅ Decoded as SessionHistoryResponse: \(historyResponse.messages.count) messages")
+                DispatchQueue.main.async {
+                    self.onSessionHistoryReceived?(historyResponse.messages)
+                }
             } else {
                 print("❌ Failed to decode message as any known type")
                 print("   Raw data: \(String(data: data, encoding: .utf8) ?? "N/A")")
@@ -224,6 +281,18 @@ class WebSocketManager: NSObject, ObservableObject {
                 handleStatusMessage(statusMessage)
             } else if let audioChunk = try? JSONDecoder().decode(AudioChunkMessage.self, from: data) {
                 handleAudioChunk(audioChunk)
+            } else if let projectsResponse = try? JSONDecoder().decode(ProjectsResponse.self, from: data) {
+                DispatchQueue.main.async {
+                    self.onProjectsReceived?(projectsResponse.projects)
+                }
+            } else if let sessionsResponse = try? JSONDecoder().decode(SessionsResponse.self, from: data) {
+                DispatchQueue.main.async {
+                    self.onSessionsReceived?(sessionsResponse.sessions)
+                }
+            } else if let historyResponse = try? JSONDecoder().decode(SessionHistoryResponse.self, from: data) {
+                DispatchQueue.main.async {
+                    self.onSessionHistoryReceived?(historyResponse.messages)
+                }
             } else {
                 print("❌ Failed to decode binary message")
                 logToFile("❌ Failed to decode binary message")
