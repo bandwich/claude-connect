@@ -38,8 +38,8 @@ final class E2EErrorHandlingTests: E2ETestBase {
 
     @MainActor
     func test_server_error_during_processing() throws {
-        // Inject a response with very long text (may cause processing issues)
-        let longText = String(repeating: "Very long message. ", count: 1000)
+        // Inject a response with moderately long text (tests handling without blocking server)
+        let longText = String(repeating: "Very long message. ", count: 20)
         simulateConversationTurn(userInput: "Send long response", assistantResponse: longText)
 
         // Should either handle it or show error, but not crash

@@ -37,9 +37,9 @@ touch "$TRANSCRIPT_FILE"
 export E2E_TRANSCRIPT_PATH="$TRANSCRIPT_FILE"
 echo "📝 Exported E2E_TRANSCRIPT_PATH=$E2E_TRANSCRIPT_PATH"
 
-# Start server (unmodified, just watches its normal transcript dir)
-echo "📡 Starting ios_server.py..."
-PYTHONUNBUFFERED=1 $VENV_PYTHON "$SERVER_SCRIPT" > "$LOG_FILE" 2>&1 &
+# Start server with explicit transcript path (prevents picking up Claude Code's transcript)
+echo "📡 Starting ios_server.py with E2E_TRANSCRIPT_PATH=$TRANSCRIPT_FILE..."
+E2E_TRANSCRIPT_PATH="$TRANSCRIPT_FILE" PYTHONUNBUFFERED=1 $VENV_PYTHON "$SERVER_SCRIPT" > "$LOG_FILE" 2>&1 &
 SERVER_PID=$!
 
 echo "   Server PID: $SERVER_PID"

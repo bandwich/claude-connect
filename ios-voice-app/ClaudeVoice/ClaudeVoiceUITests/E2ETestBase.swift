@@ -207,8 +207,8 @@ class E2ETestBase: XCTestCase {
             XCTFail("Failed to inject response: \(error)")
         }
 
-        // Wait for server to process
-        sleep(2)
+        // Brief delay for file system sync (server will process async)
+        usleep(100000) // 100ms
     }
 
     func injectUserMessage(_ text: String) {
@@ -271,8 +271,8 @@ class E2ETestBase: XCTestCase {
         // Inject assistant response
         injectAssistantResponse(assistantResponse)
 
-        // Wait for server to process and send to app
-        sleep(1)
+        // Don't wait here - let the test's waitForVoiceState do the waiting
+        // This ensures we catch the Speaking state before it transitions back to Idle
     }
 
     func waitForVoiceState(_ expectedState: String, timeout: TimeInterval = 10.0) -> Bool {
