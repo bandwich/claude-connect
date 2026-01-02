@@ -38,7 +38,7 @@ final class E2EConnectionTests: E2ETestBase {
         XCTAssertTrue(app.staticTexts["Idle"].exists, "Should be in idle state")
 
         // Verify functionality works after reconnect
-        injectAssistantResponse("Test after reconnect")
+        simulateConversationTurn(userInput: "Test", assistantResponse: "Test after reconnect")
         XCTAssertTrue(waitForVoiceState("Speaking", timeout: 10), "Should work after reconnect")
     }
 
