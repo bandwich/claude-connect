@@ -46,3 +46,42 @@ class TestSessionManager:
         # Find project2
         p2 = next(p for p in projects if p.name == "project2")
         assert p2.session_count == 1
+
+    def test_list_sessions_returns_sessions_sorted_by_time(self, tmp_path):
+        """Should return sessions sorted by most recent first"""
+        from session_manager import SessionManager
+
+        project_dir = tmp_path / "-Users-test-myproject"
+        project_dir.mkdir()
+
+        # Create session files with different timestamps
+        session1 = project_dir / "abc123.jsonl"
+        session1.write_text(json.dumps({
+            "type": "user",
+            "message": {"role": "user", "content": "Hello"},
+            "timestamp": "2026-01-01T10:00:00Z"
+        }) + "\n" + json.dumps({
+            "type": "assistant",
+            "message": {"role": "assistant", "content": [{"type": "text", "text": "Hi there!"}]},
+            "timestamp": "2026-01-01T10:00:05Z"
+        }))
+
+        session2 = project_dir / "def456.jsonl"
+        session2.write_text(json.dumps({
+            "type": "user",
+            "message": {"role": "user", "content": "Later message"},
+            "timestamp": "2026-01-02T10:00:00Z"
+        }))
+
+        # Set file mtimes to control sort order
+        os.utime(session1, (time.time() - 100, time.time() - 100))
+        os.utime(session2, (time.time(), time.time()))
+
+        manager = SessionManager(projects_dir=str(tmp_path))
+        sessions = manager.list_sessions("/Users/test/myproject")
+
+        assert len(sessions) == 2
+        assert sessions[0].id == "def456"  # Most recent first
+        assert sessions[1].id == "abc123"
+        assert sessions[1].title == "Hello"  # First user message
+        assert sessions[1].message_count == 2

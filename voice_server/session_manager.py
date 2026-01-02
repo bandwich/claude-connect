@@ -64,3 +64,72 @@ class SessionManager:
                 ))
 
         return projects
+
+    def _encode_project_path(self, project_path: str) -> str:
+        """Encode project path to folder name format"""
+        return project_path.replace("/", "-")
+
+    def list_sessions(self, project_path: str, limit: int = 10) -> list[Session]:
+        """List sessions for a project, sorted by most recent first"""
+        folder_name = self._encode_project_path(project_path)
+        project_dir = os.path.join(self.projects_dir, folder_name)
+
+        if not os.path.exists(project_dir):
+            return []
+
+        sessions = []
+        session_files = glob.glob(os.path.join(project_dir, "*.jsonl"))
+
+        # Sort by modification time (most recent first)
+        session_files.sort(key=os.path.getmtime, reverse=True)
+
+        for filepath in session_files[:limit]:
+            session_id = os.path.splitext(os.path.basename(filepath))[0]
+            title, message_count, timestamp = self._parse_session_file(filepath)
+
+            sessions.append(Session(
+                id=session_id,
+                title=title,
+                timestamp=timestamp,
+                message_count=message_count
+            ))
+
+        return sessions
+
+    def _parse_session_file(self, filepath: str) -> tuple[str, int, float]:
+        """Parse session file to extract title, message count, and timestamp
+
+        Returns:
+            Tuple of (title, message_count, last_timestamp)
+        """
+        title = "Untitled"
+        message_count = 0
+        last_timestamp = os.path.getmtime(filepath)
+
+        try:
+            with open(filepath, 'r') as f:
+                for line in f:
+                    try:
+                        entry = json.loads(line.strip())
+                        msg = entry.get('message', {})
+                        role = msg.get('role') or entry.get('role')
+
+                        if role in ('user', 'assistant'):
+                            message_count += 1
+
+                            # Get title from first user message
+                            if role == 'user' and title == "Untitled":
+                                content = msg.get('content', entry.get('content', ''))
+                                if isinstance(content, str):
+                                    title = content[:50]
+                                elif isinstance(content, list):
+                                    for block in content:
+                                        if isinstance(block, dict) and block.get('type') == 'text':
+                                            title = block.get('text', '')[:50]
+                                            break
+                    except json.JSONDecodeError:
+                        continue
+        except Exception:
+            pass
+
+        return title, message_count, last_timestamp
