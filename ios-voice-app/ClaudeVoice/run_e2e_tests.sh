@@ -15,6 +15,13 @@ TRANSCRIPT_DIR="$HOME/.claude/projects/e2e_test_project"
 TRANSCRIPT_FILE="$TRANSCRIPT_DIR/e2e_transcript.jsonl"
 LOG_FILE="/tmp/e2e_server.log"
 
+# Kill any existing server on port 8765
+if lsof -i :8765 > /dev/null 2>&1; then
+    echo "⚠️  Killing existing server on port 8765..."
+    lsof -ti :8765 | xargs kill -9 2>/dev/null || true
+    sleep 1
+fi
+
 # Ensure transcript directory exists and create transcript file
 # Server needs a transcript file to exist BEFORE it starts so it can watch it
 mkdir -p "$TRANSCRIPT_DIR"
