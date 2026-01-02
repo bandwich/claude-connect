@@ -1,51 +1,46 @@
 #!/bin/bash
+# E2E Test Runner - Starts server then runs tests
+
 set -e
 
-# E2E Test Runner - Manages server lifecycle and runs UI tests
+echo "🧪 E2E Test Runner"
+echo "=================="
 
-PROJECT_ROOT="/Users/aaron/Desktop/max"
-PYTHON_VENV="$PROJECT_ROOT/.venv/bin/python3"
+# Configuration
+PROJECT_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+VENV_PYTHON="$PROJECT_ROOT/.venv/bin/python3"
 SERVER_SCRIPT="$PROJECT_ROOT/voice_server/ios_server.py"
-TRANSCRIPT_PATH="/tmp/claude_voice_e2e_tests/transcript_$$.jsonl"
+TRANSCRIPT_DIR="$HOME/.claude/projects/e2e_test_project"
+LOG_FILE="/tmp/e2e_server.log"
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m'
+# Ensure transcript directory exists
+mkdir -p "$TRANSCRIPT_DIR"
 
-echo -e "${GREEN}🚀 Starting E2E Test Runner${NC}"
-
-# Create transcript directory
-mkdir -p "$(dirname "$TRANSCRIPT_PATH")"
-touch "$TRANSCRIPT_PATH"
-
-# Start server
-echo -e "${YELLOW}📡 Starting ios_server.py...${NC}"
-export TEST_MODE=1
-export TEST_TRANSCRIPT_PATH="$TRANSCRIPT_PATH"
-
-"$PYTHON_VENV" "$SERVER_SCRIPT" > /tmp/e2e_server.log 2>&1 &
+# Start server (unmodified, just watches its normal transcript dir)
+echo "📡 Starting ios_server.py..."
+$VENV_PYTHON "$SERVER_SCRIPT" > "$LOG_FILE" 2>&1 &
 SERVER_PID=$!
 
-echo "Server PID: $SERVER_PID"
+echo "   Server PID: $SERVER_PID"
+echo "   Logs: $LOG_FILE"
 
 # Wait for server to be ready
-echo "Waiting for server to start..."
+echo "⏳ Waiting for server startup..."
 sleep 3
 
-# Check if server is still running
-if ! kill -0 $SERVER_PID 2>/dev/null; then
-    echo -e "${RED}❌ Server failed to start${NC}"
-    cat /tmp/e2e_server.log
+# Verify server is running
+if ! ps -p $SERVER_PID > /dev/null; then
+    echo "❌ Server failed to start. Check logs:"
+    cat "$LOG_FILE"
     exit 1
 fi
 
-echo -e "${GREEN}✅ Server started successfully${NC}"
+echo "✅ Server started successfully"
 
-# Run tests
-echo -e "${YELLOW}🧪 Running E2E tests...${NC}"
-cd /Users/aaron/Desktop/max/ios-voice-app/ClaudeVoice
+# Run E2E tests
+echo ""
+echo "🏃 Running E2E tests..."
+echo ""
 
 xcodebuild test \
     -scheme ClaudeVoice \
@@ -54,19 +49,21 @@ xcodebuild test \
     -only-testing:ClaudeVoiceUITests/E2EHappyPathTests \
     -only-testing:ClaudeVoiceUITests/E2EConnectionTests \
     -only-testing:ClaudeVoiceUITests/E2EErrorHandlingTests \
-    TEST_SERVER_RUNNING=1 \
-    TEST_TRANSCRIPT_PATH="$TRANSCRIPT_PATH"
+    2>&1
 
-TEST_RESULT=$?
+TEST_EXIT_CODE=$?
 
 # Cleanup
-echo -e "${YELLOW}🧹 Cleaning up...${NC}"
+echo ""
+echo "🧹 Cleaning up..."
 kill $SERVER_PID 2>/dev/null || true
-rm -f "$TRANSCRIPT_PATH"
+rm -rf "$TRANSCRIPT_DIR"
 
-if [ $TEST_RESULT -eq 0 ]; then
-    echo -e "${GREEN}✅ All tests passed!${NC}"
+if [ $TEST_EXIT_CODE -eq 0 ]; then
+    echo "✅ All E2E tests passed!"
 else
-    echo -e "${RED}❌ Tests failed${NC}"
-    exit 1
+    echo "❌ Some E2E tests failed"
+    echo "   Check server logs: $LOG_FILE"
 fi
+
+exit $TEST_EXIT_CODE
