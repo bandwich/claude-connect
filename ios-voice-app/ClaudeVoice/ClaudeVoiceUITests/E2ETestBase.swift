@@ -212,6 +212,43 @@ class E2ETestBase: XCTestCase {
         sleep(2)
     }
 
+    func injectUserMessage(_ text: String) {
+        // Inject user message into transcript file (Swift implementation, iOS-compatible)
+        guard let transcriptPath = transcriptPath else {
+            XCTFail("No transcript path")
+            return
+        }
+
+        let entry: [String: Any] = [
+            "role": "user",
+            "content": text,
+            "timestamp": Date().timeIntervalSince1970
+        ]
+
+        do {
+            let jsonData = try JSONSerialization.data(withJSONObject: entry)
+            guard let jsonString = String(data: jsonData, encoding: .utf8) else {
+                XCTFail("Failed to encode JSON")
+                return
+            }
+
+            let fileHandle = FileHandle(forWritingAtPath: transcriptPath)
+            if let handle = fileHandle {
+                handle.seekToEndOfFile()
+                handle.write((jsonString + "\n").data(using: .utf8)!)
+                handle.closeFile()
+            } else {
+                // File doesn't exist, create it
+                try (jsonString + "\n").write(toFile: transcriptPath, atomically: true, encoding: .utf8)
+            }
+        } catch {
+            XCTFail("Failed to inject user message: \(error)")
+        }
+
+        // Small delay for file system
+        usleep(100000) // 100ms
+    }
+
     func waitForVoiceState(_ expectedState: String, timeout: TimeInterval = 10.0) -> Bool {
         let stateLabel = app.staticTexts["voiceState"]
 
