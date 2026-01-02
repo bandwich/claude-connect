@@ -28,9 +28,14 @@ mkdir -p "$TRANSCRIPT_DIR"
 echo "" > "$TRANSCRIPT_FILE"
 echo "📝 Created transcript file: $TRANSCRIPT_FILE"
 
+# Touch the file right before server start to ensure it's the most recent
+# (Server uses find_transcript_path which returns most recently modified .jsonl)
+sleep 0.5
+touch "$TRANSCRIPT_FILE"
+
 # Start server (unmodified, just watches its normal transcript dir)
 echo "📡 Starting ios_server.py..."
-$VENV_PYTHON "$SERVER_SCRIPT" > "$LOG_FILE" 2>&1 &
+PYTHONUNBUFFERED=1 $VENV_PYTHON "$SERVER_SCRIPT" > "$LOG_FILE" 2>&1 &
 SERVER_PID=$!
 
 echo "   Server PID: $SERVER_PID"
