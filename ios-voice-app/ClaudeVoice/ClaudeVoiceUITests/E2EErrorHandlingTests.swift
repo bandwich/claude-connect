@@ -11,8 +11,8 @@ final class E2EErrorHandlingTests: E2ETestBase {
 
     @MainActor
     func test_malformed_message_handling() throws {
-        // Send valid message first
-        injectAssistantResponse("Valid message")
+        // Send valid conversation turn first
+        simulateConversationTurn(userInput: "Test message", assistantResponse: "Valid message")
         XCTAssertTrue(waitForVoiceState("Speaking", timeout: 10), "Should handle valid message")
         XCTAssertTrue(waitForVoiceState("Idle", timeout: 10), "Should return to idle")
 
@@ -31,8 +31,8 @@ final class E2EErrorHandlingTests: E2ETestBase {
         // Should still be connected and functional
         XCTAssertTrue(app.staticTexts["Connected"].exists, "Should remain connected")
 
-        // Send another valid message
-        injectAssistantResponse("Another valid message")
+        // Send another valid conversation turn
+        simulateConversationTurn(userInput: "Another test", assistantResponse: "Another valid message")
         XCTAssertTrue(waitForVoiceState("Speaking", timeout: 10), "Should still work after error")
     }
 
@@ -40,7 +40,7 @@ final class E2EErrorHandlingTests: E2ETestBase {
     func test_server_error_during_processing() throws {
         // Inject a response with very long text (may cause processing issues)
         let longText = String(repeating: "Very long message. ", count: 1000)
-        injectAssistantResponse(longText)
+        simulateConversationTurn(userInput: "Send long response", assistantResponse: longText)
 
         // Should either handle it or show error, but not crash
         sleep(5)
@@ -49,7 +49,7 @@ final class E2EErrorHandlingTests: E2ETestBase {
         XCTAssertTrue(app.exists, "App should not crash")
 
         // Try to recover with normal message
-        injectAssistantResponse("Normal message")
+        simulateConversationTurn(userInput: "Send normal response", assistantResponse: "Normal message")
         sleep(2)
 
         let hasValidState = app.staticTexts["Idle"].exists ||
@@ -69,7 +69,7 @@ final class E2EErrorHandlingTests: E2ETestBase {
         XCTAssertTrue(waitForVoiceState("Idle", timeout: 5), "Should be in idle state")
 
         // Should still be functional
-        injectAssistantResponse("Test after empty input")
+        simulateConversationTurn(userInput: "Test", assistantResponse: "Test after empty input")
         XCTAssertTrue(waitForVoiceState("Speaking", timeout: 10), "Should still work")
     }
 }
