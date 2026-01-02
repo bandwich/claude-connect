@@ -2,7 +2,7 @@
 //  E2ETestBase.swift
 //  ClaudeVoiceUITests
 //
-//  Base class for end-to-end tests with real server
+//  Base class for E2E tests - assumes server already running
 //
 
 import XCTest
@@ -16,13 +16,10 @@ class E2ETestBase: XCTestCase {
     let testServerHost = "127.0.0.1"
     let testServerPort = 8765
     let pythonHelperPath: String = {
-        // Get path from environment or use default
-        if let envPath = ProcessInfo.processInfo.environment["E2E_SUPPORT_PATH"] {
-            return envPath
-        }
-        // Fallback to relative path
-        let currentDir = FileManager.default.currentDirectoryPath
-        return "\(currentDir)/../../tests/e2e_support"
+        let bundle = Bundle(for: E2ETestBase.self)
+        return bundle.bundlePath
+            .replacingOccurrences(of: "/Build/Products/", with: "/")
+            .replacingOccurrences(of: "ClaudeVoiceUITests-Runner.app", with: "ClaudeVoiceE2ESupport")
     }()
 
     var app: XCUIApplication! {
@@ -38,7 +35,6 @@ class E2ETestBase: XCTestCase {
 
         app = XCUIApplication()
         app.launchEnvironment = [
-            "TEST_MODE": "1",
             "SERVER_HOST": "127.0.0.1",
             "SERVER_PORT": "8765"
         ]
@@ -49,17 +45,16 @@ class E2ETestBase: XCTestCase {
 
         continueAfterFailure = false
 
-        // Get transcript path from environment (set by test runner script)
-        if let envPath = ProcessInfo.processInfo.environment["TEST_TRANSCRIPT_PATH"] {
-            transcriptPath = envPath
-        } else {
-            // Fallback: create temp transcript file
-            let timestamp = Int(Date().timeIntervalSince1970)
-            transcriptPath = "/tmp/claude_voice_e2e_tests/transcript_\(timestamp).jsonl"
-        }
+        // Set transcript path to server's watched directory
+        let timestamp = Int(Date().timeIntervalSince1970)
+        let transcriptDir = NSString(string: "~/.claude/projects/e2e_test_project").expandingTildeInPath
+        transcriptPath = "\(transcriptDir)/transcript_\(timestamp).jsonl"
 
-        // Note: Server should already be running (started by run_e2e_tests.sh)
-        print("📡 Assuming server is already running at \(testServerHost):\(testServerPort)")
+        // Create transcript directory
+        try? FileManager.default.createDirectory(atPath: transcriptDir, withIntermediateDirectories: true)
+
+        // Create empty transcript file
+        try "".write(toFile: transcriptPath!, atomically: true, encoding: .utf8)
 
         // Launch app
         Self.app.launch()
@@ -76,7 +71,10 @@ class E2ETestBase: XCTestCase {
             disconnectFromServer()
         }
 
-        // Note: Server cleanup handled by test runner script
+        // Clean up transcript file
+        if let path = transcriptPath, FileManager.default.fileExists(atPath: path) {
+            try? FileManager.default.removeItem(atPath: path)
+        }
 
         try super.tearDownWithError()
     }
@@ -87,19 +85,14 @@ class E2ETestBase: XCTestCase {
         super.tearDown()
     }
 
-    // MARK: - Server Management
-    // Note: Server lifecycle managed by run_e2e_tests.sh script
-
     // MARK: - Helper Methods
 
     func connectToServer() {
-        // Tap settings button
         let settingsButton = app.buttons["gearshape.fill"]
         if settingsButton.waitForExistence(timeout: 5) {
             settingsButton.tap()
         }
 
-        // Enter server IP
         let serverIPField = app.textFields["Server IP Address"]
         if serverIPField.waitForExistence(timeout: 5) {
             serverIPField.tap()
@@ -112,7 +105,6 @@ class E2ETestBase: XCTestCase {
             serverIPField.typeText(testServerHost)
         }
 
-        // Tap connect
         let connectButton = app.buttons["Connect"]
         if !connectButton.exists {
             let connectionHeader = app.staticTexts["Connection"]
@@ -128,7 +120,6 @@ class E2ETestBase: XCTestCase {
 
         sleep(3)
 
-        // Close settings
         let doneButton = app.buttons["Done"]
         if doneButton.exists {
             doneButton.tap()
@@ -162,18 +153,22 @@ class E2ETestBase: XCTestCase {
     }
 
     func sendVoiceInput(_ text: String) {
-        // TODO: Implement mock speech injection
-        // For now, just tap the talk button
-        let talkButton = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Tap to Talk'")).firstMatch
-        if talkButton.exists {
-            talkButton.tap()
-            sleep(1)
-            // Stop recording
-            let stopButton = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Stop'")).firstMatch
-            if stopButton.exists {
-                stopButton.tap()
-            }
+        guard let _ = transcriptPath else {
+            XCTFail("No transcript path")
+            return
         }
+
+        let voiceSenderScript = "\(pythonHelperPath)/voice_sender.py"
+        let pythonPath = "\(pythonHelperPath)/../../../.venv/bin/python3"
+
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: pythonPath)
+        task.arguments = [voiceSenderScript, "--host", testServerHost, "--port", "\(testServerPort)", "--text", text]
+
+        try? task.run()
+        task.waitUntilExit()
+
+        sleep(1)
     }
 
     func injectAssistantResponse(_ text: String) {
@@ -182,33 +177,18 @@ class E2ETestBase: XCTestCase {
             return
         }
 
-        // Create JSON entry
-        let entry: [String: Any] = [
-            "role": "assistant",
-            "content": text,
-            "timestamp": Date().timeIntervalSince1970
-        ]
+        let injectorScript = "\(pythonHelperPath)/transcript_injector.py"
+        let pythonPath = "\(pythonHelperPath)/../../../.venv/bin/python3"
 
-        // Write to transcript file
-        do {
-            let jsonData = try JSONSerialization.data(withJSONObject: entry)
-            if let jsonString = String(data: jsonData, encoding: .utf8) {
-                let fileHandle = FileHandle(forWritingAtPath: transcriptPath)
-                if let handle = fileHandle {
-                    handle.seekToEndOfFile()
-                    handle.write((jsonString + "\n").data(using: .utf8)!)
-                    handle.closeFile()
-                } else {
-                    // File doesn't exist, create it
-                    try (jsonString + "\n").write(toFile: transcriptPath, atomically: true, encoding: .utf8)
-                }
-            }
-        } catch {
-            XCTFail("Failed to inject response: \(error)")
-        }
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: pythonPath)
+        task.arguments = [injectorScript, "--transcript", transcriptPath, "--role", "assistant", "--message", text]
+
+        try? task.run()
+        task.waitUntilExit()
 
         // Wait for server to process
-        sleep(1)
+        sleep(2)
     }
 
     func waitForVoiceState(_ expectedState: String, timeout: TimeInterval = 10.0) -> Bool {
@@ -234,7 +214,6 @@ class E2ETestBase: XCTestCase {
 // MARK: - Errors
 
 enum E2ETestError: Error {
-    case serverStartupFailed(reason: String)
     case noTranscriptPath
     case injectionFailed
 }
