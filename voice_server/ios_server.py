@@ -218,7 +218,18 @@ class VoiceServer:
         self.last_content_blocks = []  # New: store for future reference
 
     def find_transcript_path(self):
-        """Find the most recent transcript file"""
+        """Find the transcript file to watch.
+
+        If E2E_TRANSCRIPT_PATH is set, use that exact path (for testing).
+        Otherwise, find the most recent transcript file (normal operation).
+        """
+        # Check for explicit test transcript path
+        explicit_path = os.environ.get('E2E_TRANSCRIPT_PATH')
+        if explicit_path and os.path.exists(explicit_path):
+            print(f"[E2E] Using explicit transcript path: {explicit_path}")
+            return explicit_path
+
+        # Normal operation: find most recent transcript
         pattern = os.path.join(TRANSCRIPT_DIR, "**/*.jsonl")
         files = glob.glob(pattern, recursive=True)
         if not files:
@@ -288,15 +299,19 @@ end tell
         text = data.get('text', '').strip()
         print(f"[{time.strftime('%H:%M:%S')}] Voice input received: '{text}'")
         if text:
-            print(f"[{time.strftime('%H:%M:%S')}] Sending to VS Code...")
-            await self.send_status(websocket, "processing", "Sending to Claude...")
-
-            # Reset tracking state for new conversation
+            # CRITICAL: Set state FIRST, before any async calls that might fail
+            # (e.g., test WebSocket may close immediately after sending)
             if self.transcript_handler:
                 self.transcript_handler.reset_tracking_state()
+            self.waiting_for_response = True
+            self.last_voice_input = text
 
-            self.waiting_for_response = True  # Mark that we're waiting for Claude's response
-            self.last_voice_input = text  # Store the voice input text
+            print(f"[{time.strftime('%H:%M:%S')}] Sending to VS Code...")
+            try:
+                await self.send_status(websocket, "processing", "Sending to Claude...")
+            except Exception:
+                pass  # WebSocket may have closed, that's OK
+
             await self.send_to_vs_code(text)
             print(f"[{time.strftime('%H:%M:%S')}] Sent to VS Code successfully")
         else:
