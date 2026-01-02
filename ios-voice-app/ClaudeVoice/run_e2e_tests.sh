@@ -2,6 +2,7 @@
 # E2E Test Runner - Starts server then runs tests
 
 set -e
+set -o pipefail  # Capture xcodebuild exit code, not tee's
 
 echo "🧪 E2E Test Runner"
 echo "=================="
@@ -11,10 +12,14 @@ PROJECT_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 VENV_PYTHON="$PROJECT_ROOT/.venv/bin/python3"
 SERVER_SCRIPT="$PROJECT_ROOT/voice_server/ios_server.py"
 TRANSCRIPT_DIR="$HOME/.claude/projects/e2e_test_project"
+TRANSCRIPT_FILE="$TRANSCRIPT_DIR/e2e_transcript.jsonl"
 LOG_FILE="/tmp/e2e_server.log"
 
-# Ensure transcript directory exists
+# Ensure transcript directory exists and create transcript file
+# Server needs a transcript file to exist BEFORE it starts so it can watch it
 mkdir -p "$TRANSCRIPT_DIR"
+echo "" > "$TRANSCRIPT_FILE"
+echo "📝 Created transcript file: $TRANSCRIPT_FILE"
 
 # Start server (unmodified, just watches its normal transcript dir)
 echo "📡 Starting ios_server.py..."

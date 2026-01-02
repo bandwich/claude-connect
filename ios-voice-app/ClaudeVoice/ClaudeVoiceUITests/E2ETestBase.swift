@@ -39,15 +39,12 @@ class E2ETestBase: XCTestCase {
 
         continueAfterFailure = false
 
-        // Set transcript path to server's watched directory
-        let timestamp = Int(Date().timeIntervalSince1970)
+        // Use FIXED transcript path that matches what run_e2e_tests.sh creates
+        // Server watches this file from startup - we must use the same file!
         let transcriptDir = NSString(string: "~/.claude/projects/e2e_test_project").expandingTildeInPath
-        transcriptPath = "\(transcriptDir)/transcript_\(timestamp).jsonl"
+        transcriptPath = "\(transcriptDir)/e2e_transcript.jsonl"
 
-        // Create transcript directory
-        try? FileManager.default.createDirectory(atPath: transcriptDir, withIntermediateDirectories: true)
-
-        // Create empty transcript file
+        // Clear the transcript file (don't create new one - server is already watching this one)
         try "".write(toFile: transcriptPath!, atomically: true, encoding: .utf8)
 
         // Launch app
@@ -65,9 +62,9 @@ class E2ETestBase: XCTestCase {
             disconnectFromServer()
         }
 
-        // Clean up transcript file
+        // Clear transcript file (don't delete - server is still watching it)
         if let path = transcriptPath, FileManager.default.fileExists(atPath: path) {
-            try? FileManager.default.removeItem(atPath: path)
+            try? "".write(toFile: path, atomically: true, encoding: .utf8)
         }
 
         try super.tearDownWithError()
