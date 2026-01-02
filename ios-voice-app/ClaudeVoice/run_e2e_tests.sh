@@ -33,6 +33,10 @@ echo "📝 Created transcript file: $TRANSCRIPT_FILE"
 sleep 0.5
 touch "$TRANSCRIPT_FILE"
 
+# Export transcript path for tests to use (UI tests run on Mac, can access this path)
+export E2E_TRANSCRIPT_PATH="$TRANSCRIPT_FILE"
+echo "📝 Exported E2E_TRANSCRIPT_PATH=$E2E_TRANSCRIPT_PATH"
+
 # Start server (unmodified, just watches its normal transcript dir)
 echo "📡 Starting ios_server.py..."
 PYTHONUNBUFFERED=1 $VENV_PYTHON "$SERVER_SCRIPT" > "$LOG_FILE" 2>&1 &

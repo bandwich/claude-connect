@@ -39,10 +39,12 @@ class E2ETestBase: XCTestCase {
 
         continueAfterFailure = false
 
-        // Use FIXED transcript path that matches what run_e2e_tests.sh creates
-        // Server watches this file from startup - we must use the same file!
-        let transcriptDir = NSString(string: "~/.claude/projects/e2e_test_project").expandingTildeInPath
-        transcriptPath = "\(transcriptDir)/e2e_transcript.jsonl"
+        // IMPORTANT: Use absolute Mac path, NOT tilde or HOME expansion
+        // UI tests run in simulator context where ~ and HOME point to simulator's container
+        // The server runs on Mac and watches /Users/aaron/.claude/projects/...
+        // We must write to the same path the server watches
+        transcriptPath = "/Users/aaron/.claude/projects/e2e_test_project/e2e_transcript.jsonl"
+        print("📝 Using hardcoded Mac path: \(transcriptPath!)")
 
         // Clear the transcript file (don't create new one - server is already watching this one)
         try "".write(toFile: transcriptPath!, atomically: true, encoding: .utf8)
