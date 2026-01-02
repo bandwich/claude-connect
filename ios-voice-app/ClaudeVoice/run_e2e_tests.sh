@@ -49,7 +49,8 @@ xcodebuild test \
     -only-testing:ClaudeVoiceUITests/E2EHappyPathTests \
     -only-testing:ClaudeVoiceUITests/E2EConnectionTests \
     -only-testing:ClaudeVoiceUITests/E2EErrorHandlingTests \
-    2>&1
+    -parallel-testing-enabled NO \
+    2>&1 | tee /tmp/e2e_test.log
 
 TEST_EXIT_CODE=$?
 
