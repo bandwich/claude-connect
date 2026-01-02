@@ -249,6 +249,33 @@ class E2ETestBase: XCTestCase {
         usleep(100000) // 100ms
     }
 
+    func simulateConversationTurn(userInput: String, assistantResponse: String) {
+        // Simulate a complete conversation turn:
+        // 1. Send voice input via WebSocket (real)
+        // 2. Inject user message to transcript (simulates Claude logging it)
+        // 3. Inject assistant response to transcript (simulates Claude responding)
+
+        print("📝 Simulating conversation turn: '\(userInput)' -> '\(assistantResponse)'")
+
+        // Send voice input via WebSocket
+        sendVoiceInput(userInput)
+
+        // Wait briefly for server to process WebSocket message
+        usleep(500000) // 500ms
+
+        // Inject user message to transcript
+        injectUserMessage(userInput)
+
+        // Wait for file watcher to detect
+        usleep(200000) // 200ms
+
+        // Inject assistant response
+        injectAssistantResponse(assistantResponse)
+
+        // Wait for server to process and send to app
+        sleep(1)
+    }
+
     func waitForVoiceState(_ expectedState: String, timeout: TimeInterval = 10.0) -> Bool {
         let stateLabel = app.staticTexts["voiceState"]
 
