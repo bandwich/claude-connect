@@ -85,3 +85,39 @@ class TestSessionManager:
         assert sessions[1].id == "abc123"
         assert sessions[1].title == "Hello"  # First user message
         assert sessions[1].message_count == 2
+
+    def test_get_session_history_returns_messages(self, tmp_path):
+        """Should return all messages from a session"""
+        from session_manager import SessionManager
+
+        project_dir = tmp_path / "-Users-test-myproject"
+        project_dir.mkdir()
+
+        session_file = project_dir / "abc123.jsonl"
+        session_file.write_text(
+            json.dumps({
+                "type": "user",
+                "message": {"role": "user", "content": "Hello Claude"},
+                "timestamp": "2026-01-01T10:00:00Z"
+            }) + "\n" +
+            json.dumps({
+                "type": "assistant",
+                "message": {"role": "assistant", "content": [{"type": "text", "text": "Hello! How can I help?"}]},
+                "timestamp": "2026-01-01T10:00:05Z"
+            }) + "\n" +
+            json.dumps({
+                "type": "user",
+                "message": {"role": "user", "content": "What is 2+2?"},
+                "timestamp": "2026-01-01T10:00:10Z"
+            })
+        )
+
+        manager = SessionManager(projects_dir=str(tmp_path))
+        messages = manager.get_session_history("/Users/test/myproject", "abc123")
+
+        assert len(messages) == 3
+        assert messages[0].role == "user"
+        assert messages[0].content == "Hello Claude"
+        assert messages[1].role == "assistant"
+        assert "Hello! How can I help?" in messages[1].content
+        assert messages[2].content == "What is 2+2?"

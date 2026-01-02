@@ -133,3 +133,50 @@ class SessionManager:
             pass
 
         return title, message_count, last_timestamp
+
+    def get_session_history(self, project_path: str, session_id: str) -> list[SessionMessage]:
+        """Get all messages from a session"""
+        folder_name = self._encode_project_path(project_path)
+        filepath = os.path.join(self.projects_dir, folder_name, f"{session_id}.jsonl")
+
+        if not os.path.exists(filepath):
+            return []
+
+        messages = []
+
+        with open(filepath, 'r') as f:
+            for line in f:
+                try:
+                    entry = json.loads(line.strip())
+                    msg = entry.get('message', {})
+                    role = msg.get('role') or entry.get('role')
+
+                    if role not in ('user', 'assistant'):
+                        continue
+
+                    content = msg.get('content', entry.get('content', ''))
+
+                    # Flatten assistant content blocks to text
+                    if isinstance(content, list):
+                        text_parts = []
+                        for block in content:
+                            if isinstance(block, dict) and block.get('type') == 'text':
+                                text_parts.append(block.get('text', ''))
+                        content = ' '.join(text_parts)
+
+                    timestamp_str = entry.get('timestamp', '')
+                    try:
+                        from datetime import datetime
+                        timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00')).timestamp()
+                    except:
+                        timestamp = 0.0
+
+                    messages.append(SessionMessage(
+                        role=role,
+                        content=content,
+                        timestamp=timestamp
+                    ))
+                except json.JSONDecodeError:
+                    continue
+
+        return messages
