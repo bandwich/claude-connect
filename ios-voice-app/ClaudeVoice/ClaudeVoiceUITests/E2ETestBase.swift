@@ -15,12 +15,6 @@ class E2ETestBase: XCTestCase {
 
     let testServerHost = "127.0.0.1"
     let testServerPort = 8765
-    let pythonHelperPath: String = {
-        let bundle = Bundle(for: E2ETestBase.self)
-        return bundle.bundlePath
-            .replacingOccurrences(of: "/Build/Products/", with: "/")
-            .replacingOccurrences(of: "ClaudeVoiceUITests-Runner.app", with: "ClaudeVoiceE2ESupport")
-    }()
 
     var app: XCUIApplication! {
         return Self.app
@@ -153,39 +147,66 @@ class E2ETestBase: XCTestCase {
     }
 
     func sendVoiceInput(_ text: String) {
-        guard let _ = transcriptPath else {
-            XCTFail("No transcript path")
-            return
+        // Send voice input via WebSocket (Swift implementation, iOS-compatible)
+        let expectation = XCTestExpectation(description: "Send voice input")
+
+        let url = URL(string: "ws://\(testServerHost):\(testServerPort)")!
+        let task = URLSession.shared.webSocketTask(with: url)
+        task.resume()
+
+        let message: [String: Any] = [
+            "type": "voice_input",
+            "text": text,
+            "timestamp": Date().timeIntervalSince1970
+        ]
+
+        if let jsonData = try? JSONSerialization.data(withJSONObject: message),
+           let jsonString = String(data: jsonData, encoding: .utf8) {
+            task.send(.string(jsonString)) { error in
+                if let error = error {
+                    XCTFail("WebSocket send failed: \(error)")
+                }
+                task.cancel(with: .goingAway, reason: nil)
+                expectation.fulfill()
+            }
         }
 
-        let voiceSenderScript = "\(pythonHelperPath)/voice_sender.py"
-        let pythonPath = "\(pythonHelperPath)/../../../.venv/bin/python3"
-
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: pythonPath)
-        task.arguments = [voiceSenderScript, "--host", testServerHost, "--port", "\(testServerPort)", "--text", text]
-
-        try? task.run()
-        task.waitUntilExit()
-
+        wait(for: [expectation], timeout: 5.0)
         sleep(1)
     }
 
     func injectAssistantResponse(_ text: String) {
+        // Inject assistant response into transcript file (Swift implementation, iOS-compatible)
         guard let transcriptPath = transcriptPath else {
             XCTFail("No transcript path")
             return
         }
 
-        let injectorScript = "\(pythonHelperPath)/transcript_injector.py"
-        let pythonPath = "\(pythonHelperPath)/../../../.venv/bin/python3"
+        let entry: [String: Any] = [
+            "role": "assistant",
+            "content": text,
+            "timestamp": Date().timeIntervalSince1970
+        ]
 
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: pythonPath)
-        task.arguments = [injectorScript, "--transcript", transcriptPath, "--role", "assistant", "--message", text]
+        do {
+            let jsonData = try JSONSerialization.data(withJSONObject: entry)
+            guard let jsonString = String(data: jsonData, encoding: .utf8) else {
+                XCTFail("Failed to encode JSON")
+                return
+            }
 
-        try? task.run()
-        task.waitUntilExit()
+            let fileHandle = FileHandle(forWritingAtPath: transcriptPath)
+            if let handle = fileHandle {
+                handle.seekToEndOfFile()
+                handle.write((jsonString + "\n").data(using: .utf8)!)
+                handle.closeFile()
+            } else {
+                // File doesn't exist, create it
+                try (jsonString + "\n").write(toFile: transcriptPath, atomically: true, encoding: .utf8)
+            }
+        } catch {
+            XCTFail("Failed to inject response: \(error)")
+        }
 
         // Wait for server to process
         sleep(2)
