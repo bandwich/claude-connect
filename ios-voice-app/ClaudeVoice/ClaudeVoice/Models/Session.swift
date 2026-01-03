@@ -51,3 +51,15 @@ struct SessionActionResponse: Codable {
         case sessionId = "session_id"
     }
 }
+
+struct VSCodeStatus: Codable {
+    let type: String
+    let vscodeConnected: Bool
+    let activeSessionId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case vscodeConnected = "vscode_connected"
+        case activeSessionId = "active_session_id"
+    }
+}
