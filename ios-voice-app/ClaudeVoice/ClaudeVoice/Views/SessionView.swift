@@ -87,15 +87,29 @@ struct SessionView: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 HStack(spacing: 16) {
-                    Button(action: closeSession) {
-                        Image(systemName: "stop.fill")
+                    // Show connected indicator OR open button based on sync state
+                    if isSessionActive {
+                        // Connected indicator - this session is open in VSCode
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                            .accessibilityLabel("Session Active in VSCode")
+                    } else {
+                        // Open button - session not active, allow opening
+                        Button(action: resumeSession) {
+                            Image(systemName: "arrow.up.forward.app")
+                        }
+                        .disabled(isResuming || !webSocketManager.vscodeConnected)
+                        .accessibilityLabel("Open in VSCode")
                     }
-                    .accessibilityLabel("Close Session")
 
-                    Button(action: resumeSession) {
-                        Image(systemName: "play.fill")
+                    // Close button - only show when this session is active
+                    if isSessionActive {
+                        Button(action: closeSession) {
+                            Image(systemName: "xmark.circle")
+                        }
+                        .disabled(isClosing)
+                        .accessibilityLabel("Close Session")
                     }
-                    .accessibilityLabel("Resume Session")
 
                     Button(action: { showingSettings = true }) {
                         Image(systemName: "gearshape.fill")
@@ -121,6 +135,10 @@ struct SessionView: View {
                 && webSocketManager.voiceState != .processing
         }
         return false
+    }
+
+    private var isSessionActive: Bool {
+        webSocketManager.activeSessionId == session.id
     }
 
     private func setupView() {
