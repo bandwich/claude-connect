@@ -64,6 +64,13 @@ python3 voice_server/ios_server.py
 cd ios-voice-app/ClaudeVoice
 xcodebuild build -scheme ClaudeVoice \
   -destination 'platform=iOS Simulator,name=iPhone 16'
+
+# Build and install iOS app (on device)
+cd ios-voice-app/ClaudeVoice
+xcodebuild -scheme ClaudeVoice -destination 'generic/platform=iOS' build && \
+DEVICE=$(xcrun devicectl list devices 2>/dev/null | grep 'available (paired)' | awk '{print $3}') && \
+xcrun devicectl device install app --device "$DEVICE" \
+  ~/Library/Developer/Xcode/DerivedData/ClaudeVoice-*/Build/Products/Debug-iphoneos/ClaudeVoice.app
 ```
 
 ### Debugging
