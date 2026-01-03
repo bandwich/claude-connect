@@ -125,3 +125,28 @@ class TestSessionManager:
         assert messages[1].role == "assistant"
         assert "Hello! How can I help?" in messages[1].content
         assert messages[2].content == "What is 2+2?"
+
+    def test_list_sessions_filters_warmup_sessions(self, tmp_path):
+        """Sessions with titles starting with 'Warmup' should be filtered out"""
+        from session_manager import SessionManager
+
+        project_dir = tmp_path / "test-project"
+        project_dir.mkdir()
+
+        # Create a Warmup session
+        warmup_session = project_dir / "warmup123.jsonl"
+        warmup_session.write_text(json.dumps({
+            "message": {"role": "user", "content": "Warmup test"}
+        }) + "\n")
+
+        # Create a normal session
+        normal_session = project_dir / "normal456.jsonl"
+        normal_session.write_text(json.dumps({
+            "message": {"role": "user", "content": "Hello Claude"}
+        }) + "\n")
+
+        manager = SessionManager(str(tmp_path))
+        sessions = manager.list_sessions("test-project")
+
+        assert len(sessions) == 1
+        assert sessions[0].id == "normal456"

@@ -100,6 +100,9 @@ class SessionManager:
                 message_count=message_count
             ))
 
+        # Filter out Warmup sessions (subagent warmups)
+        sessions = [s for s in sessions if not s.title.startswith("Warmup")]
+
         return sessions
 
     def _parse_session_file(self, filepath: str) -> tuple[str, int, float]:
