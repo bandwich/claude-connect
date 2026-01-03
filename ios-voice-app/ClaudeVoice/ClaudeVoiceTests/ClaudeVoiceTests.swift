@@ -300,6 +300,77 @@ struct SessionModelTests {
     }
 }
 
+@Suite("VSCodeStatus Model Tests")
+struct VSCodeStatusModelTests {
+
+    @Test func testVSCodeStatusDecoding() throws {
+        let json = """
+        {
+            "type": "vscode_status",
+            "vscode_connected": true,
+            "active_session_id": "abc123-def456"
+        }
+        """
+
+        let data = json.data(using: .utf8)!
+        let status = try JSONDecoder().decode(VSCodeStatus.self, from: data)
+
+        #expect(status.type == "vscode_status")
+        #expect(status.vscodeConnected == true)
+        #expect(status.activeSessionId == "abc123-def456")
+    }
+
+    @Test func testVSCodeStatusDecodingWithNullSession() throws {
+        let json = """
+        {
+            "type": "vscode_status",
+            "vscode_connected": true,
+            "active_session_id": null
+        }
+        """
+
+        let data = json.data(using: .utf8)!
+        let status = try JSONDecoder().decode(VSCodeStatus.self, from: data)
+
+        #expect(status.vscodeConnected == true)
+        #expect(status.activeSessionId == nil)
+    }
+
+    @Test func testVSCodeStatusDecodingDisconnected() throws {
+        let json = """
+        {
+            "type": "vscode_status",
+            "vscode_connected": false,
+            "active_session_id": null
+        }
+        """
+
+        let data = json.data(using: .utf8)!
+        let status = try JSONDecoder().decode(VSCodeStatus.self, from: data)
+
+        #expect(status.vscodeConnected == false)
+        #expect(status.activeSessionId == nil)
+    }
+
+    @Test func testVSCodeStatusSnakeCaseMapping() throws {
+        // Verify snake_case keys map to camelCase properties
+        let json = """
+        {
+            "type": "vscode_status",
+            "vscode_connected": true,
+            "active_session_id": "test-session"
+        }
+        """
+
+        let data = json.data(using: .utf8)!
+        let status = try JSONDecoder().decode(VSCodeStatus.self, from: data)
+
+        // These properties use CodingKeys to map from snake_case
+        #expect(status.vscodeConnected == true)
+        #expect(status.activeSessionId == "test-session")
+    }
+}
+
 @Suite("SessionHistoryMessage Model Tests")
 struct SessionHistoryMessageModelTests {
 
