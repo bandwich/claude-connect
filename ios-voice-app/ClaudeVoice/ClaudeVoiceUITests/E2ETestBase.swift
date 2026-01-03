@@ -122,19 +122,23 @@ class E2ETestBase: XCTestCase {
             connectButton.tap()
         }
 
-        sleep(3)
+        // Verify connected WHILE STILL IN SETTINGS (connectionStatus is only visible in SettingsView)
+        let connectedLabel = app.staticTexts["connectionStatus"]
+        XCTAssertTrue(connectedLabel.waitForExistence(timeout: 10), "Should show Connected status")
 
+        // Wait for connection to complete
+        let predicate = NSPredicate(format: "label == %@", "Connected")
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: connectedLabel)
+        let result = XCTWaiter().wait(for: [expectation], timeout: 10)
+        XCTAssertEqual(result, .completed, "Connection status should become Connected")
+
+        // Now dismiss settings
         let doneButton = app.buttons["Done"]
         if doneButton.exists {
             doneButton.tap()
         }
 
         sleep(1)
-
-        // Verify connected
-        let connectedLabel = app.staticTexts["connectionStatus"]
-        XCTAssertTrue(connectedLabel.waitForExistence(timeout: 5), "Should show Connected status")
-        XCTAssertEqual(connectedLabel.label, "Connected", "Connection status should be Connected")
     }
 
     func disconnectFromServer() {
