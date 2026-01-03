@@ -11,6 +11,9 @@ class WebSocketManager: NSObject, ObservableObject {
         }
     }
 
+    @Published var vscodeConnected: Bool = false
+    @Published var activeSessionId: String? = nil
+
     var onAudioChunk: ((AudioChunkMessage) -> Void)?
     var onStatusUpdate: ((StatusMessage) -> Void)?
     var onAssistantResponse: ((AssistantResponseMessage) -> Void)?  // NEW
@@ -18,6 +21,7 @@ class WebSocketManager: NSObject, ObservableObject {
     var onSessionsReceived: (([Session]) -> Void)?
     var onSessionHistoryReceived: (([SessionHistoryMessage]) -> Void)?
     var onSessionActionResult: ((SessionActionResponse) -> Void)?
+    var onVSCodeStatusReceived: ((VSCodeStatus) -> Void)?
     var isPlayingAudio: Bool = false // Tracks if audio is currently playing
     private var lastContentBlocks: [ContentBlock] = []  // NEW: store for future UI
 
@@ -302,6 +306,13 @@ class WebSocketManager: NSObject, ObservableObject {
                 DispatchQueue.main.async {
                     self.onSessionActionResult?(actionResponse)
                 }
+            } else if let vscodeStatus = try? JSONDecoder().decode(VSCodeStatus.self, from: data) {
+                logToFile("✅ Decoded as VSCodeStatus: connected=\(vscodeStatus.vscodeConnected), session=\(vscodeStatus.activeSessionId ?? "none")")
+                DispatchQueue.main.async {
+                    self.vscodeConnected = vscodeStatus.vscodeConnected
+                    self.activeSessionId = vscodeStatus.activeSessionId
+                    self.onVSCodeStatusReceived?(vscodeStatus)
+                }
             } else {
                 print("❌ Failed to decode message as any known type")
                 print("   Raw data: \(String(data: data, encoding: .utf8) ?? "N/A")")
@@ -333,6 +344,12 @@ class WebSocketManager: NSObject, ObservableObject {
             } else if let actionResponse = try? JSONDecoder().decode(SessionActionResponse.self, from: data) {
                 DispatchQueue.main.async {
                     self.onSessionActionResult?(actionResponse)
+                }
+            } else if let vscodeStatus = try? JSONDecoder().decode(VSCodeStatus.self, from: data) {
+                DispatchQueue.main.async {
+                    self.vscodeConnected = vscodeStatus.vscodeConnected
+                    self.activeSessionId = vscodeStatus.activeSessionId
+                    self.onVSCodeStatusReceived?(vscodeStatus)
                 }
             } else {
                 print("❌ Failed to decode binary message")
