@@ -2,7 +2,7 @@
 import pytest
 import json
 import asyncio
-from unittest.mock import Mock, AsyncMock
+from unittest.mock import Mock, AsyncMock, patch
 
 
 class TestMessageHandlers:
@@ -39,3 +39,43 @@ class TestMessageHandlers:
         assert len(response["projects"]) == 2
         assert response["projects"][0]["name"] == "project1"
         assert response["projects"][0]["session_count"] == 5
+
+
+class TestVoiceInputWithVSCode:
+    """Tests for voice input via VSCode controller"""
+
+    @pytest.mark.asyncio
+    async def test_voice_input_uses_vscode_controller(self):
+        """Voice input should send text via VSCodeController"""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+
+        server.vscode_controller = Mock()
+        server.vscode_controller.is_connected.return_value = True
+        server.vscode_controller.send_sequence = AsyncMock(return_value=True)
+
+        # Mock WebSocket
+        mock_ws = AsyncMock()
+
+        # Handle voice input
+        await server.handle_voice_input(mock_ws, {"text": "hello claude"})
+
+        # Verify send_sequence was called with text + Enter
+        server.vscode_controller.send_sequence.assert_called_once_with("hello claude\n")
+
+    @pytest.mark.asyncio
+    async def test_voice_input_falls_back_to_applescript(self):
+        """Should fall back to AppleScript if VSCode not connected"""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+
+        server.vscode_controller = Mock()
+        server.vscode_controller.is_connected.return_value = False
+
+        # Mock AppleScript fallback
+        with patch.object(server, 'send_to_vs_code_applescript', new_callable=AsyncMock) as mock_applescript:
+            mock_ws = AsyncMock()
+            await server.handle_voice_input(mock_ws, {"text": "hello"})
+            mock_applescript.assert_called_once_with("hello")

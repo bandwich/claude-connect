@@ -23,6 +23,7 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from content_models import TextBlock, ThinkingBlock, ToolUseBlock, ContentBlock, AssistantResponse
 from session_manager import SessionManager
+from vscode_controller import VSCodeController
 
 # Configuration
 PORT = 8765
@@ -218,6 +219,7 @@ class VoiceServer:
         self.last_voice_input = None  # Track the last voice input text
         self.last_content_blocks = []  # New: store for future reference
         self.session_manager = SessionManager()
+        self.vscode_controller = VSCodeController()
 
     def find_transcript_path(self):
         """Find the transcript file to watch.
@@ -248,8 +250,8 @@ class VoiceServer:
             "timestamp": time.time()
         }))
 
-    async def send_to_vs_code(self, text):
-        """Send text to VS Code via AppleScript"""
+    async def send_to_vs_code_applescript(self, text):
+        """Send text to VS Code via AppleScript (fallback)"""
         subprocess.run(['pbcopy'], input=text.encode('utf-8'))
         applescript = '''
 tell application "Visual Studio Code"
@@ -263,6 +265,20 @@ tell application "System Events"
 end tell
 '''
         subprocess.run(['osascript', '-e', applescript])
+
+    async def send_to_vs_code(self, text):
+        """Send text to VS Code terminal
+
+        Tries VSCodeController first, falls back to AppleScript if not connected.
+        """
+        if self.vscode_controller.is_connected():
+            success = await self.vscode_controller.send_sequence(text + "\n")
+            if success:
+                return
+            print("VSCode send failed, falling back to AppleScript")
+
+        # Fallback to AppleScript
+        await self.send_to_vs_code_applescript(text)
 
     async def stream_audio(self, websocket, text):
         """Generate TTS and stream audio to client"""
@@ -437,6 +453,13 @@ end tell
         """Start server"""
         # Get the running event loop
         self.loop = asyncio.get_running_loop()
+
+        # Try to connect to VSCode extension
+        connected = await self.vscode_controller.connect()
+        if connected:
+            print("✅ Connected to VSCode extension")
+        else:
+            print("⚠️ VSCode extension not available, using AppleScript fallback")
 
         self.transcript_path = self.find_transcript_path()
 
