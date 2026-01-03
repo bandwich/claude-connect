@@ -26,7 +26,7 @@ final class E2ESessionViewTests: E2ETestBase {
         session1.tap()
     }
 
-    @MainActor
+    
     func test_tap_session_shows_message_history() throws {
         navigateToSession1()
 
@@ -38,7 +38,7 @@ final class E2ESessionViewTests: E2ETestBase {
         XCTAssertTrue(assistantMessage.waitForExistence(timeout: 5), "Should show assistant message")
     }
 
-    @MainActor
+    
     func test_session_view_shows_voice_controls() throws {
         navigateToSession1()
 
@@ -51,7 +51,7 @@ final class E2ESessionViewTests: E2ETestBase {
         XCTAssertTrue(voiceIndicator.waitForExistence(timeout: 5), "Should show voice indicator")
     }
 
-    @MainActor
+    
     func test_voice_input_from_session_view() throws {
         navigateToSession1()
 
@@ -71,7 +71,7 @@ final class E2ESessionViewTests: E2ETestBase {
         XCTAssertTrue(waitForVoiceState("Idle", timeout: 10), "Should return to Idle")
     }
 
-    @MainActor
+    
     func test_settings_accessible_from_session_view() throws {
         navigateToSession1()
 

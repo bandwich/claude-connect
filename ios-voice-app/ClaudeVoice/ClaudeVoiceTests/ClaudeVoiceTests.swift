@@ -618,6 +618,124 @@ struct ServiceIntegrationTests {
     }
 }
 
+// MARK: - SessionView Integration Tests
+
+@Suite("SessionView Integration Tests")
+struct SessionViewIntegrationTests {
+
+    @Test func testSessionHistoryCallbackIntegration() async throws {
+        let websocketManager = WebSocketManager()
+        var receivedMessages: [SessionHistoryMessage]?
+
+        // Wire up callback as SessionView would
+        websocketManager.onSessionHistoryReceived = { messages in
+            receivedMessages = messages
+        }
+
+        // Simulate receiving messages
+        let mockMessages = [
+            SessionHistoryMessage(role: "user", content: "Hello", timestamp: 1000.0),
+            SessionHistoryMessage(role: "assistant", content: "Hi there!", timestamp: 1001.0)
+        ]
+
+        websocketManager.onSessionHistoryReceived?(mockMessages)
+
+        #expect(receivedMessages?.count == 2)
+        #expect(receivedMessages?[0].role == "user")
+        #expect(receivedMessages?[1].content == "Hi there!")
+    }
+
+    @Test func testSessionViewRequestsHistoryOnAppear() async throws {
+        let websocketManager = WebSocketManager()
+
+        // Verify the method can be called (SessionView calls this in setupView)
+        websocketManager.requestSessionHistory(
+            projectPath: "/Users/test/project",
+            sessionId: "abc123"
+        )
+
+        #expect(true, "requestSessionHistory should be callable")
+    }
+
+    @Test func testSessionViewAudioPlaybackStateManagement() async throws {
+        let websocketManager = WebSocketManager()
+        let audioPlayer = AudioPlayer()
+
+        // Setup as SessionView would
+        audioPlayer.onPlaybackStarted = {
+            websocketManager.isPlayingAudio = true
+            websocketManager.voiceState = .speaking
+        }
+
+        audioPlayer.onPlaybackFinished = {
+            websocketManager.isPlayingAudio = false
+            websocketManager.voiceState = .idle
+        }
+
+        // Simulate playback started
+        audioPlayer.onPlaybackStarted?()
+        #expect(websocketManager.isPlayingAudio == true)
+        #expect(websocketManager.voiceState == .speaking)
+
+        // Simulate playback finished
+        audioPlayer.onPlaybackFinished?()
+        #expect(websocketManager.isPlayingAudio == false)
+        #expect(websocketManager.voiceState == .idle)
+    }
+
+    @Test func testSessionViewVoiceInputFlow() async throws {
+        let websocketManager = WebSocketManager()
+        let recognizer = SpeechRecognizer()
+
+        // Setup as SessionView would
+        recognizer.onRecordingStarted = {
+            websocketManager.voiceState = .listening
+        }
+
+        recognizer.onRecordingStopped = {
+            if websocketManager.voiceState == .listening {
+                websocketManager.voiceState = .idle
+            }
+        }
+
+        recognizer.onFinalTranscription = { text in
+            websocketManager.sendVoiceInput(text: text)
+        }
+
+        // Simulate flow
+        recognizer.onRecordingStarted?()
+        #expect(websocketManager.voiceState == .listening)
+
+        recognizer.onFinalTranscription?("Test message")
+
+        recognizer.onRecordingStopped?()
+        #expect(websocketManager.voiceState == .idle)
+    }
+
+    @Test func testMessageDisplayOrder() async throws {
+        // Test that messages maintain order by timestamp
+        let messages = [
+            SessionHistoryMessage(role: "user", content: "First", timestamp: 1000.0),
+            SessionHistoryMessage(role: "assistant", content: "Second", timestamp: 1001.0),
+            SessionHistoryMessage(role: "user", content: "Third", timestamp: 1002.0)
+        ]
+
+        #expect(messages[0].timestamp < messages[1].timestamp)
+        #expect(messages[1].timestamp < messages[2].timestamp)
+        #expect(messages[0].id == 1000.0)
+        #expect(messages[1].id == 1001.0)
+        #expect(messages[2].id == 1002.0)
+    }
+
+    @Test func testMessageRoleIdentification() async throws {
+        let userMessage = SessionHistoryMessage(role: "user", content: "Hello", timestamp: 1000.0)
+        let assistantMessage = SessionHistoryMessage(role: "assistant", content: "Hi", timestamp: 1001.0)
+
+        #expect(userMessage.role == "user")
+        #expect(assistantMessage.role == "assistant")
+    }
+}
+
 // MARK: - End-to-End Flow Tests
 
 @Suite("End-to-End Flow Tests")

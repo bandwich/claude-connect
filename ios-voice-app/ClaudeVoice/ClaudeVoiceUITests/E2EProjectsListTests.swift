@@ -9,7 +9,6 @@ import XCTest
 
 final class E2EProjectsListTests: E2ETestBase {
 
-    @MainActor
     func test_projects_list_loads_on_connect() throws {
         // After connecting (done in setUp), projects list should load
         // Wait for projects to appear
@@ -20,7 +19,6 @@ final class E2EProjectsListTests: E2ETestBase {
         XCTAssertTrue(project2.waitForExistence(timeout: 5), "Should show project2")
     }
 
-    @MainActor
     func test_projects_list_shows_session_counts() throws {
         // Project 1 has 2 sessions, Project 2 has 1 session
         let project1Row = app.buttons.containing(.staticText, identifier: "e2e-test-project1").firstMatch
@@ -31,7 +29,6 @@ final class E2EProjectsListTests: E2ETestBase {
         XCTAssertTrue(count2.exists, "Should show session count 2 for project1")
     }
 
-    @MainActor
     func test_settings_button_opens_settings() throws {
         let settingsButton = app.buttons["gearshape.fill"]
         XCTAssertTrue(settingsButton.waitForExistence(timeout: 5), "Settings button should exist")

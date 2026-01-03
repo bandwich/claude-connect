@@ -9,7 +9,7 @@ import XCTest
 
 final class E2ESessionsListTests: E2ETestBase {
 
-    @MainActor
+    
     func test_tap_project_shows_sessions() throws {
         // Wait for projects to load
         let project1 = app.staticTexts["e2e-test-project1"]
@@ -30,7 +30,7 @@ final class E2ESessionsListTests: E2ETestBase {
         XCTAssertTrue(session2Title.waitForExistence(timeout: 5), "Should show session 2 title")
     }
 
-    @MainActor
+    
     func test_sessions_show_message_counts() throws {
         // Navigate to project1
         let project1 = app.staticTexts["e2e-test-project1"]
@@ -42,7 +42,7 @@ final class E2ESessionsListTests: E2ETestBase {
         XCTAssertTrue(count2.waitForExistence(timeout: 5), "Should show message count")
     }
 
-    @MainActor
+    
     func test_back_navigation_returns_to_projects() throws {
         // Navigate to sessions
         let project1 = app.staticTexts["e2e-test-project1"]

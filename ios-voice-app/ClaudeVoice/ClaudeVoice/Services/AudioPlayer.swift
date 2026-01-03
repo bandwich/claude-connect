@@ -121,9 +121,9 @@ class AudioPlayer: NSObject, ObservableObject {
     }
 
     private func extractAudioFormat(from data: Data) {
-        // Parse WAV header to get sample rate and channels
+        // Parse WAV header to log the format (for debugging)
         guard data.count >= 44 else {
-            print("AudioPlayer: First chunk too small (\(data.count) bytes), using default format")
+            print("AudioPlayer: First chunk too small (\(data.count) bytes)")
             return
         }
 
@@ -133,15 +133,10 @@ class AudioPlayer: NSObject, ObservableObject {
 
         print("AudioPlayer: Parsed WAV header - Sample rate: \(sampleRate) Hz, Channels: \(channels)")
 
-        // Validate format
-        guard sampleRate > 0 && channels > 0 else {
-            print("AudioPlayer: Invalid format detected, using default (24000 Hz, mono)")
-            return
-        }
-
-        // Update to float32 format with detected sample rate/channels
-        audioFormat = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: channels)
-        print("AudioPlayer: Audio format updated to float32: \(sampleRate) Hz, \(channels) channels")
+        // NOTE: We do NOT update audioFormat here because the player node is already
+        // connected to the engine with a specific format. Changing audioFormat would
+        // cause a format mismatch when scheduling buffers, leading to crashes.
+        // The connection format (24kHz mono) must match the format used for all buffers.
     }
 
     private func createAudioBuffer(from data: Data, isFirstChunk: Bool) -> AVAudioPCMBuffer? {
