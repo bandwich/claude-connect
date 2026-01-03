@@ -25,33 +25,29 @@ final class E2EHappyPathTests: E2ETestBase {
         // Should transition to speaking
         XCTAssertTrue(waitForVoiceState("Speaking", timeout: 10), "Should enter Speaking state")
 
-        // Wait for audio to complete
-        sleep(3)
-
         // Should return to idle
-        XCTAssertTrue(waitForVoiceState("Idle", timeout: 5), "Should return to Idle")
+        XCTAssertTrue(waitForVoiceState("Idle", timeout: 10), "Should return to Idle")
     }
 
     func test_multiple_conversation_turns() throws {
         // Navigate to session view first
         navigateToTestSession()
 
-        // Turn 1
+        // Define conversation turns
+        let turns = [
+            ("First message", "Response one"),
+            ("Second message", "Response two"),
+            ("Third message", "Response three")
+        ]
+
+        // Verify initial state
         XCTAssertTrue(waitForVoiceState("Idle", timeout: 5), "Should start in Idle")
-        simulateConversationTurn(userInput: "First message", assistantResponse: "Response one")
-        XCTAssertTrue(waitForVoiceState("Speaking", timeout: 10), "Should speak response 1")
-        XCTAssertTrue(waitForVoiceState("Idle", timeout: 10), "Should return to idle after 1")
 
-        // Turn 2
-        sleep(1)
-        simulateConversationTurn(userInput: "Second message", assistantResponse: "Response two")
-        XCTAssertTrue(waitForVoiceState("Speaking", timeout: 10), "Should speak response 2")
-        XCTAssertTrue(waitForVoiceState("Idle", timeout: 10), "Should return to idle after 2")
-
-        // Turn 3
-        sleep(1)
-        simulateConversationTurn(userInput: "Third message", assistantResponse: "Response three")
-        XCTAssertTrue(waitForVoiceState("Speaking", timeout: 10), "Should speak response 3")
-        XCTAssertTrue(waitForVoiceState("Idle", timeout: 10), "Should return to idle after 3")
+        // Execute each turn
+        for (index, (input, response)) in turns.enumerated() {
+            simulateConversationTurn(userInput: input, assistantResponse: response)
+            XCTAssertTrue(waitForVoiceState("Speaking", timeout: 10), "Turn \(index + 1): Should speak")
+            XCTAssertTrue(waitForVoiceState("Idle", timeout: 10), "Turn \(index + 1): Should return to idle")
+        }
     }
 }
