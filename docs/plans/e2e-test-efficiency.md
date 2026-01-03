@@ -85,11 +85,20 @@ func testMultipleConversationTurns() {
 }
 ```
 
+### Phase 6: Move Connection to Class-Level Setup
+Currently `connectToServer()` runs in `setUpWithError()` (per-test), causing repeated connection attempts for every test method.
+
+1. Move connection logic from `setUpWithError()` to `class func setUp()`
+2. Connection happens once per test CLASS instead of per test METHOD
+3. Keep per-test cleanup in `tearDownWithError()` for test isolation
+4. Estimated savings: ~5-10s per test file (connection overhead × number of tests)
+
 ## Expected Outcomes
 - **30-40s reduction** in test runtime from sleep removal
 - **10-15s reduction** from removing duplicate tests
 - **Reduced maintenance burden** from consolidated base class
 - **Improved readability** from extracted helpers
+- **Additional 20-30s reduction** from class-level connection (Phase 6)
 
 ## Files to Modify
 - `ClaudeVoiceUITests/E2ETestBase.swift`
