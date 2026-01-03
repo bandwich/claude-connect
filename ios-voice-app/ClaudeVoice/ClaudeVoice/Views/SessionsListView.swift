@@ -17,21 +17,30 @@ struct SessionsListView: View {
                 selectedSession = session
                 showingSessionView = true
             }) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(session.title)
-                        .font(.headline)
-                        .lineLimit(2)
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(session.title)
+                            .font(.headline)
+                            .lineLimit(2)
 
-                    HStack {
-                        Text(session.formattedDate)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                        HStack {
+                            Text(session.formattedDate)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
 
-                        Spacer()
+                            Spacer()
 
-                        Text("\(session.messageCount) messages")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                            Text("\(session.messageCount) messages")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+
+                    // Show active indicator if this session is open in VSCode
+                    if webSocketManager.activeSessionId == session.id {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                            .accessibilityLabel("Active in VSCode")
                     }
                 }
                 .padding(.vertical, 4)
