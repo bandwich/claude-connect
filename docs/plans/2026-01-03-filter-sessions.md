@@ -151,3 +151,53 @@ cd /Users/aaron/Desktop/max/voice_server/tests && ./run_tests.sh
 ```
 
 Expected: All tests pass
+
+---
+
+## Task 4: Open Session at Bottom (No Scroll Animation)
+
+**Problem:** When opening a session, messages load and the view scrolls from top to bottom rapidly. Should open already at the bottom.
+
+**Files:**
+- Modify: `ios-voice-app/ClaudeVoice/ClaudeVoice/Views/SessionView.swift`
+
+**Step 1: Add state to track initial load**
+
+```swift
+@State private var isInitialLoad = true
+```
+
+**Step 2: Modify the ScrollViewReader to scroll immediately on initial load**
+
+Change the `onChange` handler to:
+- On initial load: scroll without animation, then set `isInitialLoad = false`
+- On subsequent messages: scroll with animation
+
+```swift
+.onChange(of: messages.count) { _, _ in
+    if let lastMessage = messages.last {
+        if isInitialLoad {
+            proxy.scrollTo(lastMessage.id, anchor: .bottom)
+            isInitialLoad = false
+        } else {
+            withAnimation {
+                proxy.scrollTo(lastMessage.id, anchor: .bottom)
+            }
+        }
+    }
+}
+```
+
+**Step 3: Build and test on device**
+
+```bash
+cd ios-voice-app/ClaudeVoice
+xcodebuild build -scheme ClaudeVoice -destination 'platform=iOS Simulator,name=iPhone 16'
+```
+
+**Step 4: Commit**
+
+```bash
+git add ios-voice-app/ClaudeVoice/ClaudeVoice/Views/SessionView.swift
+git commit -m "fix: open session at bottom without scroll animation"
+```
