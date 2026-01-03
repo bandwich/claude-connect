@@ -437,12 +437,19 @@ end tell
         await websocket.send(json.dumps(response))
 
     async def handle_new_session(self, websocket, data):
-        """Handle new_session request - opens terminal and starts claude"""
+        """Handle new_session request - opens terminal and starts claude
+
+        Ensures only one terminal is active by killing existing terminal first.
+        """
         project_path = data.get("project_path", "")
         success = False
 
         if self.vscode_controller.is_connected():
             try:
+                # Kill existing terminal first to ensure only one terminal
+                await self.vscode_controller.kill_terminal()
+                await asyncio.sleep(0.3)
+
                 await self.vscode_controller.new_terminal()
                 await asyncio.sleep(0.5)
                 success = await self.vscode_controller.send_sequence("claude\n")
@@ -456,12 +463,19 @@ end tell
         await websocket.send(json.dumps(response))
 
     async def handle_resume_session(self, websocket, data):
-        """Handle resume_session request - runs 'claude --resume <id>'"""
+        """Handle resume_session request - runs 'claude --resume <id>'
+
+        Ensures only one terminal is active by killing existing terminal first.
+        """
         session_id = data.get("session_id", "")
         success = False
 
         if self.vscode_controller.is_connected() and session_id:
             try:
+                # Kill existing terminal first to ensure only one terminal
+                await self.vscode_controller.kill_terminal()
+                await asyncio.sleep(0.3)
+
                 await self.vscode_controller.new_terminal()
                 await asyncio.sleep(0.5)
                 success = await self.vscode_controller.send_sequence(
@@ -478,7 +492,10 @@ end tell
         await websocket.send(json.dumps(response))
 
     async def handle_add_project(self, websocket, data):
-        """Handle add_project request - creates directory and opens in VS Code"""
+        """Handle add_project request - creates directory and opens in VS Code
+
+        Gracefully closes current project by killing terminal before opening new folder.
+        """
         name = data.get("name", "").strip()
         success = False
         project_path = ""
@@ -499,6 +516,10 @@ end tell
             os.makedirs(project_path, exist_ok=True)
 
             if self.vscode_controller.is_connected():
+                # Kill existing terminal first for graceful close
+                await self.vscode_controller.kill_terminal()
+                await asyncio.sleep(0.3)
+
                 await self.vscode_controller.open_folder(project_path)
                 await asyncio.sleep(3.0)
                 await self.vscode_controller.new_terminal()

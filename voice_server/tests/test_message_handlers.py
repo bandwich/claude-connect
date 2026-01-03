@@ -129,22 +129,25 @@ class TestNewSession:
     """Tests for new_session handler"""
 
     @pytest.mark.asyncio
-    async def test_new_session_opens_terminal_and_runs_claude(self):
-        """new_session should open terminal and run claude"""
+    async def test_new_session_kills_existing_terminal_first(self):
+        """new_session should kill existing terminal before creating new one"""
         from ios_server import VoiceServer
 
         server = VoiceServer()
 
+        call_order = []
         server.vscode_controller = Mock()
         server.vscode_controller.is_connected.return_value = True
-        server.vscode_controller.new_terminal = AsyncMock()
+        server.vscode_controller.kill_terminal = AsyncMock(side_effect=lambda: call_order.append('kill'))
+        server.vscode_controller.new_terminal = AsyncMock(side_effect=lambda: call_order.append('new'))
         server.vscode_controller.send_sequence = AsyncMock(return_value=True)
 
         mock_ws = AsyncMock()
 
         await server.handle_new_session(mock_ws, {"project_path": "/Users/test/myproject"})
 
-        server.vscode_controller.new_terminal.assert_called_once()
+        # Verify kill comes before new
+        assert call_order == ['kill', 'new']
         server.vscode_controller.send_sequence.assert_called_with("claude\n")
 
     @pytest.mark.asyncio
@@ -155,6 +158,7 @@ class TestNewSession:
         server = VoiceServer()
         server.vscode_controller = Mock()
         server.vscode_controller.is_connected.return_value = True
+        server.vscode_controller.kill_terminal = AsyncMock()
         server.vscode_controller.new_terminal = AsyncMock()
         server.vscode_controller.send_sequence = AsyncMock(return_value=True)
 
@@ -174,22 +178,25 @@ class TestResumeSession:
     """Tests for resume_session handler"""
 
     @pytest.mark.asyncio
-    async def test_resume_session_runs_claude_with_resume_flag(self):
-        """resume_session should run 'claude --resume <id>'"""
+    async def test_resume_session_kills_existing_terminal_first(self):
+        """resume_session should kill existing terminal before creating new one"""
         from ios_server import VoiceServer
 
         server = VoiceServer()
 
+        call_order = []
         server.vscode_controller = Mock()
         server.vscode_controller.is_connected.return_value = True
-        server.vscode_controller.new_terminal = AsyncMock()
+        server.vscode_controller.kill_terminal = AsyncMock(side_effect=lambda: call_order.append('kill'))
+        server.vscode_controller.new_terminal = AsyncMock(side_effect=lambda: call_order.append('new'))
         server.vscode_controller.send_sequence = AsyncMock(return_value=True)
 
         mock_ws = AsyncMock()
 
         await server.handle_resume_session(mock_ws, {"session_id": "abc123-def456"})
 
-        server.vscode_controller.new_terminal.assert_called_once()
+        # Verify kill comes before new
+        assert call_order == ['kill', 'new']
         server.vscode_controller.send_sequence.assert_called_with("claude --resume abc123-def456\n")
 
     @pytest.mark.asyncio
@@ -200,6 +207,7 @@ class TestResumeSession:
         server = VoiceServer()
         server.vscode_controller = Mock()
         server.vscode_controller.is_connected.return_value = True
+        server.vscode_controller.kill_terminal = AsyncMock()
         server.vscode_controller.new_terminal = AsyncMock()
         server.vscode_controller.send_sequence = AsyncMock(return_value=True)
 
@@ -220,6 +228,31 @@ class TestAddProject:
     """Tests for add_project handler"""
 
     @pytest.mark.asyncio
+    async def test_add_project_kills_terminal_before_opening_folder(self):
+        """add_project should kill existing terminal before opening new folder"""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            server.projects_base_path = tmpdir
+
+            call_order = []
+            server.vscode_controller = Mock()
+            server.vscode_controller.is_connected.return_value = True
+            server.vscode_controller.kill_terminal = AsyncMock(side_effect=lambda: call_order.append('kill'))
+            server.vscode_controller.open_folder = AsyncMock(side_effect=lambda x: call_order.append('open'))
+            server.vscode_controller.new_terminal = AsyncMock()
+            server.vscode_controller.send_sequence = AsyncMock(return_value=True)
+
+            mock_ws = AsyncMock()
+
+            await server.handle_add_project(mock_ws, {"name": "test-project"})
+
+            # Verify kill comes before open
+            assert call_order == ['kill', 'open']
+
+    @pytest.mark.asyncio
     async def test_add_project_creates_directory(self):
         """add_project should create project directory"""
         from ios_server import VoiceServer
@@ -231,6 +264,7 @@ class TestAddProject:
 
             server.vscode_controller = Mock()
             server.vscode_controller.is_connected.return_value = True
+            server.vscode_controller.kill_terminal = AsyncMock()
             server.vscode_controller.open_folder = AsyncMock()
             server.vscode_controller.new_terminal = AsyncMock()
             server.vscode_controller.send_sequence = AsyncMock(return_value=True)
@@ -255,6 +289,7 @@ class TestAddProject:
 
             server.vscode_controller = Mock()
             server.vscode_controller.is_connected.return_value = True
+            server.vscode_controller.kill_terminal = AsyncMock()
             server.vscode_controller.open_folder = AsyncMock()
             server.vscode_controller.new_terminal = AsyncMock()
             server.vscode_controller.send_sequence = AsyncMock(return_value=True)
@@ -278,6 +313,7 @@ class TestAddProject:
 
             server.vscode_controller = Mock()
             server.vscode_controller.is_connected.return_value = True
+            server.vscode_controller.kill_terminal = AsyncMock()
             server.vscode_controller.open_folder = AsyncMock()
             server.vscode_controller.new_terminal = AsyncMock()
             server.vscode_controller.send_sequence = AsyncMock(return_value=True)
@@ -287,4 +323,6 @@ class TestAddProject:
             await server.handle_add_project(mock_ws, {"name": "new-proj"})
 
             server.vscode_controller.new_terminal.assert_called_once()
-            server.vscode_controller.send_sequence.assert_called_with("claude\n")
+            # send_sequence is called multiple times (claude\n, then \r for trust)
+            calls = [str(c) for c in server.vscode_controller.send_sequence.call_args_list]
+            assert any("claude" in c for c in calls)
