@@ -500,10 +500,12 @@ end tell
 
             if self.vscode_controller.is_connected():
                 await self.vscode_controller.open_folder(project_path)
-                await asyncio.sleep(1.0)
+                await asyncio.sleep(3.0)
                 await self.vscode_controller.new_terminal()
                 await asyncio.sleep(0.5)
-                success = await self.vscode_controller.send_sequence("claude\n")
+                await self.vscode_controller.send_sequence("claude\n")
+                await asyncio.sleep(2.0)
+                success = await self.vscode_controller.send_sequence("\r")
             else:
                 success = True
 
