@@ -11,6 +11,7 @@ import Foundation
 class IntegrationTestBase: XCTestCase {
 
     static var app: XCUIApplication!
+    static var isConnected = false
 
     // Read server configuration from environment variables (set by xcodebuild)
     // Falls back to defaults for simulator testing
@@ -72,6 +73,8 @@ class IntegrationTestBase: XCTestCase {
 
         // Wait for app to be ready
         sleep(2)
+
+        isConnected = false  // Reset connection state for this test class
     }
 
     // Class-level teardown: Terminate app ONCE after all tests
@@ -97,11 +100,8 @@ class IntegrationTestBase: XCTestCase {
 
     // Per-test teardown: Clean up state between tests
     override func tearDownWithError() throws {
-        // Disconnect if connected (to reset state for next test)
-        if app.staticTexts["connectionStatus"].exists &&
-           app.staticTexts["connectionStatus"].label == "Connected" {
-            disconnectFromServer()
-        }
+        // Don't disconnect between tests - connection persists for all tests in class
+        // App termination in class tearDown handles cleanup
 
         try super.tearDownWithError()
     }
@@ -133,6 +133,11 @@ class IntegrationTestBase: XCTestCase {
     // MARK: - Helper Methods
 
     func connectToTestServer() {
+        // Skip if already connected (connection persists for all tests in class)
+        if Self.isConnected {
+            return
+        }
+
         // Tap settings button
         let settingsButton = app.buttons["gearshape.fill"]
         if settingsButton.waitForExistence(timeout: 5) {
@@ -184,6 +189,8 @@ class IntegrationTestBase: XCTestCase {
         let connectedLabel = app.staticTexts["connectionStatus"]
         XCTAssertTrue(connectedLabel.waitForExistence(timeout: 5), "Should show Connected status")
         XCTAssertEqual(connectedLabel.label, "Connected", "Connection status should be Connected")
+
+        Self.isConnected = true
     }
 
     func waitForVoiceState(_ expectedState: String, timeout: TimeInterval = 10.0) -> Bool {
