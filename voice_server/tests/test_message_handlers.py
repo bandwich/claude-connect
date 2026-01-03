@@ -19,8 +19,8 @@ class TestMessageHandlers:
         # Mock SessionManager
         mock_session_manager = Mock()
         mock_session_manager.list_projects.return_value = [
-            Project(path="/Users/test/project1", name="project1", session_count=5),
-            Project(path="/Users/test/project2", name="project2", session_count=3),
+            Project(path="/Users/test/project1", name="project1", session_count=5, folder_name="-Users-test-project1"),
+            Project(path="/Users/test/project2", name="project2", session_count=3, folder_name="-Users-test-project2"),
         ]
         server.session_manager = mock_session_manager
 

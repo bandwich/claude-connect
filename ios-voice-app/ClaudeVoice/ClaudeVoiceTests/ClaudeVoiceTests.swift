@@ -189,7 +189,8 @@ struct ProjectModelTests {
         {
             "path": "/Users/test/myproject",
             "name": "myproject",
-            "session_count": 5
+            "session_count": 5,
+            "folder_name": "-Users-test-myproject"
         }
         """
 
@@ -199,6 +200,7 @@ struct ProjectModelTests {
         #expect(project.path == "/Users/test/myproject")
         #expect(project.name == "myproject")
         #expect(project.sessionCount == 5)
+        #expect(project.folderName == "-Users-test-myproject")
     }
 
     @Test func testProjectIdentifiable() throws {
@@ -206,7 +208,8 @@ struct ProjectModelTests {
         {
             "path": "/Users/test/myproject",
             "name": "myproject",
-            "session_count": 3
+            "session_count": 3,
+            "folder_name": "-Users-test-myproject"
         }
         """
 
@@ -221,8 +224,8 @@ struct ProjectModelTests {
         {
             "type": "projects",
             "projects": [
-                {"path": "/path/a", "name": "a", "session_count": 1},
-                {"path": "/path/b", "name": "b", "session_count": 2}
+                {"path": "/path/a", "name": "a", "session_count": 1, "folder_name": "-path-a"},
+                {"path": "/path/b", "name": "b", "session_count": 2, "folder_name": "-path-b"}
             ]
         }
         """
