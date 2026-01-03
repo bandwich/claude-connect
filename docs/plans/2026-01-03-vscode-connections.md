@@ -2,9 +2,9 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use execute-plan to implement this plan task-by-task.
 
-**Goal:** Replace AppleScript with VSCodeController WebSocket and add full session management (resume, new, close, add project).
+**Goal:** Replace AppleScript with VSCodeController WebSocket, add session management (resume, new, close, add project), and sync VSCode session status to iOS app.
 
-**Architecture:** Python server connects to vscode-remote-control extension via WebSocket (ws://localhost:3710). All terminal commands go through this connection instead of clipboard+AppleScript. iOS app gets new buttons for Resume, New Session, and Close Session.
+**Architecture:** Python server connects to vscode-remote-control extension via WebSocket (ws://localhost:3710). Server tracks which session is active in VSCode and broadcasts status to iOS app. iOS app shows connected indicator when session is open, otherwise shows "Open in VSCode" button.
 
 **Tech Stack:** Python (websockets, asyncio), Swift/SwiftUI, vscode-remote-control extension
 
@@ -62,609 +62,103 @@ If this fails, ensure VS Code is open and the extension is installed.
 
 ---
 
-## Task 1: Add VSCode Connection Management to Server
+## Task 1: Add Active Session Tracking to Server
 
-Add connection lifecycle management for the VSCode WebSocket.
-
-**Files:**
-- Modify: `voice_server/vscode_controller.py`
-- Modify: `voice_server/tests/test_vscode_controller.py`
-
-### Step 1: Add test for connection state tracking
-
-```python
-# Add to voice_server/tests/test_vscode_controller.py
-import pytest
-
-class TestVSCodeControllerConnection:
-    """Tests for VSCodeController connection management"""
-
-    def test_is_connected_returns_false_initially(self):
-        """Should return False before connect() is called"""
-        from vscode_controller import VSCodeController
-
-        controller = VSCodeController()
-        assert controller.is_connected() is False
-
-    def test_is_connected_returns_true_after_connect(self):
-        """Should return True after successful connect()"""
-        from vscode_controller import VSCodeController
-
-        controller = VSCodeController()
-        # Mock successful connection
-        controller._connected = True
-        assert controller.is_connected() is True
-```
-
-### Step 2: Run test to verify it fails
-
-Run: `cd /Users/aaron/Desktop/max/voice_server && python -m pytest tests/test_vscode_controller.py::TestVSCodeControllerConnection::test_is_connected_returns_false_initially -v`
-Expected: FAIL with "AttributeError: 'VSCodeController' object has no attribute 'is_connected'"
-
-### Step 3: Add is_connected method
-
-```python
-# Add to voice_server/vscode_controller.py VSCodeController class
-
-    def is_connected(self) -> bool:
-        """Check if connected to VS Code extension"""
-        return self._connected
-```
-
-### Step 4: Run test to verify it passes
-
-Run: `cd /Users/aaron/Desktop/max/voice_server && python -m pytest tests/test_vscode_controller.py::TestVSCodeControllerConnection -v`
-Expected: PASS
-
-### Step 5: Commit
-
-```bash
-git add voice_server/vscode_controller.py voice_server/tests/test_vscode_controller.py
-git commit -m "feat: add is_connected method to VSCodeController"
-```
-
----
-
-## Task 2: Add Graceful Fallback in VSCodeController
-
-When VSCode isn't connected, methods should fail gracefully instead of crashing.
-
-**Files:**
-- Modify: `voice_server/vscode_controller.py`
-- Modify: `voice_server/tests/test_vscode_controller.py`
-
-### Step 1: Add test for graceful failure
-
-```python
-# Add to voice_server/tests/test_vscode_controller.py
-import pytest
-
-class TestVSCodeControllerGracefulFallback:
-    """Tests for graceful fallback when not connected"""
-
-    @pytest.mark.asyncio
-    async def test_send_sequence_returns_false_when_disconnected(self):
-        """Should return False instead of raising when not connected"""
-        from vscode_controller import VSCodeController
-
-        controller = VSCodeController()
-        # Don't connect - controller._connected is False
-
-        result = await controller.send_sequence("test")
-        assert result is False
-
-    @pytest.mark.asyncio
-    async def test_send_sequence_returns_true_when_connected(self):
-        """Should return True when message is sent"""
-        from vscode_controller import VSCodeController
-
-        controller = VSCodeController()
-
-        # Mock the WebSocket
-        sent_messages = []
-        class MockWS:
-            async def send(self, msg):
-                sent_messages.append(msg)
-
-        controller._ws = MockWS()
-        controller._connected = True
-
-        result = await controller.send_sequence("hello")
-        assert result is True
-        assert len(sent_messages) == 1
-```
-
-### Step 2: Run test to verify it fails
-
-Run: `cd /Users/aaron/Desktop/max/voice_server && python -m pytest tests/test_vscode_controller.py::TestVSCodeControllerGracefulFallback -v`
-Expected: FAIL (raises ConnectionError instead of returning False)
-
-### Step 3: Update send_sequence to return bool
-
-```python
-# Replace send_sequence in voice_server/vscode_controller.py
-
-    async def send_sequence(self, text: str) -> bool:
-        """Send text to the active terminal
-
-        Returns:
-            True if sent successfully, False if not connected
-        """
-        if not self._connected or not self._ws:
-            return False
-
-        try:
-            await self._send_command(
-                "workbench.action.terminal.sendSequence",
-                {"text": text}
-            )
-            return True
-        except Exception as e:
-            print(f"Failed to send sequence: {e}")
-            return False
-```
-
-### Step 4: Run test to verify it passes
-
-Run: `cd /Users/aaron/Desktop/max/voice_server && python -m pytest tests/test_vscode_controller.py::TestVSCodeControllerGracefulFallback -v`
-Expected: PASS
-
-### Step 5: Commit
-
-```bash
-git add voice_server/vscode_controller.py voice_server/tests/test_vscode_controller.py
-git commit -m "feat: add graceful fallback for disconnected VSCodeController"
-```
-
----
-
-## Task 3: Replace AppleScript with VSCodeController in Server
-
-Replace the `send_to_vs_code` AppleScript method with VSCodeController.
+Track which session_id is currently active in VSCode terminal.
 
 **Files:**
 - Modify: `voice_server/ios_server.py`
 - Modify: `voice_server/tests/test_message_handlers.py`
 
-### Step 1: Add test for VSCode integration
+### Step 1: Add test for active session tracking
 
 ```python
 # Add to voice_server/tests/test_message_handlers.py
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
-class TestVoiceInputWithVSCode:
-    """Tests for voice input via VSCode controller"""
+class TestActiveSessionTracking:
+    """Tests for active session tracking"""
 
     @pytest.mark.asyncio
-    async def test_voice_input_uses_vscode_controller(self):
-        """Voice input should send text via VSCodeController"""
+    async def test_resume_session_sets_active_session_id(self):
+        """resume_session should set active_session_id"""
         import sys
         sys.path.insert(0, '/Users/aaron/Desktop/max/voice_server')
 
         from ios_server import VoiceServer
-
-        server = VoiceServer()
-
-        # Mock VSCodeController
-        server.vscode_controller = AsyncMock()
-        server.vscode_controller.is_connected.return_value = True
-        server.vscode_controller.send_sequence = AsyncMock(return_value=True)
-
-        # Mock WebSocket
-        mock_ws = AsyncMock()
-
-        # Handle voice input
-        await server.handle_voice_input(mock_ws, {"text": "hello claude"})
-
-        # Verify send_sequence was called with text + Enter
-        server.vscode_controller.send_sequence.assert_called_once_with("hello claude\n")
-
-    @pytest.mark.asyncio
-    async def test_voice_input_falls_back_to_applescript(self):
-        """Should fall back to AppleScript if VSCode not connected"""
-        import sys
-        sys.path.insert(0, '/Users/aaron/Desktop/max/voice_server')
-
-        from ios_server import VoiceServer
-
-        server = VoiceServer()
-
-        # Mock VSCodeController as disconnected
-        server.vscode_controller = AsyncMock()
-        server.vscode_controller.is_connected.return_value = False
-
-        # Mock AppleScript fallback
-        with patch.object(server, 'send_to_vs_code_applescript') as mock_applescript:
-            mock_ws = AsyncMock()
-            await server.handle_voice_input(mock_ws, {"text": "hello"})
-            mock_applescript.assert_called_once_with("hello")
-```
-
-### Step 2: Run test to verify it fails
-
-Run: `cd /Users/aaron/Desktop/max/voice_server && python -m pytest tests/test_message_handlers.py::TestVoiceInputWithVSCode -v`
-Expected: FAIL (vscode_controller attribute doesn't exist on server)
-
-### Step 3: Update ios_server.py
-
-```python
-# At the top of voice_server/ios_server.py, add import:
-from vscode_controller import VSCodeController
-
-# In VoiceServer.__init__, add:
-        self.vscode_controller = VSCodeController()
-
-# Rename the existing send_to_vs_code to send_to_vs_code_applescript:
-    async def send_to_vs_code_applescript(self, text):
-        """Send text to VS Code via AppleScript (fallback)"""
-        subprocess.run(['pbcopy'], input=text.encode('utf-8'))
-        applescript = '''
-tell application "Visual Studio Code"
-    activate
-end tell
-delay 0.3
-tell application "System Events"
-    keystroke "v" using {command down}
-    delay 0.2
-    keystroke return
-end tell
-'''
-        subprocess.run(['osascript', '-e', applescript])
-
-# Create new send_to_vs_code that tries VSCode first:
-    async def send_to_vs_code(self, text):
-        """Send text to VS Code terminal
-
-        Tries VSCodeController first, falls back to AppleScript if not connected.
-        """
-        if self.vscode_controller.is_connected():
-            success = await self.vscode_controller.send_sequence(text + "\n")
-            if success:
-                return
-            print("VSCode send failed, falling back to AppleScript")
-
-        # Fallback to AppleScript
-        await self.send_to_vs_code_applescript(text)
-
-# In VoiceServer.start(), add VSCode connection after loop assignment:
-        self.loop = asyncio.get_running_loop()
-
-        # Try to connect to VSCode extension
-        connected = await self.vscode_controller.connect()
-        if connected:
-            print("✅ Connected to VSCode extension")
-        else:
-            print("⚠️ VSCode extension not available, using AppleScript fallback")
-```
-
-### Step 4: Run test to verify it passes
-
-Run: `cd /Users/aaron/Desktop/max/voice_server && python -m pytest tests/test_message_handlers.py::TestVoiceInputWithVSCode -v`
-Expected: PASS
-
-### Step 5: Commit
-
-```bash
-git add voice_server/ios_server.py voice_server/tests/test_message_handlers.py
-git commit -m "feat: replace AppleScript with VSCodeController for voice input"
-```
-
----
-
-## Task 4: Add close_session Handler
-
-Send Ctrl+C to terminate the current Claude session.
-
-**Files:**
-- Modify: `voice_server/ios_server.py`
-- Modify: `voice_server/tests/test_message_handlers.py`
-
-### Step 1: Add test for close_session
-
-```python
-# Add to voice_server/tests/test_message_handlers.py
-
-class TestCloseSession:
-    """Tests for close_session handler"""
-
-    @pytest.mark.asyncio
-    async def test_close_session_sends_ctrl_c(self):
-        """close_session should send Ctrl+C via VSCodeController"""
-        import sys
-        sys.path.insert(0, '/Users/aaron/Desktop/max/voice_server')
-
-        from ios_server import VoiceServer
-
-        server = VoiceServer()
-
-        # Mock VSCodeController
-        server.vscode_controller = AsyncMock()
-        server.vscode_controller.is_connected.return_value = True
-        server.vscode_controller.send_sequence = AsyncMock(return_value=True)
-
-        mock_ws = AsyncMock()
-
-        await server.handle_close_session(mock_ws)
-
-        # Ctrl+C is ASCII 0x03
-        server.vscode_controller.send_sequence.assert_called_once_with("\x03")
-
-    @pytest.mark.asyncio
-    async def test_close_session_returns_success_status(self):
-        """close_session should send success status to client"""
-        import sys
-        sys.path.insert(0, '/Users/aaron/Desktop/max/voice_server')
-
-        from ios_server import VoiceServer
-        import json
 
         server = VoiceServer()
         server.vscode_controller = AsyncMock()
         server.vscode_controller.is_connected.return_value = True
-        server.vscode_controller.send_sequence = AsyncMock(return_value=True)
-
-        mock_ws = AsyncMock()
-        sent_messages = []
-        mock_ws.send = AsyncMock(side_effect=lambda msg: sent_messages.append(msg))
-
-        await server.handle_close_session(mock_ws)
-
-        # Find the session_closed response
-        responses = [json.loads(m) for m in sent_messages]
-        closed_response = next((r for r in responses if r.get("type") == "session_closed"), None)
-        assert closed_response is not None
-        assert closed_response["success"] is True
-```
-
-### Step 2: Run test to verify it fails
-
-Run: `cd /Users/aaron/Desktop/max/voice_server && python -m pytest tests/test_message_handlers.py::TestCloseSession -v`
-Expected: FAIL (handle_close_session doesn't exist)
-
-### Step 3: Add close_session handler
-
-```python
-# Add to VoiceServer class in voice_server/ios_server.py
-
-    async def handle_close_session(self, websocket):
-        """Handle close_session request - sends Ctrl+C to terminal"""
-        success = False
-
-        if self.vscode_controller.is_connected():
-            # Ctrl+C is ASCII 0x03
-            success = await self.vscode_controller.send_sequence("\x03")
-
-        response = {
-            "type": "session_closed",
-            "success": success
-        }
-        await websocket.send(json.dumps(response))
-
-# Add to handle_message dispatch:
-            elif msg_type == 'close_session':
-                await self.handle_close_session(websocket)
-```
-
-### Step 4: Run test to verify it passes
-
-Run: `cd /Users/aaron/Desktop/max/voice_server && python -m pytest tests/test_message_handlers.py::TestCloseSession -v`
-Expected: PASS
-
-### Step 5: Commit
-
-```bash
-git add voice_server/ios_server.py voice_server/tests/test_message_handlers.py
-git commit -m "feat: add close_session handler to send Ctrl+C"
-```
-
----
-
-## Task 5: Add new_session Handler
-
-Open new terminal and start `claude` command.
-
-**Files:**
-- Modify: `voice_server/ios_server.py`
-- Modify: `voice_server/tests/test_message_handlers.py`
-
-### Step 1: Add test for new_session
-
-```python
-# Add to voice_server/tests/test_message_handlers.py
-
-class TestNewSession:
-    """Tests for new_session handler"""
-
-    @pytest.mark.asyncio
-    async def test_new_session_opens_terminal_and_runs_claude(self):
-        """new_session should open terminal and run claude"""
-        import sys
-        sys.path.insert(0, '/Users/aaron/Desktop/max/voice_server')
-
-        from ios_server import VoiceServer
-
-        server = VoiceServer()
-
-        # Mock VSCodeController
-        server.vscode_controller = AsyncMock()
-        server.vscode_controller.is_connected.return_value = True
+        server.vscode_controller.kill_terminal = AsyncMock()
         server.vscode_controller.new_terminal = AsyncMock()
         server.vscode_controller.send_sequence = AsyncMock(return_value=True)
 
         mock_ws = AsyncMock()
+        mock_ws.send = AsyncMock()
 
-        await server.handle_new_session(mock_ws, {"project_path": "/Users/test/myproject"})
+        await server.handle_resume_session(mock_ws, {"session_id": "abc123"})
 
-        # Should open new terminal
-        server.vscode_controller.new_terminal.assert_called_once()
-
-        # Should run claude command
-        server.vscode_controller.send_sequence.assert_called_with("claude\n")
+        assert server.active_session_id == "abc123"
 
     @pytest.mark.asyncio
-    async def test_new_session_returns_success_status(self):
-        """new_session should send success status"""
+    async def test_close_session_clears_active_session_id(self):
+        """close_session should clear active_session_id"""
         import sys
         sys.path.insert(0, '/Users/aaron/Desktop/max/voice_server')
 
         from ios_server import VoiceServer
-        import json
 
         server = VoiceServer()
+        server.active_session_id = "abc123"
         server.vscode_controller = AsyncMock()
         server.vscode_controller.is_connected.return_value = True
+        server.vscode_controller.kill_terminal = AsyncMock()
+
+        mock_ws = AsyncMock()
+        mock_ws.send = AsyncMock()
+
+        await server.handle_close_session(mock_ws)
+
+        assert server.active_session_id is None
+
+    @pytest.mark.asyncio
+    async def test_new_session_clears_active_session_id(self):
+        """new_session should clear active_session_id (new session has no ID yet)"""
+        import sys
+        sys.path.insert(0, '/Users/aaron/Desktop/max/voice_server')
+
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+        server.active_session_id = "old-session"
+        server.vscode_controller = AsyncMock()
+        server.vscode_controller.is_connected.return_value = True
+        server.vscode_controller.kill_terminal = AsyncMock()
         server.vscode_controller.new_terminal = AsyncMock()
         server.vscode_controller.send_sequence = AsyncMock(return_value=True)
 
         mock_ws = AsyncMock()
-        sent_messages = []
-        mock_ws.send = AsyncMock(side_effect=lambda msg: sent_messages.append(msg))
+        mock_ws.send = AsyncMock()
 
         await server.handle_new_session(mock_ws, {"project_path": "/test"})
 
-        responses = [json.loads(m) for m in sent_messages]
-        new_response = next((r for r in responses if r.get("type") == "session_created"), None)
-        assert new_response is not None
-        assert new_response["success"] is True
+        assert server.active_session_id is None
 ```
 
 ### Step 2: Run test to verify it fails
 
-Run: `cd /Users/aaron/Desktop/max/voice_server && python -m pytest tests/test_message_handlers.py::TestNewSession -v`
-Expected: FAIL (handle_new_session doesn't exist)
+Run: `cd /Users/aaron/Desktop/max/voice_server && python -m pytest tests/test_message_handlers.py::TestActiveSessionTracking -v`
+Expected: FAIL (active_session_id attribute doesn't exist)
 
-### Step 3: Add new_session handler
-
-```python
-# Add to VoiceServer class in voice_server/ios_server.py
-
-    async def handle_new_session(self, websocket, data):
-        """Handle new_session request - opens terminal and starts claude"""
-        project_path = data.get("project_path", "")
-        success = False
-
-        if self.vscode_controller.is_connected():
-            try:
-                # Open new terminal
-                await self.vscode_controller.new_terminal()
-
-                # Give VS Code time to create the terminal
-                await asyncio.sleep(0.5)
-
-                # Run claude command
-                success = await self.vscode_controller.send_sequence("claude\n")
-            except Exception as e:
-                print(f"Error creating new session: {e}")
-
-        response = {
-            "type": "session_created",
-            "success": success
-        }
-        await websocket.send(json.dumps(response))
-
-# Add to handle_message dispatch:
-            elif msg_type == 'new_session':
-                await self.handle_new_session(websocket, data)
-```
-
-### Step 4: Run test to verify it passes
-
-Run: `cd /Users/aaron/Desktop/max/voice_server && python -m pytest tests/test_message_handlers.py::TestNewSession -v`
-Expected: PASS
-
-### Step 5: Commit
-
-```bash
-git add voice_server/ios_server.py voice_server/tests/test_message_handlers.py
-git commit -m "feat: add new_session handler to start claude in new terminal"
-```
-
----
-
-## Task 6: Add resume_session Handler
-
-Resume an existing session with `claude --resume <session_id>`.
-
-**Files:**
-- Modify: `voice_server/ios_server.py`
-- Modify: `voice_server/tests/test_message_handlers.py`
-
-### Step 1: Add test for resume_session
+### Step 3: Add active session tracking to VoiceServer
 
 ```python
-# Add to voice_server/tests/test_message_handlers.py
+# In VoiceServer.__init__, add:
+        self.active_session_id = None  # Track which session is open in VSCode
 
-class TestResumeSession:
-    """Tests for resume_session handler"""
-
-    @pytest.mark.asyncio
-    async def test_resume_session_runs_claude_with_resume_flag(self):
-        """resume_session should run 'claude --resume <id>'"""
-        import sys
-        sys.path.insert(0, '/Users/aaron/Desktop/max/voice_server')
-
-        from ios_server import VoiceServer
-
-        server = VoiceServer()
-
-        server.vscode_controller = AsyncMock()
-        server.vscode_controller.is_connected.return_value = True
-        server.vscode_controller.new_terminal = AsyncMock()
-        server.vscode_controller.send_sequence = AsyncMock(return_value=True)
-
-        mock_ws = AsyncMock()
-
-        await server.handle_resume_session(mock_ws, {
-            "session_id": "abc123-def456"
-        })
-
-        # Should open new terminal
-        server.vscode_controller.new_terminal.assert_called_once()
-
-        # Should run claude --resume with session ID
-        server.vscode_controller.send_sequence.assert_called_with(
-            "claude --resume abc123-def456\n"
-        )
-
-    @pytest.mark.asyncio
-    async def test_resume_session_returns_success(self):
-        """resume_session should return success status"""
-        import sys
-        sys.path.insert(0, '/Users/aaron/Desktop/max/voice_server')
-
-        from ios_server import VoiceServer
-        import json
-
-        server = VoiceServer()
-        server.vscode_controller = AsyncMock()
-        server.vscode_controller.is_connected.return_value = True
-        server.vscode_controller.new_terminal = AsyncMock()
-        server.vscode_controller.send_sequence = AsyncMock(return_value=True)
-
-        mock_ws = AsyncMock()
-        sent_messages = []
-        mock_ws.send = AsyncMock(side_effect=lambda msg: sent_messages.append(msg))
-
-        await server.handle_resume_session(mock_ws, {"session_id": "test123"})
-
-        responses = [json.loads(m) for m in sent_messages]
-        resume_response = next((r for r in responses if r.get("type") == "session_resumed"), None)
-        assert resume_response is not None
-        assert resume_response["success"] is True
-        assert resume_response["session_id"] == "test123"
-```
-
-### Step 2: Run test to verify it fails
-
-Run: `cd /Users/aaron/Desktop/max/voice_server && python -m pytest tests/test_message_handlers.py::TestResumeSession -v`
-Expected: FAIL (handle_resume_session doesn't exist)
-
-### Step 3: Add resume_session handler
-
-```python
-# Add to VoiceServer class in voice_server/ios_server.py
-
+# Update handle_resume_session to set active_session_id:
     async def handle_resume_session(self, websocket, data):
         """Handle resume_session request - runs 'claude --resume <id>'"""
         session_id = data.get("session_id", "")
@@ -672,16 +166,15 @@ Expected: FAIL (handle_resume_session doesn't exist)
 
         if self.vscode_controller.is_connected() and session_id:
             try:
-                # Open new terminal
+                await self.vscode_controller.kill_terminal()
+                await asyncio.sleep(0.3)
                 await self.vscode_controller.new_terminal()
-
-                # Give VS Code time to create the terminal
                 await asyncio.sleep(0.5)
-
-                # Run claude --resume with session ID
                 success = await self.vscode_controller.send_sequence(
                     f"claude --resume {session_id}\n"
                 )
+                if success:
+                    self.active_session_id = session_id  # Track active session
             except Exception as e:
                 print(f"Error resuming session: {e}")
 
@@ -692,317 +185,329 @@ Expected: FAIL (handle_resume_session doesn't exist)
         }
         await websocket.send(json.dumps(response))
 
-# Add to handle_message dispatch:
-            elif msg_type == 'resume_session':
-                await self.handle_resume_session(websocket, data)
+        # Broadcast status to all clients
+        if success:
+            await self.broadcast_vscode_status()
+
+# Update handle_close_session to clear active_session_id:
+    async def handle_close_session(self, websocket):
+        """Handle close_session request - kills the active terminal"""
+        success = False
+
+        if self.vscode_controller.is_connected():
+            try:
+                await self.vscode_controller.kill_terminal()
+                success = True
+                self.active_session_id = None  # Clear active session
+            except Exception as e:
+                print(f"Error closing session: {e}")
+
+        response = {
+            "type": "session_closed",
+            "success": success
+        }
+        await websocket.send(json.dumps(response))
+
+        # Broadcast status to all clients
+        if success:
+            await self.broadcast_vscode_status()
+
+# Update handle_new_session to clear active_session_id:
+    async def handle_new_session(self, websocket, data):
+        """Handle new_session request - opens terminal and starts claude"""
+        project_path = data.get("project_path", "")
+        success = False
+
+        if self.vscode_controller.is_connected():
+            try:
+                await self.vscode_controller.kill_terminal()
+                await asyncio.sleep(0.3)
+                await self.vscode_controller.new_terminal()
+                await asyncio.sleep(0.5)
+                success = await self.vscode_controller.send_sequence("claude\n")
+                if success:
+                    self.active_session_id = None  # New session has no ID yet
+            except Exception as e:
+                print(f"Error creating new session: {e}")
+
+        response = {
+            "type": "session_created",
+            "success": success
+        }
+        await websocket.send(json.dumps(response))
+
+        # Broadcast status to all clients
+        if success:
+            await self.broadcast_vscode_status()
 ```
 
 ### Step 4: Run test to verify it passes
 
-Run: `cd /Users/aaron/Desktop/max/voice_server && python -m pytest tests/test_message_handlers.py::TestResumeSession -v`
+Run: `cd /Users/aaron/Desktop/max/voice_server && python -m pytest tests/test_message_handlers.py::TestActiveSessionTracking -v`
 Expected: PASS
 
 ### Step 5: Commit
 
 ```bash
 git add voice_server/ios_server.py voice_server/tests/test_message_handlers.py
-git commit -m "feat: add resume_session handler for --resume flag"
+git commit -m "feat: add active session tracking to VoiceServer"
 ```
 
 ---
 
-## Task 7: Add add_project Handler
+## Task 2: Add VSCode Status Broadcasting
 
-Create a new project directory and open it in VS Code.
+Broadcast VSCode connection status and active session to all iOS clients.
 
 **Files:**
 - Modify: `voice_server/ios_server.py`
 - Modify: `voice_server/tests/test_message_handlers.py`
 
-### Step 1: Add test for add_project
+### Step 1: Add test for status broadcasting
 
 ```python
 # Add to voice_server/tests/test_message_handlers.py
-import tempfile
-import shutil
 
-class TestAddProject:
-    """Tests for add_project handler"""
+class TestVSCodeStatusBroadcast:
+    """Tests for VSCode status broadcasting"""
 
     @pytest.mark.asyncio
-    async def test_add_project_creates_directory(self):
-        """add_project should create project directory"""
+    async def test_broadcast_includes_vscode_connected_status(self):
+        """broadcast_vscode_status should include vscode_connected"""
         import sys
-        sys.path.insert(0, '/Users/aaron/Desktop/max/voice_server')
-
-        from ios_server import VoiceServer
-        import os
-
-        server = VoiceServer()
-
-        # Use temp directory for test
-        with tempfile.TemporaryDirectory() as tmpdir:
-            server.projects_base_path = tmpdir
-
-            server.vscode_controller = AsyncMock()
-            server.vscode_controller.is_connected.return_value = True
-            server.vscode_controller.open_folder = AsyncMock()
-            server.vscode_controller.new_terminal = AsyncMock()
-            server.vscode_controller.send_sequence = AsyncMock(return_value=True)
-
-            mock_ws = AsyncMock()
-
-            await server.handle_add_project(mock_ws, {"name": "test-project"})
-
-            # Verify directory was created
-            project_path = os.path.join(tmpdir, "test-project")
-            assert os.path.exists(project_path)
-            assert os.path.isdir(project_path)
-
-    @pytest.mark.asyncio
-    async def test_add_project_opens_in_vscode(self):
-        """add_project should open folder in VS Code"""
-        import sys
+        import json
         sys.path.insert(0, '/Users/aaron/Desktop/max/voice_server')
 
         from ios_server import VoiceServer
 
         server = VoiceServer()
+        server.vscode_controller = AsyncMock()
+        server.vscode_controller.is_connected.return_value = True
+        server.active_session_id = "test-session"
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            server.projects_base_path = tmpdir
+        mock_ws = AsyncMock()
+        sent_messages = []
+        mock_ws.send = AsyncMock(side_effect=lambda msg: sent_messages.append(msg))
+        server.clients.add(mock_ws)
 
-            server.vscode_controller = AsyncMock()
-            server.vscode_controller.is_connected.return_value = True
-            server.vscode_controller.open_folder = AsyncMock()
-            server.vscode_controller.new_terminal = AsyncMock()
-            server.vscode_controller.send_sequence = AsyncMock(return_value=True)
+        await server.broadcast_vscode_status()
 
-            mock_ws = AsyncMock()
-
-            await server.handle_add_project(mock_ws, {"name": "my-project"})
-
-            # Verify open_folder was called
-            expected_path = f"{tmpdir}/my-project"
-            server.vscode_controller.open_folder.assert_called_once_with(expected_path)
+        assert len(sent_messages) == 1
+        response = json.loads(sent_messages[0])
+        assert response["type"] == "vscode_status"
+        assert response["vscode_connected"] is True
+        assert response["active_session_id"] == "test-session"
 
     @pytest.mark.asyncio
-    async def test_add_project_starts_claude(self):
-        """add_project should start claude in new terminal"""
+    async def test_broadcast_on_client_connect(self):
+        """Should broadcast status when client connects"""
         import sys
+        import json
         sys.path.insert(0, '/Users/aaron/Desktop/max/voice_server')
 
         from ios_server import VoiceServer
 
         server = VoiceServer()
+        server.vscode_controller = AsyncMock()
+        server.vscode_controller.is_connected.return_value = True
+        server.active_session_id = None
+        server.loop = asyncio.get_event_loop()
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            server.projects_base_path = tmpdir
+        mock_ws = AsyncMock()
+        sent_messages = []
+        mock_ws.send = AsyncMock(side_effect=lambda msg: sent_messages.append(msg))
 
-            server.vscode_controller = AsyncMock()
-            server.vscode_controller.is_connected.return_value = True
-            server.vscode_controller.open_folder = AsyncMock()
-            server.vscode_controller.new_terminal = AsyncMock()
-            server.vscode_controller.send_sequence = AsyncMock(return_value=True)
+        # Simulate initial status send
+        await server.send_status(mock_ws, "idle", "Connected")
+        await server.send_vscode_status(mock_ws)
 
-            mock_ws = AsyncMock()
-
-            await server.handle_add_project(mock_ws, {"name": "new-proj"})
-
-            # Verify claude was started
-            server.vscode_controller.new_terminal.assert_called_once()
-            server.vscode_controller.send_sequence.assert_called_with("claude\n")
+        # Should have status message and vscode_status
+        responses = [json.loads(m) for m in sent_messages]
+        vscode_status = next((r for r in responses if r.get("type") == "vscode_status"), None)
+        assert vscode_status is not None
+        assert "vscode_connected" in vscode_status
+        assert "active_session_id" in vscode_status
 ```
 
 ### Step 2: Run test to verify it fails
 
-Run: `cd /Users/aaron/Desktop/max/voice_server && python -m pytest tests/test_message_handlers.py::TestAddProject -v`
-Expected: FAIL (handle_add_project doesn't exist)
+Run: `cd /Users/aaron/Desktop/max/voice_server && python -m pytest tests/test_message_handlers.py::TestVSCodeStatusBroadcast -v`
+Expected: FAIL (broadcast_vscode_status doesn't exist)
 
-### Step 3: Add add_project handler and config
+### Step 3: Add broadcast methods
 
 ```python
-# Add near top of voice_server/ios_server.py (after TRANSCRIPT_DIR):
-PROJECTS_BASE_PATH = os.path.expanduser("~/Desktop/code")
+# Add to VoiceServer class in voice_server/ios_server.py
 
-# Add to VoiceServer.__init__:
-        self.projects_base_path = PROJECTS_BASE_PATH
-
-# Add to VoiceServer class:
-    async def handle_add_project(self, websocket, data):
-        """Handle add_project request - creates directory and opens in VS Code"""
-        name = data.get("name", "").strip()
-        success = False
-        project_path = ""
-
-        if not name:
-            response = {
-                "type": "project_created",
-                "success": False,
-                "error": "Project name is required"
-            }
-            await websocket.send(json.dumps(response))
-            return
-
-        # Sanitize name (remove unsafe characters)
-        safe_name = "".join(c for c in name if c.isalnum() or c in "-_.")
-        project_path = os.path.join(self.projects_base_path, safe_name)
-
-        try:
-            # Create directory
-            os.makedirs(project_path, exist_ok=True)
-
-            if self.vscode_controller.is_connected():
-                # Open in VS Code
-                await self.vscode_controller.open_folder(project_path)
-
-                # Wait for VS Code to open the folder
-                await asyncio.sleep(1.0)
-
-                # Open terminal and start claude
-                await self.vscode_controller.new_terminal()
-                await asyncio.sleep(0.5)
-                success = await self.vscode_controller.send_sequence("claude\n")
-            else:
-                success = True  # Directory created, but VSCode not available
-
-        except Exception as e:
-            print(f"Error creating project: {e}")
-
+    async def send_vscode_status(self, websocket):
+        """Send VSCode status to a single client"""
         response = {
-            "type": "project_created",
-            "success": success,
-            "path": project_path,
-            "name": safe_name
+            "type": "vscode_status",
+            "vscode_connected": self.vscode_controller.is_connected(),
+            "active_session_id": self.active_session_id
         }
         await websocket.send(json.dumps(response))
 
-# Add to handle_message dispatch:
-            elif msg_type == 'add_project':
-                await self.handle_add_project(websocket, data)
+    async def broadcast_vscode_status(self):
+        """Broadcast VSCode status to all connected clients"""
+        for websocket in list(self.clients):
+            try:
+                await self.send_vscode_status(websocket)
+            except Exception as e:
+                print(f"Error broadcasting status: {e}")
+
+# Update handle_client to send vscode_status on connect:
+    async def handle_client(self, websocket, path):
+        """Handle client connection"""
+        self.clients.add(websocket)
+        print(f"Client connected. Total clients: {len(self.clients)}")
+        try:
+            await self.send_status(websocket, "idle", "Connected")
+            await self.send_vscode_status(websocket)  # Send VSCode status on connect
+            async for message in websocket:
+                print(f"Received message: {message[:100]}...")
+                await self.handle_message(websocket, message)
+        except Exception as e:
+            print(f"Client error: {e}")
+        finally:
+            self.clients.discard(websocket)
+            print(f"Client disconnected. Total clients: {len(self.clients)}")
 ```
 
 ### Step 4: Run test to verify it passes
 
-Run: `cd /Users/aaron/Desktop/max/voice_server && python -m pytest tests/test_message_handlers.py::TestAddProject -v`
+Run: `cd /Users/aaron/Desktop/max/voice_server && python -m pytest tests/test_message_handlers.py::TestVSCodeStatusBroadcast -v`
 Expected: PASS
 
 ### Step 5: Commit
 
 ```bash
 git add voice_server/ios_server.py voice_server/tests/test_message_handlers.py
-git commit -m "feat: add add_project handler to create and open projects"
+git commit -m "feat: add VSCode status broadcasting to clients"
 ```
 
 ---
 
-## Task 8: Add iOS WebSocket Methods for Session Actions
+## Task 3: Add VSCode Status Model to iOS
 
-Add methods to WebSocketManager for the new session commands.
+Add model to decode VSCode status messages.
 
 **Files:**
-- Modify: `ios-voice-app/ClaudeVoice/ClaudeVoice/Services/WebSocketManager.swift`
+- Modify: `ios-voice-app/ClaudeVoice/ClaudeVoice/Models/Session.swift`
 
-### Step 1: Add new response types to Models
+### Step 1: Add VSCodeStatus model
 
 ```swift
 // Add to ios-voice-app/ClaudeVoice/ClaudeVoice/Models/Session.swift
 
-struct SessionActionResponse: Codable {
+struct VSCodeStatus: Codable {
     let type: String
-    let success: Bool
-    let sessionId: String?
-    let path: String?
-    let name: String?
-    let error: String?
+    let vscodeConnected: Bool
+    let activeSessionId: String?
 
     enum CodingKeys: String, CodingKey {
-        case type, success, path, name, error
-        case sessionId = "session_id"
+        case type
+        case vscodeConnected = "vscode_connected"
+        case activeSessionId = "active_session_id"
     }
 }
 ```
 
-### Step 2: Add WebSocket methods
-
-```swift
-// Add to ios-voice-app/ClaudeVoice/ClaudeVoice/Services/WebSocketManager.swift
-
-// Add callback for session actions
-var onSessionActionResult: ((SessionActionResponse) -> Void)?
-
-// Add request methods
-func closeSession() {
-    let message = ["type": "close_session"]
-    sendJSON(message)
-}
-
-func newSession(projectPath: String) {
-    let message: [String: Any] = [
-        "type": "new_session",
-        "project_path": projectPath
-    ]
-    sendJSON(message)
-}
-
-func resumeSession(sessionId: String) {
-    let message: [String: Any] = [
-        "type": "resume_session",
-        "session_id": sessionId
-    ]
-    sendJSON(message)
-}
-
-func addProject(name: String) {
-    let message: [String: Any] = [
-        "type": "add_project",
-        "name": name
-    ]
-    sendJSON(message)
-}
-
-// In handleMessage, add decoding for session action responses:
-// (After the existing if/else chain for message types)
-} else if let actionResponse = try? JSONDecoder().decode(SessionActionResponse.self, from: data) {
-    logToFile("✅ Decoded as SessionActionResponse: \(actionResponse.type)")
-    DispatchQueue.main.async {
-        self.onSessionActionResult?(actionResponse)
-    }
-}
-```
-
-### Step 3: Build to verify
+### Step 2: Build to verify
 
 Run: `cd /Users/aaron/Desktop/max/ios-voice-app/ClaudeVoice && xcodebuild -scheme ClaudeVoice -destination 'platform=iOS Simulator,name=iPhone 16' build 2>&1 | tail -10`
 Expected: BUILD SUCCEEDED
 
-### Step 4: Commit
+### Step 3: Commit
 
 ```bash
-git add ios-voice-app/ClaudeVoice/ClaudeVoice/Services/WebSocketManager.swift ios-voice-app/ClaudeVoice/ClaudeVoice/Models/Session.swift
-git commit -m "feat: add iOS WebSocket methods for session actions"
+git add ios-voice-app/ClaudeVoice/ClaudeVoice/Models/Session.swift
+git commit -m "feat: add VSCodeStatus model for sync detection"
 ```
 
 ---
 
-## Task 9: Add Resume Button to SessionView
+## Task 4: Add VSCode Status Tracking to WebSocketManager
 
-Add a "Resume" button in the session view to resume the selected session.
+Track VSCode status and active session in WebSocketManager.
+
+**Files:**
+- Modify: `ios-voice-app/ClaudeVoice/ClaudeVoice/Services/WebSocketManager.swift`
+
+### Step 1: Add published properties and callback
+
+```swift
+// Add published properties to WebSocketManager class:
+    @Published var vscodeConnected: Bool = false
+    @Published var activeSessionId: String? = nil
+
+// Add callback:
+    var onVSCodeStatusReceived: ((VSCodeStatus) -> Void)?
+
+// In handleMessage, add decoding for VSCode status (in the if/else chain):
+            } else if let vscodeStatus = try? JSONDecoder().decode(VSCodeStatus.self, from: data) {
+                logToFile("✅ Decoded as VSCodeStatus: connected=\(vscodeStatus.vscodeConnected), session=\(vscodeStatus.activeSessionId ?? "none")")
+                DispatchQueue.main.async {
+                    self.vscodeConnected = vscodeStatus.vscodeConnected
+                    self.activeSessionId = vscodeStatus.activeSessionId
+                    self.onVSCodeStatusReceived?(vscodeStatus)
+                }
+            }
+```
+
+### Step 2: Build to verify
+
+Run: `cd /Users/aaron/Desktop/max/ios-voice-app/ClaudeVoice && xcodebuild -scheme ClaudeVoice -destination 'platform=iOS Simulator,name=iPhone 16' build 2>&1 | tail -10`
+Expected: BUILD SUCCEEDED
+
+### Step 3: Commit
+
+```bash
+git add ios-voice-app/ClaudeVoice/ClaudeVoice/Services/WebSocketManager.swift
+git commit -m "feat: add VSCode status tracking to WebSocketManager"
+```
+
+---
+
+## Task 5: Update SessionView with Sync Detection UI
+
+Update SessionView to show connected status and conditional open button.
 
 **Files:**
 - Modify: `ios-voice-app/ClaudeVoice/ClaudeVoice/Views/SessionView.swift`
 
-### Step 1: Add Resume button to toolbar
+### Step 1: Update toolbar with sync-aware buttons
+
+Replace the toolbar in SessionView:
 
 ```swift
-// Replace the toolbar in SessionView with:
+// Replace the toolbar section:
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 HStack(spacing: 16) {
-                    Button(action: resumeSession) {
-                        Image(systemName: "play.fill")
+                    // Show connected indicator OR open button based on sync state
+                    if isSessionActive {
+                        // Connected indicator - this session is open in VSCode
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                            .accessibilityLabel("Session Active in VSCode")
+                    } else {
+                        // Open button - session not active, allow opening
+                        Button(action: resumeSession) {
+                            Image(systemName: "arrow.up.forward.app")
+                        }
+                        .disabled(isResuming || !webSocketManager.vscodeConnected)
+                        .accessibilityLabel("Open in VSCode")
                     }
-                    .accessibilityLabel("Resume Session")
+
+                    // Close button - only show when this session is active
+                    if isSessionActive {
+                        Button(action: closeSession) {
+                            Image(systemName: "xmark.circle")
+                        }
+                        .disabled(isClosing)
+                        .accessibilityLabel("Close Session")
+                    }
 
                     Button(action: { showingSettings = true }) {
                         Image(systemName: "gearshape.fill")
@@ -1011,25 +516,9 @@ Add a "Resume" button in the session view to resume the selected session.
             }
         }
 
-// Add state for resume action:
-    @State private var isResuming = false
-
-// Add resumeSession function:
-    private func resumeSession() {
-        guard !isResuming else { return }
-        isResuming = true
-
-        webSocketManager.onSessionActionResult = { response in
-            isResuming = false
-            if response.success {
-                // Session resumed - voice input is now active for this session
-                print("Session resumed successfully")
-            } else {
-                print("Failed to resume session: \(response.error ?? "Unknown error")")
-            }
-        }
-
-        webSocketManager.resumeSession(sessionId: session.id)
+// Add computed property:
+    private var isSessionActive: Bool {
+        webSocketManager.activeSessionId == session.id
     }
 ```
 
@@ -1042,14 +531,14 @@ Expected: BUILD SUCCEEDED
 
 ```bash
 git add ios-voice-app/ClaudeVoice/ClaudeVoice/Views/SessionView.swift
-git commit -m "feat: add Resume button to SessionView"
+git commit -m "feat: add sync detection UI to SessionView"
 ```
 
 ---
 
-## Task 10: Add New Session Button to SessionsListView
+## Task 6: Update SessionsListView with Active Indicator
 
-Add a "New Session" button in the sessions list.
+Show which session is active in the sessions list.
 
 **Files:**
 - Modify: `ios-voice-app/ClaudeVoice/ClaudeVoice/Views/SessionsListView.swift`
@@ -1058,37 +547,34 @@ Add a "New Session" button in the sessions list.
 
 Run: Read the file first to see current structure.
 
-### Step 2: Add New Session button
+### Step 2: Add active indicator to list items
 
 ```swift
-// Add to SessionsListView toolbar:
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button(action: createNewSession) {
-                    Image(systemName: "plus")
-                }
-                .accessibilityLabel("New Session")
-            }
-        }
+// In SessionsListView, update the NavigationLink row to show active indicator:
+                    NavigationLink(destination: SessionView(
+                        webSocketManager: webSocketManager,
+                        project: project,
+                        session: session
+                    )) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(session.title)
+                                    .font(.headline)
+                                Text(session.formattedDate)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
 
-// Add state:
-    @State private var isCreating = false
+                            Spacer()
 
-// Add function:
-    private func createNewSession() {
-        guard !isCreating else { return }
-        isCreating = true
-
-        webSocketManager.onSessionActionResult = { response in
-            isCreating = false
-            if response.success {
-                // Refresh sessions list
-                webSocketManager.requestSessions(folderName: project.folderName)
-            }
-        }
-
-        webSocketManager.newSession(projectPath: project.path)
-    }
+                            // Show active indicator if this session is open in VSCode
+                            if webSocketManager.activeSessionId == session.id {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.green)
+                                    .accessibilityLabel("Active in VSCode")
+                            }
+                        }
+                    }
 ```
 
 ### Step 3: Build to verify
@@ -1100,152 +586,12 @@ Expected: BUILD SUCCEEDED
 
 ```bash
 git add ios-voice-app/ClaudeVoice/ClaudeVoice/Views/SessionsListView.swift
-git commit -m "feat: add New Session button to SessionsListView"
+git commit -m "feat: add active session indicator to SessionsListView"
 ```
 
 ---
 
-## Task 11: Add Close Session Button to SessionView
-
-Add ability to close the current session from the session view.
-
-**Files:**
-- Modify: `ios-voice-app/ClaudeVoice/ClaudeVoice/Views/SessionView.swift`
-
-### Step 1: Add Close button to toolbar
-
-```swift
-// Update the toolbar HStack to include close button:
-                HStack(spacing: 16) {
-                    Button(action: closeSession) {
-                        Image(systemName: "stop.fill")
-                    }
-                    .accessibilityLabel("Close Session")
-
-                    Button(action: resumeSession) {
-                        Image(systemName: "play.fill")
-                    }
-                    .accessibilityLabel("Resume Session")
-
-                    Button(action: { showingSettings = true }) {
-                        Image(systemName: "gearshape.fill")
-                    }
-                }
-
-// Add state:
-    @State private var isClosing = false
-
-// Add closeSession function:
-    private func closeSession() {
-        guard !isClosing else { return }
-        isClosing = true
-
-        webSocketManager.onSessionActionResult = { response in
-            isClosing = false
-            if response.success {
-                print("Session closed successfully")
-            }
-        }
-
-        webSocketManager.closeSession()
-    }
-```
-
-### Step 2: Build to verify
-
-Run: `cd /Users/aaron/Desktop/max/ios-voice-app/ClaudeVoice && xcodebuild -scheme ClaudeVoice -destination 'platform=iOS Simulator,name=iPhone 16' build 2>&1 | tail -10`
-Expected: BUILD SUCCEEDED
-
-### Step 3: Commit
-
-```bash
-git add ios-voice-app/ClaudeVoice/ClaudeVoice/Views/SessionView.swift
-git commit -m "feat: add Close Session button to SessionView"
-```
-
----
-
-## Task 12: Add Add Project Button to ProjectsListView
-
-Add ability to create new projects from the projects list.
-
-**Files:**
-- Modify: `ios-voice-app/ClaudeVoice/ClaudeVoice/Views/ProjectsListView.swift`
-
-### Step 1: Read current ProjectsListView
-
-Run: Read the file first.
-
-### Step 2: Add Add Project button with alert
-
-```swift
-// Add state variables:
-    @State private var showingAddProject = false
-    @State private var newProjectName = ""
-    @State private var isCreating = false
-
-// Add toolbar:
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button(action: { showingAddProject = true }) {
-                    Image(systemName: "folder.badge.plus")
-                }
-                .accessibilityLabel("Add Project")
-            }
-        }
-
-// Add alert for project name input:
-        .alert("New Project", isPresented: $showingAddProject) {
-            TextField("Project name", text: $newProjectName)
-            Button("Cancel", role: .cancel) {
-                newProjectName = ""
-            }
-            Button("Create") {
-                createProject()
-            }
-        } message: {
-            Text("Enter a name for the new project")
-        }
-
-// Add createProject function:
-    private func createProject() {
-        let name = newProjectName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty, !isCreating else {
-            newProjectName = ""
-            return
-        }
-
-        isCreating = true
-
-        webSocketManager.onSessionActionResult = { response in
-            isCreating = false
-            newProjectName = ""
-
-            if response.success {
-                // Refresh projects list
-                webSocketManager.requestProjects()
-            }
-        }
-
-        webSocketManager.addProject(name: name)
-    }
-```
-
-### Step 3: Build to verify
-
-Run: `cd /Users/aaron/Desktop/max/ios-voice-app/ClaudeVoice && xcodebuild -scheme ClaudeVoice -destination 'platform=iOS Simulator,name=iPhone 16' build 2>&1 | tail -10`
-Expected: BUILD SUCCEEDED
-
-### Step 4: Commit
-
-```bash
-git add ios-voice-app/ClaudeVoice/ClaudeVoice/Views/ProjectsListView.swift
-git commit -m "feat: add Add Project button to ProjectsListView"
-```
-
----
-
-## Task 13: Run All Python Tests
+## Task 7: Run All Python Tests
 
 Verify all server tests pass.
 
@@ -1267,7 +613,7 @@ git commit -m "fix: resolve test failures"
 
 ---
 
-## Task 14: Run iOS Build and Tests
+## Task 8: Run iOS Build and Tests
 
 Verify iOS app builds and tests pass.
 
@@ -1290,18 +636,13 @@ git commit -m "fix: resolve iOS build/test issues"
 
 ---
 
-## Task 15: Manual Integration Test
+## Task 9: Manual Integration Test
 
-Test the full flow manually to verify VSCode integration works.
+Test the full flow manually to verify VSCode sync detection works.
 
 ### Checklist:
 
-1. **Verify extension is installed:**
-   - Open VS Code
-   - Run the verification script from Prerequisites
-   - Should see "✅ Connected" and "✅ Command sent"
-
-2. **Start server:**
+1. **Start server:**
    ```bash
    cd /Users/aaron/Desktop/max/voice_server
    source ../.venv/bin/activate
@@ -1309,29 +650,42 @@ Test the full flow manually to verify VSCode integration works.
    ```
    - Should see "✅ Connected to VSCode extension"
 
-3. **Test voice input:**
-   - Send voice input from iOS app
-   - Verify text appears in VS Code terminal
-   - Verify Claude responds and TTS plays
+2. **Connect iOS app:**
+   - Open app and connect to server
+   - Should receive `vscode_status` message (check logs)
 
-4. **Test session actions:**
-   - Tap Resume on a session → should run `claude --resume <id>`
-   - Tap Close → should send Ctrl+C
-   - Tap New Session → should open terminal and run `claude`
-   - Tap Add Project → should create folder and open in VS Code
+3. **Test sync detection flow:**
+   - Navigate to a session in the app
+   - Should see "Open in VSCode" button (arrow.up.forward.app icon)
+   - Tap to open → should run `claude --resume <id>`
+   - Session should now show green checkmark (checkmark.circle.fill)
+   - Close button (xmark.circle) should appear
+
+4. **Test close flow:**
+   - Tap close button
+   - Green checkmark should disappear
+   - "Open in VSCode" button should reappear
+
+5. **Test sessions list:**
+   - Go back to sessions list
+   - Active session should show green checkmark indicator
+   - Other sessions should not have indicator
 
 ---
 
 ## Summary
 
-This plan implements all deferred VSCode connection features:
+This plan implements VSCode sync detection with these UI changes:
 
-| Feature | Server Handler | iOS Method | UI Location |
-|---------|---------------|------------|-------------|
-| Replace AppleScript | Updated `send_to_vs_code()` | N/A | Transparent |
-| Close Session | `handle_close_session()` | `closeSession()` | SessionView toolbar |
-| New Session | `handle_new_session()` | `newSession()` | SessionsListView toolbar |
-| Resume Session | `handle_resume_session()` | `resumeSession()` | SessionView toolbar |
-| Add Project | `handle_add_project()` | `addProject()` | ProjectsListView toolbar |
+| State | Icon | Location |
+|-------|------|----------|
+| Session active in VSCode | `checkmark.circle.fill` (green) | SessionView toolbar, SessionsListView row |
+| Session not active | `arrow.up.forward.app` | SessionView toolbar (Open button) |
+| Close active session | `xmark.circle` | SessionView toolbar (only when active) |
+| VSCode disconnected | Open button disabled | SessionView toolbar |
 
-All features have unit tests and gracefully fall back when VSCode extension is unavailable.
+**Icon choices rationale:**
+- `checkmark.circle.fill` - Standard iOS "active/connected" indicator
+- `arrow.up.forward.app` - Standard iOS "open in app" icon
+- `xmark.circle` - Standard iOS "close/dismiss" icon
+- NOT using `play.fill`/`stop.fill` as those imply media playback
