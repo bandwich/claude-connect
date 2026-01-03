@@ -14,6 +14,7 @@ struct SessionView: View {
     @State private var showingSettings = false
     @State private var isInitialLoad = true
     @State private var isResuming = false
+    @State private var isClosing = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -86,6 +87,11 @@ struct SessionView: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 HStack(spacing: 16) {
+                    Button(action: closeSession) {
+                        Image(systemName: "stop.fill")
+                    }
+                    .accessibilityLabel("Close Session")
+
                     Button(action: resumeSession) {
                         Image(systemName: "play.fill")
                     }
@@ -197,6 +203,20 @@ struct SessionView: View {
         }
 
         webSocketManager.resumeSession(sessionId: session.id)
+    }
+
+    private func closeSession() {
+        guard !isClosing else { return }
+        isClosing = true
+
+        webSocketManager.onSessionActionResult = { response in
+            isClosing = false
+            if response.success {
+                print("Session closed successfully")
+            }
+        }
+
+        webSocketManager.closeSession()
     }
 }
 
