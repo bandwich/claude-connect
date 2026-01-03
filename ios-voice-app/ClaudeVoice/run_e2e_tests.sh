@@ -73,6 +73,7 @@ xcodebuild test \
     -only-testing:ClaudeVoiceUITests/E2EProjectsListTests \
     -only-testing:ClaudeVoiceUITests/E2ESessionsListTests \
     -only-testing:ClaudeVoiceUITests/E2ESessionViewTests \
+    -only-testing:ClaudeVoiceUITests/E2EVSCodeConnectionTests \
     -parallel-testing-enabled NO \
     2>&1 | tee /tmp/e2e_test.log
 

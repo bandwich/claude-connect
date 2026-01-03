@@ -73,15 +73,12 @@ struct SessionView: View {
                         .font(.caption)
                         .foregroundColor(.red)
                         .accessibilityIdentifier("syncError")
-                } else if isSessionSynced {
+                } else {
+                    // Show voice state always (button is disabled until synced)
                     Text(webSocketManager.voiceState.description)
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .accessibilityIdentifier("voiceState")
-                } else {
-                    Text("Waiting for sync...")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
                 }
 
                 Button(action: toggleRecording) {
