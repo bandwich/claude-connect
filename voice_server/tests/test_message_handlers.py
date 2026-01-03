@@ -387,3 +387,56 @@ class TestActiveSessionTracking:
         await server.handle_new_session(mock_ws, {"project_path": "/test"})
 
         assert server.active_session_id is None
+
+
+class TestVSCodeStatusBroadcast:
+    """Tests for VSCode status broadcasting"""
+
+    @pytest.mark.asyncio
+    async def test_broadcast_includes_vscode_connected_status(self):
+        """broadcast_vscode_status should include vscode_connected"""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+        server.vscode_controller = Mock()
+        server.vscode_controller.is_connected.return_value = True
+        server.active_session_id = "test-session"
+
+        mock_ws = AsyncMock()
+        sent_messages = []
+        mock_ws.send = AsyncMock(side_effect=lambda msg: sent_messages.append(msg))
+        server.clients.add(mock_ws)
+
+        await server.broadcast_vscode_status()
+
+        assert len(sent_messages) == 1
+        response = json.loads(sent_messages[0])
+        assert response["type"] == "vscode_status"
+        assert response["vscode_connected"] is True
+        assert response["active_session_id"] == "test-session"
+
+    @pytest.mark.asyncio
+    async def test_broadcast_on_client_connect(self):
+        """Should broadcast status when client connects"""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+        server.vscode_controller = Mock()
+        server.vscode_controller.is_connected.return_value = True
+        server.active_session_id = None
+        server.loop = asyncio.get_event_loop()
+
+        mock_ws = AsyncMock()
+        sent_messages = []
+        mock_ws.send = AsyncMock(side_effect=lambda msg: sent_messages.append(msg))
+
+        # Simulate initial status send
+        await server.send_status(mock_ws, "idle", "Connected")
+        await server.send_vscode_status(mock_ws)
+
+        # Should have status message and vscode_status
+        responses = [json.loads(m) for m in sent_messages]
+        vscode_status = next((r for r in responses if r.get("type") == "vscode_status"), None)
+        assert vscode_status is not None
+        assert "vscode_connected" in vscode_status
+        assert "active_session_id" in vscode_status

@@ -253,6 +253,23 @@ class VoiceServer:
             "timestamp": time.time()
         }))
 
+    async def send_vscode_status(self, websocket):
+        """Send VSCode status to a single client"""
+        response = {
+            "type": "vscode_status",
+            "vscode_connected": self.vscode_controller.is_connected(),
+            "active_session_id": self.active_session_id
+        }
+        await websocket.send(json.dumps(response))
+
+    async def broadcast_vscode_status(self):
+        """Broadcast VSCode status to all connected clients"""
+        for websocket in list(self.clients):
+            try:
+                await self.send_vscode_status(websocket)
+            except Exception as e:
+                print(f"Error broadcasting status: {e}")
+
     async def send_to_vs_code_applescript(self, text):
         """Send text to VS Code via AppleScript (fallback)"""
         subprocess.run(['pbcopy'], input=text.encode('utf-8'))
@@ -438,6 +455,10 @@ end tell
         }
         await websocket.send(json.dumps(response))
 
+        # Broadcast status to all clients
+        if success:
+            await self.broadcast_vscode_status()
+
     async def handle_new_session(self, websocket, data):
         """Handle new_session request - opens terminal and starts claude
 
@@ -465,6 +486,10 @@ end tell
             "success": success
         }
         await websocket.send(json.dumps(response))
+
+        # Broadcast status to all clients
+        if success:
+            await self.broadcast_vscode_status()
 
     async def handle_resume_session(self, websocket, data):
         """Handle resume_session request - runs 'claude --resume <id>'
@@ -496,6 +521,10 @@ end tell
             "session_id": session_id
         }
         await websocket.send(json.dumps(response))
+
+        # Broadcast status to all clients
+        if success:
+            await self.broadcast_vscode_status()
 
     async def handle_add_project(self, websocket, data):
         """Handle add_project request - creates directory and opens in VS Code
@@ -578,6 +607,7 @@ end tell
         print(f"Client connected. Total clients: {len(self.clients)}")
         try:
             await self.send_status(websocket, "idle", "Connected")
+            await self.send_vscode_status(websocket)  # Send VSCode status on connect
             async for message in websocket:
                 print(f"Received message: {message[:100]}...")
                 await self.handle_message(websocket, message)
