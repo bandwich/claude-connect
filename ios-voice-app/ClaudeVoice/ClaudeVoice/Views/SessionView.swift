@@ -13,6 +13,7 @@ struct SessionView: View {
     @State private var currentTranscript = ""
     @State private var showingSettings = false
     @State private var isInitialLoad = true
+    @State private var isResuming = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -84,8 +85,15 @@ struct SessionView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button(action: { showingSettings = true }) {
-                    Image(systemName: "gearshape.fill")
+                HStack(spacing: 16) {
+                    Button(action: resumeSession) {
+                        Image(systemName: "play.fill")
+                    }
+                    .accessibilityLabel("Resume Session")
+
+                    Button(action: { showingSettings = true }) {
+                        Image(systemName: "gearshape.fill")
+                    }
                 }
             }
         }
@@ -172,6 +180,23 @@ struct SessionView: View {
                 print("Failed to start recording: \(error)")
             }
         }
+    }
+
+    private func resumeSession() {
+        guard !isResuming else { return }
+        isResuming = true
+
+        webSocketManager.onSessionActionResult = { response in
+            isResuming = false
+            if response.success {
+                // Session resumed - voice input is now active for this session
+                print("Session resumed successfully")
+            } else {
+                print("Failed to resume session: \(response.error ?? "Unknown error")")
+            }
+        }
+
+        webSocketManager.resumeSession(sessionId: session.id)
     }
 }
 
