@@ -7,12 +7,9 @@
 
 import XCTest
 
-final class AudioStreamingTests: IntegrationTestBase {
+final class AudioStreamingTests: E2ETestBase {
 
-    override func setUpWithError() throws {
-        try super.setUpWithError()
-        connectToTestServer()
-    }
+    // Base class handles connection in setUpWithError
 
     // Test 1: App receives audio_chunk messages
     @MainActor

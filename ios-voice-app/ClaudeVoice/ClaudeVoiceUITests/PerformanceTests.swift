@@ -7,12 +7,9 @@
 
 import XCTest
 
-final class PerformanceTests: IntegrationTestBase {
+final class PerformanceTests: E2ETestBase {
 
-    override func setUpWithError() throws {
-        try super.setUpWithError()
-        connectToTestServer()
-    }
+    // Base class handles connection in setUpWithError
 
     // Test 1: End-to-end latency (response injection to audio playback)
     @MainActor

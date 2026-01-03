@@ -7,12 +7,9 @@
 
 import XCTest
 
-final class ErrorHandlingTests: IntegrationTestBase {
+final class ErrorHandlingTests: E2ETestBase {
 
-    override func setUpWithError() throws {
-        try super.setUpWithError()
-        connectToTestServer()
-    }
+    // Base class handles connection in setUpWithError
 
     // Test 1: Malformed JSON from server
     @MainActor

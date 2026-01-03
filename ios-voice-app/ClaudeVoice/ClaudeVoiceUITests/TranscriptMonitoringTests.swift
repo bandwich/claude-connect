@@ -7,12 +7,9 @@
 
 import XCTest
 
-final class TranscriptMonitoringTests: IntegrationTestBase {
+final class TranscriptMonitoringTests: E2ETestBase {
 
-    override func setUpWithError() throws {
-        try super.setUpWithError()
-        connectToTestServer()
-    }
+    // Base class handles connection in setUpWithError
 
     // Test 1: Server detects transcript file changes
     @MainActor

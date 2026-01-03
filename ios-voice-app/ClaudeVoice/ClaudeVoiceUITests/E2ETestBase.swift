@@ -2,7 +2,7 @@
 //  E2ETestBase.swift
 //  ClaudeVoiceUITests
 //
-//  Base class for E2E tests - assumes server already running
+//  Unified base class for E2E and integration tests
 //
 
 import XCTest
@@ -13,8 +13,25 @@ class E2ETestBase: XCTestCase {
     static var app: XCUIApplication!
     var transcriptPath: String?
 
-    let testServerHost = "127.0.0.1"
-    let testServerPort = 8765
+    // Environment-aware server configuration
+    let testServerHost: String = {
+        if let envHost = ProcessInfo.processInfo.environment["TEST_SERVER_HOST"] {
+            return envHost
+        }
+        #if targetEnvironment(simulator)
+        return "127.0.0.1"
+        #else
+        return "192.168.1.109"  // Physical device needs Mac's IP
+        #endif
+    }()
+
+    let testServerPort: Int = {
+        if let portString = ProcessInfo.processInfo.environment["TEST_SERVER_PORT"],
+           let port = Int(portString) {
+            return port
+        }
+        return 8765
+    }()
 
     /// Test fixture paths for sync-sessions E2E tests
     let testProjectsDir = "/Users/aaron/.claude/projects"
@@ -32,10 +49,27 @@ class E2ETestBase: XCTestCase {
 
         print("🚀 Launching app once for all tests in \(String(describing: self))")
 
+        let serverHost: String
+        if let envHost = ProcessInfo.processInfo.environment["TEST_SERVER_HOST"] {
+            serverHost = envHost
+        } else {
+            #if targetEnvironment(simulator)
+            serverHost = "127.0.0.1"
+            #else
+            serverHost = "192.168.1.109"
+            #endif
+        }
+        let serverPort = ProcessInfo.processInfo.environment["TEST_SERVER_PORT"] ?? "8765"
+
+        print("📡 Test server: \(serverHost):\(serverPort)")
+
         app = XCUIApplication()
         app.launchEnvironment = [
-            "SERVER_HOST": "127.0.0.1",
-            "SERVER_PORT": "8765"
+            "SERVER_HOST": serverHost,
+            "SERVER_PORT": serverPort,
+            "INTEGRATION_TEST_MODE": "1",
+            "TEST_SERVER_HOST": serverHost,
+            "TEST_SERVER_PORT": serverPort
         ]
     }
 
@@ -44,43 +78,35 @@ class E2ETestBase: XCTestCase {
 
         continueAfterFailure = false
 
-        // IMPORTANT: Use absolute Mac path, NOT tilde or HOME expansion
-        // UI tests run in simulator context where ~ and HOME point to simulator's container
-        // The server runs on Mac and watches /Users/aaron/.claude/projects/...
-        // We must write to the same path the server watches
         transcriptPath = "/Users/aaron/.claude/projects/e2e_test_project/e2e_transcript.jsonl"
         print("📝 Using hardcoded Mac path: \(transcriptPath!)")
 
-        // Ensure e2e_test_project directory exists and clear transcript file
         let fileManager = FileManager.default
         let transcriptDir = (transcriptPath! as NSString).deletingLastPathComponent
         try? fileManager.createDirectory(atPath: transcriptDir, withIntermediateDirectories: true)
         try "".write(toFile: transcriptPath!, atomically: true, encoding: .utf8)
 
-        // Create test fixtures for sync-sessions tests
         createTestFixtures()
 
-        // Launch app
         Self.app.launch()
-        sleep(2)
 
-        // Connect to server
+        // Wait for app to be ready
+        let settingsButton = app.buttons["gearshape.fill"]
+        _ = settingsButton.waitForExistence(timeout: 5)
+
         connectToServer()
     }
 
     override func tearDownWithError() throws {
-        // Disconnect if connected
         if app.staticTexts["connectionStatus"].exists &&
            app.staticTexts["connectionStatus"].label == "Connected" {
             disconnectFromServer()
         }
 
-        // Clear transcript file (don't delete - server is still watching it)
         if let path = transcriptPath, FileManager.default.fileExists(atPath: path) {
             try? "".write(toFile: path, atomically: true, encoding: .utf8)
         }
 
-        // Clean up test fixtures for sync-sessions tests
         cleanupTestFixtures()
 
         try super.tearDownWithError()
@@ -92,7 +118,7 @@ class E2ETestBase: XCTestCase {
         super.tearDown()
     }
 
-    // MARK: - Helper Methods
+    // MARK: - Connection Methods
 
     func connectToServer() {
         let settingsButton = app.buttons["gearshape.fill"]
@@ -117,7 +143,6 @@ class E2ETestBase: XCTestCase {
             let connectionHeader = app.staticTexts["Connection"]
             if connectionHeader.exists {
                 connectionHeader.tap()
-                sleep(1)
             }
         }
 
@@ -125,23 +150,23 @@ class E2ETestBase: XCTestCase {
             connectButton.tap()
         }
 
-        // Verify connected WHILE STILL IN SETTINGS (connectionStatus is only visible in SettingsView)
         let connectedLabel = app.staticTexts["connectionStatus"]
-        XCTAssertTrue(connectedLabel.waitForExistence(timeout: 10), "Should show Connected status")
+        XCTAssertTrue(connectedLabel.waitForExistence(timeout: 10), "Should show connection status")
 
-        // Wait for connection to complete
         let predicate = NSPredicate(format: "label == %@", "Connected")
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: connectedLabel)
         let result = XCTWaiter().wait(for: [expectation], timeout: 10)
         XCTAssertEqual(result, .completed, "Connection status should become Connected")
 
-        // Now dismiss settings
         let doneButton = app.buttons["Done"]
         if doneButton.exists {
             doneButton.tap()
         }
+    }
 
-        sleep(1)
+    /// Alias for connectToServer (compatibility with IntegrationTestBase tests)
+    func connectToTestServer() {
+        connectToServer()
     }
 
     func disconnectFromServer() {
@@ -159,12 +184,46 @@ class E2ETestBase: XCTestCase {
         if doneButton.waitForExistence(timeout: 2) {
             doneButton.tap()
         }
-
-        sleep(1)
     }
 
+    // MARK: - State Waiting
+
+    func waitForVoiceState(_ expectedState: String, timeout: TimeInterval = 10.0) -> Bool {
+        let stateLabel = app.staticTexts["voiceState"]
+
+        guard stateLabel.waitForExistence(timeout: timeout) else {
+            return false
+        }
+
+        let predicate = NSPredicate(format: "label == %@", expectedState)
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: stateLabel)
+        let result = XCTWaiter().wait(for: [expectation], timeout: timeout)
+        return result == .completed
+    }
+
+    func waitForConnectionState(_ expectedState: String, timeout: TimeInterval = 10.0) -> Bool {
+        let stateLabel = app.staticTexts["connectionStatus"]
+        let exists = stateLabel.waitForExistence(timeout: timeout)
+        return exists && stateLabel.label == expectedState
+    }
+
+    // MARK: - UI Helpers
+
+    func tapTalkButton() {
+        let talkButton = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Tap to Talk' OR label CONTAINS 'Stop'")).firstMatch
+        XCTAssertTrue(talkButton.exists, "Talk button should exist")
+        XCTAssertTrue(talkButton.isEnabled, "Talk button should be enabled")
+        talkButton.tap()
+    }
+
+    func isTalkButtonEnabled() -> Bool {
+        let talkButton = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Tap to Talk' OR label CONTAINS 'Stop'")).firstMatch
+        return talkButton.exists && talkButton.isEnabled
+    }
+
+    // MARK: - Voice Input & Transcript Methods
+
     func sendVoiceInput(_ text: String) {
-        // Send voice input via WebSocket (Swift implementation, iOS-compatible)
         let expectation = XCTestExpectation(description: "Send voice input")
 
         let url = URL(string: "ws://\(testServerHost):\(testServerPort)")!
@@ -189,11 +248,9 @@ class E2ETestBase: XCTestCase {
         }
 
         wait(for: [expectation], timeout: 5.0)
-        sleep(1)
     }
 
     func injectAssistantResponse(_ text: String) {
-        // Inject assistant response into transcript file (Swift implementation, iOS-compatible)
         guard let transcriptPath = transcriptPath else {
             XCTFail("No transcript path")
             return
@@ -218,19 +275,14 @@ class E2ETestBase: XCTestCase {
                 handle.write((jsonString + "\n").data(using: .utf8)!)
                 handle.closeFile()
             } else {
-                // File doesn't exist, create it
                 try (jsonString + "\n").write(toFile: transcriptPath, atomically: true, encoding: .utf8)
             }
         } catch {
             XCTFail("Failed to inject response: \(error)")
         }
-
-        // Brief delay for file system sync (server will process async)
-        usleep(100000) // 100ms
     }
 
     func injectUserMessage(_ text: String) {
-        // Inject user message into transcript file (Swift implementation, iOS-compatible)
         guard let transcriptPath = transcriptPath else {
             XCTFail("No transcript path")
             return
@@ -255,117 +307,109 @@ class E2ETestBase: XCTestCase {
                 handle.write((jsonString + "\n").data(using: .utf8)!)
                 handle.closeFile()
             } else {
-                // File doesn't exist, create it
                 try (jsonString + "\n").write(toFile: transcriptPath, atomically: true, encoding: .utf8)
             }
         } catch {
             XCTFail("Failed to inject user message: \(error)")
         }
-
-        // Small delay for file system
-        usleep(100000) // 100ms
     }
 
     func simulateConversationTurn(userInput: String, assistantResponse: String) {
-        // Simulate a complete conversation turn:
-        // 1. Send voice input via WebSocket (real)
-        // 2. Inject user message to transcript (simulates Claude logging it)
-        // 3. Inject assistant response to transcript (simulates Claude responding)
-
         print("📝 Simulating conversation turn: '\(userInput)' -> '\(assistantResponse)'")
 
-        // Send voice input via WebSocket
         sendVoiceInput(userInput)
-
-        // Wait briefly for server to process WebSocket message
-        usleep(500000) // 500ms
-
-        // Inject user message to transcript
         injectUserMessage(userInput)
-
-        // Wait for file watcher to detect
-        usleep(200000) // 200ms
-
-        // Inject assistant response
         injectAssistantResponse(assistantResponse)
-
-        // Don't wait here - let the test's waitForVoiceState do the waiting
-        // This ensures we catch the Speaking state before it transitions back to Idle
     }
 
-    func waitForVoiceState(_ expectedState: String, timeout: TimeInterval = 10.0) -> Bool {
-        let stateLabel = app.staticTexts["voiceState"]
+    // MARK: - Server API Helpers (from IntegrationTestBase)
 
-        guard stateLabel.waitForExistence(timeout: timeout) else {
-            return false
-        }
+    func sendMockClaudeResponse(_ text: String) {
+        let url = URL(string: "http://\(testServerHost):\(testServerPort + 1)/inject_response")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = text.data(using: .utf8)
 
-        let predicate = NSPredicate(format: "label == %@", expectedState)
-        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: stateLabel)
-        let result = XCTWaiter().wait(for: [expectation], timeout: timeout)
-        return result == .completed
+        let semaphore = DispatchSemaphore(value: 0)
+        URLSession.shared.dataTask(with: request) { _, _, _ in
+            semaphore.signal()
+        }.resume()
+
+        _ = semaphore.wait(timeout: .now() + 5)
     }
 
-    func waitForConnectionState(_ expectedState: String, timeout: TimeInterval = 10.0) -> Bool {
-        let stateLabel = app.staticTexts["connectionStatus"]
-        let exists = stateLabel.waitForExistence(timeout: timeout)
-        return exists && stateLabel.label == expectedState
+    func getServerLogs() -> String {
+        let url = URL(string: "http://\(testServerHost):\(testServerPort + 1)/logs")!
+        let semaphore = DispatchSemaphore(value: 0)
+        var logs = ""
+
+        URLSession.shared.dataTask(with: url) { data, _, _ in
+            if let data = data, let logText = String(data: data, encoding: .utf8) {
+                logs = logText
+            }
+            semaphore.signal()
+        }.resume()
+
+        _ = semaphore.wait(timeout: .now() + 5)
+        return logs
+    }
+
+    func sendStatus(_ state: String, message: String = "") {
+        let url = URL(string: "http://\(testServerHost):\(testServerPort + 1)/inject_status")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let payload = ["state": state, "message": message]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
+
+        let semaphore = DispatchSemaphore(value: 0)
+        URLSession.shared.dataTask(with: request) { _, _, _ in
+            semaphore.signal()
+        }.resume()
+
+        _ = semaphore.wait(timeout: .now() + 5)
     }
 
     // MARK: - Navigation Helpers
 
-    /// Navigate to the test session (e2e_test_project) for voice testing
-    /// Call this at the start of tests that need voice controls
     func navigateToTestSession() {
-        // Wait for projects list to load
         let projectText = app.staticTexts["e2e_test_project"]
         if projectText.waitForExistence(timeout: 5) {
             projectText.tap()
         } else {
-            // Fallback: look for any project
             let firstProject = app.cells.firstMatch
             if firstProject.waitForExistence(timeout: 5) {
                 firstProject.tap()
             }
         }
 
-        // Wait for sessions list and tap first session
-        sleep(1)
-
-        // Try to tap a session by known title, or fallback to first cell
-        // e2e_test_project has an empty transcript, so session title is "Untitled"
         let untitledSession = app.staticTexts["Untitled"]
         if untitledSession.waitForExistence(timeout: 5) {
             untitledSession.tap()
         } else {
-            // Fallback: tap first cell
             let firstSession = app.cells.firstMatch
             if firstSession.waitForExistence(timeout: 5) {
                 firstSession.tap()
             }
         }
 
-        // Wait for session view to load
-        sleep(2)
+        _ = app.staticTexts["voiceState"].waitForExistence(timeout: 5)
     }
 
     // MARK: - Test Fixtures for Sync-Sessions
 
-    /// Create mock project directories with session files for testing
     func createTestFixtures() {
         let fileManager = FileManager.default
 
-        // Project 1: 2 sessions
         try? fileManager.createDirectory(atPath: testProject1Path, withIntermediateDirectories: true)
 
-        // Session 1: Hello conversation
         let session1 = """
 {"type":"user","message":{"role":"user","content":"Hello Claude"},"timestamp":"2026-01-01T10:00:00Z"}
 {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hi! How can I help?"}]},"timestamp":"2026-01-01T10:00:05Z"}
 """
         try? session1.write(toFile: "\(testProject1Path)/session1.jsonl", atomically: true, encoding: .utf8)
 
-        // Session 2: Code question
         let session2 = """
 {"type":"user","message":{"role":"user","content":"How do I write a Swift function?"},"timestamp":"2026-01-02T10:00:00Z"}
 {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Here's how to write a Swift function..."}]},"timestamp":"2026-01-02T10:00:05Z"}
@@ -373,7 +417,6 @@ class E2ETestBase: XCTestCase {
 """
         try? session2.write(toFile: "\(testProject1Path)/session2.jsonl", atomically: true, encoding: .utf8)
 
-        // Project 2: 1 session
         try? fileManager.createDirectory(atPath: testProject2Path, withIntermediateDirectories: true)
 
         let session3 = """
@@ -382,7 +425,6 @@ class E2ETestBase: XCTestCase {
         try? session3.write(toFile: "\(testProject2Path)/session1.jsonl", atomically: true, encoding: .utf8)
     }
 
-    /// Clean up test fixtures
     func cleanupTestFixtures() {
         let fileManager = FileManager.default
         try? fileManager.removeItem(atPath: testProject1Path)
@@ -395,4 +437,7 @@ class E2ETestBase: XCTestCase {
 enum E2ETestError: Error {
     case noTranscriptPath
     case injectionFailed
+    case serverStartupTimeout
+    case serverNotRunning
+    case connectionFailed
 }

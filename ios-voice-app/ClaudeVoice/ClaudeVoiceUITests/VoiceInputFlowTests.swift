@@ -7,13 +7,9 @@
 
 import XCTest
 
-final class VoiceInputFlowTests: IntegrationTestBase {
+final class VoiceInputFlowTests: E2ETestBase {
 
-    override func setUpWithError() throws {
-        try super.setUpWithError()
-        // Connect to server for all voice input tests
-        connectToTestServer()
-    }
+    // Base class handles connection in setUpWithError
 
     // Test 1: Basic voice input delivery to server
     @MainActor

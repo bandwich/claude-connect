@@ -7,12 +7,9 @@
 
 import XCTest
 
-final class StateManagementTests: IntegrationTestBase {
+final class StateManagementTests: E2ETestBase {
 
-    override func setUpWithError() throws {
-        try super.setUpWithError()
-        connectToTestServer()
-    }
+    // Base class handles connection in setUpWithError
 
     // Test 1: Voice state transitions through full cycle
     @MainActor
