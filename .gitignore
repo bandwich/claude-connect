@@ -7,6 +7,8 @@ __pycache__/
 *.pyd
 .Python
 
+wishlist.txt
+
 # macOS
 .DS_Store
 .AppleDouble

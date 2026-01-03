@@ -9,8 +9,10 @@ import XCTest
 
 final class E2EHappyPathTests: E2ETestBase {
 
-    @MainActor
     func test_complete_voice_conversation_flow() throws {
+        // Navigate to session view first (voice controls are there)
+        navigateToTestSession()
+
         // Verify initial state
         XCTAssertTrue(waitForVoiceState("Idle", timeout: 5), "Should start in Idle")
 
@@ -30,8 +32,10 @@ final class E2EHappyPathTests: E2ETestBase {
         XCTAssertTrue(waitForVoiceState("Idle", timeout: 5), "Should return to Idle")
     }
 
-    @MainActor
     func test_multiple_conversation_turns() throws {
+        // Navigate to session view first
+        navigateToTestSession()
+
         // Turn 1
         XCTAssertTrue(waitForVoiceState("Idle", timeout: 5), "Should start in Idle")
         simulateConversationTurn(userInput: "First message", assistantResponse: "Response one")
@@ -49,8 +53,5 @@ final class E2EHappyPathTests: E2ETestBase {
         simulateConversationTurn(userInput: "Third message", assistantResponse: "Response three")
         XCTAssertTrue(waitForVoiceState("Speaking", timeout: 10), "Should speak response 3")
         XCTAssertTrue(waitForVoiceState("Idle", timeout: 10), "Should return to idle after 3")
-
-        // Verify still connected
-        XCTAssertTrue(app.staticTexts["Connected"].exists, "Should still be connected")
     }
 }

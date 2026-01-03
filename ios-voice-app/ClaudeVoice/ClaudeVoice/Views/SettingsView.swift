@@ -40,6 +40,7 @@ struct SettingsView: View {
                         Spacer()
                         Text(webSocketManager.connectionState.description)
                             .foregroundColor(connectionColor)
+                            .accessibilityIdentifier("connectionStatus")
                     }
 
                     if case .connected = webSocketManager.connectionState {

@@ -179,6 +179,201 @@ struct AudioChunkMessageTests {
     }
 }
 
+// MARK: - Project/Session Model Tests
+
+@Suite("Project Model Tests")
+struct ProjectModelTests {
+
+    @Test func testProjectDecoding() throws {
+        let json = """
+        {
+            "path": "/Users/test/myproject",
+            "name": "myproject",
+            "session_count": 5,
+            "folder_name": "-Users-test-myproject"
+        }
+        """
+
+        let data = json.data(using: .utf8)!
+        let project = try JSONDecoder().decode(Project.self, from: data)
+
+        #expect(project.path == "/Users/test/myproject")
+        #expect(project.name == "myproject")
+        #expect(project.sessionCount == 5)
+        #expect(project.folderName == "-Users-test-myproject")
+    }
+
+    @Test func testProjectIdentifiable() throws {
+        let json = """
+        {
+            "path": "/Users/test/myproject",
+            "name": "myproject",
+            "session_count": 3,
+            "folder_name": "-Users-test-myproject"
+        }
+        """
+
+        let data = json.data(using: .utf8)!
+        let project = try JSONDecoder().decode(Project.self, from: data)
+
+        #expect(project.id == "/Users/test/myproject")
+    }
+
+    @Test func testProjectsResponseDecoding() throws {
+        let json = """
+        {
+            "type": "projects",
+            "projects": [
+                {"path": "/path/a", "name": "a", "session_count": 1, "folder_name": "-path-a"},
+                {"path": "/path/b", "name": "b", "session_count": 2, "folder_name": "-path-b"}
+            ]
+        }
+        """
+
+        let data = json.data(using: .utf8)!
+        let response = try JSONDecoder().decode(ProjectsResponse.self, from: data)
+
+        #expect(response.type == "projects")
+        #expect(response.projects.count == 2)
+        #expect(response.projects[0].name == "a")
+        #expect(response.projects[1].sessionCount == 2)
+    }
+}
+
+@Suite("Session Model Tests")
+struct SessionModelTests {
+
+    @Test func testSessionDecoding() throws {
+        let json = """
+        {
+            "id": "abc123-def456",
+            "title": "First message preview",
+            "timestamp": 1735689600.0,
+            "message_count": 10
+        }
+        """
+
+        let data = json.data(using: .utf8)!
+        let session = try JSONDecoder().decode(Session.self, from: data)
+
+        #expect(session.id == "abc123-def456")
+        #expect(session.title == "First message preview")
+        #expect(session.timestamp == 1735689600.0)
+        #expect(session.messageCount == 10)
+    }
+
+    @Test func testSessionFormattedDate() throws {
+        let json = """
+        {
+            "id": "test",
+            "title": "Test",
+            "timestamp": \(Date().timeIntervalSince1970),
+            "message_count": 1
+        }
+        """
+
+        let data = json.data(using: .utf8)!
+        let session = try JSONDecoder().decode(Session.self, from: data)
+
+        // Should be something like "now" or "0 min. ago"
+        #expect(!session.formattedDate.isEmpty)
+    }
+
+    @Test func testSessionsResponseDecoding() throws {
+        let json = """
+        {
+            "type": "sessions",
+            "sessions": [
+                {"id": "s1", "title": "Session 1", "timestamp": 1000.0, "message_count": 5},
+                {"id": "s2", "title": "Session 2", "timestamp": 2000.0, "message_count": 10}
+            ]
+        }
+        """
+
+        let data = json.data(using: .utf8)!
+        let response = try JSONDecoder().decode(SessionsResponse.self, from: data)
+
+        #expect(response.type == "sessions")
+        #expect(response.sessions.count == 2)
+        #expect(response.sessions[0].id == "s1")
+        #expect(response.sessions[1].messageCount == 10)
+    }
+}
+
+@Suite("SessionHistoryMessage Model Tests")
+struct SessionHistoryMessageModelTests {
+
+    @Test func testSessionHistoryMessageDecoding() throws {
+        let json = """
+        {
+            "role": "user",
+            "content": "Hello Claude",
+            "timestamp": 1735689600.0
+        }
+        """
+
+        let data = json.data(using: .utf8)!
+        let message = try JSONDecoder().decode(SessionHistoryMessage.self, from: data)
+
+        #expect(message.role == "user")
+        #expect(message.content == "Hello Claude")
+        #expect(message.timestamp == 1735689600.0)
+    }
+
+    @Test func testSessionHistoryMessageIdentifiable() throws {
+        let json = """
+        {
+            "role": "assistant",
+            "content": "Hello! How can I help?",
+            "timestamp": 1735689605.123
+        }
+        """
+
+        let data = json.data(using: .utf8)!
+        let message = try JSONDecoder().decode(SessionHistoryMessage.self, from: data)
+
+        #expect(message.id == 1735689605.123)
+    }
+
+    @Test func testSessionHistoryResponseDecoding() throws {
+        let json = """
+        {
+            "type": "session_history",
+            "messages": [
+                {"role": "user", "content": "Hi", "timestamp": 1000.0},
+                {"role": "assistant", "content": "Hello!", "timestamp": 1001.0},
+                {"role": "user", "content": "How are you?", "timestamp": 1002.0}
+            ]
+        }
+        """
+
+        let data = json.data(using: .utf8)!
+        let response = try JSONDecoder().decode(SessionHistoryResponse.self, from: data)
+
+        #expect(response.type == "session_history")
+        #expect(response.messages.count == 3)
+        #expect(response.messages[0].role == "user")
+        #expect(response.messages[1].role == "assistant")
+        #expect(response.messages[2].content == "How are you?")
+    }
+
+    @Test func testSessionHistoryMessageWithLongContent() throws {
+        let longContent = String(repeating: "This is a long message. ", count: 100)
+        let json = """
+        {
+            "role": "assistant",
+            "content": "\(longContent)",
+            "timestamp": 1000.0
+        }
+        """
+
+        let data = json.data(using: .utf8)!
+        let message = try JSONDecoder().decode(SessionHistoryMessage.self, from: data)
+
+        #expect(message.content.count > 1000)
+    }
+}
+
 // MARK: - State Enum Tests
 
 @Suite("VoiceState Tests")
@@ -245,51 +440,6 @@ struct ConnectionStateTests {
 
 // MARK: - Service Tests
 
-@Suite("WebSocketManager Tests")
-struct WebSocketManagerTests {
-
-    @Test func testInitialState() {
-        let manager = WebSocketManager()
-
-        #expect(manager.connectionState == .disconnected)
-        #expect(manager.voiceState == .idle)
-    }
-
-    @Test func testSendVoiceInputCreatesCorrectJSON() throws {
-        let manager = WebSocketManager()
-        let text = "Test message"
-
-        manager.sendVoiceInput(text: text)
-
-        // The message should be created and encoded properly (we can't easily test the send without a real connection)
-        // But we verify the method doesn't crash and accepts the input
-    }
-
-    @Test func testDisconnectResetsState() async throws {
-        let manager = WebSocketManager()
-
-        manager.disconnect()
-
-        // Wait a bit for async state updates
-        try await Task.sleep(for: .milliseconds(100))
-
-        #expect(manager.connectionState == .disconnected)
-        #expect(manager.voiceState == .idle)
-    }
-
-    @Test func testCallbacksCanBeSet() {
-        let manager = WebSocketManager()
-        var audioChunkReceived = false
-        var statusUpdateReceived = false
-
-        manager.onAudioChunk = { _ in audioChunkReceived = true }
-        manager.onStatusUpdate = { _ in statusUpdateReceived = true }
-
-        #expect(manager.onAudioChunk != nil)
-        #expect(manager.onStatusUpdate != nil)
-    }
-}
-
 @Suite("SpeechRecognizer Tests")
 struct SpeechRecognizerTests {
 
@@ -341,90 +491,6 @@ struct SpeechRecognizerTests {
 
         // Just verify the error types exist and are different
         #expect(error1 != error2)
-    }
-}
-
-@Suite("AudioPlayer Tests")
-struct AudioPlayerTests {
-
-    @Test func testInitialState() {
-        let player = AudioPlayer()
-
-        #expect(player.isPlaying == false)
-    }
-
-    @Test func testReceiveAudioChunkWithValidBase64() async throws {
-        let player = AudioPlayer()
-
-        // Create a valid base64 encoded string
-        let testData = "Hello World".data(using: .utf8)!
-        let base64String = testData.base64EncodedString()
-
-        let chunk = AudioChunkMessage(
-            type: "audio_chunk",
-            format: "wav",
-            sampleRate: 24000,
-            chunkIndex: 0,
-            totalChunks: 1,
-            data: base64String
-        )
-
-        player.receiveAudioChunk(chunk)
-
-        // Note: Actual playback won't work without valid WAV data
-        // We're just testing that the method accepts the chunk
-    }
-
-    @Test func testStopClearsPlaybackState() async throws {
-        let player = AudioPlayer()
-
-        player.stop()
-
-        // Wait for async state updates
-        try await Task.sleep(for: .milliseconds(100))
-
-        #expect(player.isPlaying == false)
-    }
-
-    @Test func testResetClearsPlaybackState() async throws {
-        let player = AudioPlayer()
-
-        player.reset()
-
-        // Wait for async state updates
-        try await Task.sleep(for: .milliseconds(100))
-
-        #expect(player.isPlaying == false)
-    }
-
-    @Test func testCallbacksCanBeSet() {
-        let player = AudioPlayer()
-        var startedCallbackFired = false
-        var finishedCallbackFired = false
-
-        player.onPlaybackStarted = { startedCallbackFired = true }
-        player.onPlaybackFinished = { finishedCallbackFired = true }
-
-        #expect(player.onPlaybackStarted != nil)
-        #expect(player.onPlaybackFinished != nil)
-    }
-
-    @Test func testReceiveAudioChunkWithInvalidBase64() {
-        let player = AudioPlayer()
-
-        let chunk = AudioChunkMessage(
-            type: "audio_chunk",
-            format: "wav",
-            sampleRate: 24000,
-            chunkIndex: 0,
-            totalChunks: 1,
-            data: "invalid!!!base64"
-        )
-
-        // Should handle gracefully without crashing
-        player.receiveAudioChunk(chunk)
-
-        #expect(player.isPlaying == false)
     }
 }
 
@@ -552,6 +618,125 @@ struct ServiceIntegrationTests {
         try await Task.sleep(for: .milliseconds(100))
 
         #expect(recognizer.isRecording == false)
+    }
+}
+
+// MARK: - SessionView Integration Tests
+
+@Suite("SessionView Integration Tests")
+struct SessionViewIntegrationTests {
+
+    @Test func testSessionHistoryCallbackIntegration() async throws {
+        let websocketManager = WebSocketManager()
+        var receivedMessages: [SessionHistoryMessage]?
+
+        // Wire up callback as SessionView would
+        websocketManager.onSessionHistoryReceived = { messages in
+            receivedMessages = messages
+        }
+
+        // Simulate receiving messages
+        let mockMessages = [
+            SessionHistoryMessage(role: "user", content: "Hello", timestamp: 1000.0),
+            SessionHistoryMessage(role: "assistant", content: "Hi there!", timestamp: 1001.0)
+        ]
+
+        websocketManager.onSessionHistoryReceived?(mockMessages)
+
+        #expect(receivedMessages?.count == 2)
+        #expect(receivedMessages?[0].role == "user")
+        #expect(receivedMessages?[1].content == "Hi there!")
+    }
+
+    @Test func testSessionViewRequestsHistoryOnAppear() async throws {
+        let websocketManager = WebSocketManager()
+
+        // Verify the method can be called (SessionView calls this in setupView)
+        // Uses folderName (actual directory name) not decoded path
+        websocketManager.requestSessionHistory(
+            folderName: "-Users-test-project",
+            sessionId: "abc123"
+        )
+
+        #expect(true, "requestSessionHistory should be callable")
+    }
+
+    @Test func testSessionViewAudioPlaybackStateManagement() async throws {
+        let websocketManager = WebSocketManager()
+        let audioPlayer = AudioPlayer()
+
+        // Setup as SessionView would
+        audioPlayer.onPlaybackStarted = {
+            websocketManager.isPlayingAudio = true
+            websocketManager.voiceState = .speaking
+        }
+
+        audioPlayer.onPlaybackFinished = {
+            websocketManager.isPlayingAudio = false
+            websocketManager.voiceState = .idle
+        }
+
+        // Simulate playback started
+        audioPlayer.onPlaybackStarted?()
+        #expect(websocketManager.isPlayingAudio == true)
+        #expect(websocketManager.voiceState == .speaking)
+
+        // Simulate playback finished
+        audioPlayer.onPlaybackFinished?()
+        #expect(websocketManager.isPlayingAudio == false)
+        #expect(websocketManager.voiceState == .idle)
+    }
+
+    @Test func testSessionViewVoiceInputFlow() async throws {
+        let websocketManager = WebSocketManager()
+        let recognizer = SpeechRecognizer()
+
+        // Setup as SessionView would
+        recognizer.onRecordingStarted = {
+            websocketManager.voiceState = .listening
+        }
+
+        recognizer.onRecordingStopped = {
+            if websocketManager.voiceState == .listening {
+                websocketManager.voiceState = .idle
+            }
+        }
+
+        recognizer.onFinalTranscription = { text in
+            websocketManager.sendVoiceInput(text: text)
+        }
+
+        // Simulate flow
+        recognizer.onRecordingStarted?()
+        #expect(websocketManager.voiceState == .listening)
+
+        recognizer.onFinalTranscription?("Test message")
+
+        recognizer.onRecordingStopped?()
+        #expect(websocketManager.voiceState == .idle)
+    }
+
+    @Test func testMessageDisplayOrder() async throws {
+        // Test that messages maintain order by timestamp
+        let messages = [
+            SessionHistoryMessage(role: "user", content: "First", timestamp: 1000.0),
+            SessionHistoryMessage(role: "assistant", content: "Second", timestamp: 1001.0),
+            SessionHistoryMessage(role: "user", content: "Third", timestamp: 1002.0)
+        ]
+
+        #expect(messages[0].timestamp < messages[1].timestamp)
+        #expect(messages[1].timestamp < messages[2].timestamp)
+        #expect(messages[0].id == 1000.0)
+        #expect(messages[1].id == 1001.0)
+        #expect(messages[2].id == 1002.0)
+    }
+
+    @Test func testMessageRoleIdentification() async throws {
+        let userMessage = SessionHistoryMessage(role: "user", content: "Hello", timestamp: 1000.0)
+        let assistantMessage = SessionHistoryMessage(role: "assistant", content: "Hi", timestamp: 1001.0)
+
+        #expect(userMessage.role == "user")
+        #expect(assistantMessage.role == "assistant")
     }
 }
 

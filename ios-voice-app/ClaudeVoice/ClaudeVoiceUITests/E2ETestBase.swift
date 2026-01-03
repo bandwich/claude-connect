@@ -16,6 +16,11 @@ class E2ETestBase: XCTestCase {
     let testServerHost = "127.0.0.1"
     let testServerPort = 8765
 
+    /// Test fixture paths for sync-sessions E2E tests
+    let testProjectsDir = "/Users/aaron/.claude/projects"
+    let testProject1Path = "/Users/aaron/.claude/projects/-e2e_test_project1"
+    let testProject2Path = "/Users/aaron/.claude/projects/-e2e_test_project2"
+
     var app: XCUIApplication! {
         return Self.app
     }
@@ -46,8 +51,14 @@ class E2ETestBase: XCTestCase {
         transcriptPath = "/Users/aaron/.claude/projects/e2e_test_project/e2e_transcript.jsonl"
         print("📝 Using hardcoded Mac path: \(transcriptPath!)")
 
-        // Clear the transcript file (don't create new one - server is already watching this one)
+        // Ensure e2e_test_project directory exists and clear transcript file
+        let fileManager = FileManager.default
+        let transcriptDir = (transcriptPath! as NSString).deletingLastPathComponent
+        try? fileManager.createDirectory(atPath: transcriptDir, withIntermediateDirectories: true)
         try "".write(toFile: transcriptPath!, atomically: true, encoding: .utf8)
+
+        // Create test fixtures for sync-sessions tests
+        createTestFixtures()
 
         // Launch app
         Self.app.launch()
@@ -68,6 +79,9 @@ class E2ETestBase: XCTestCase {
         if let path = transcriptPath, FileManager.default.fileExists(atPath: path) {
             try? "".write(toFile: path, atomically: true, encoding: .utf8)
         }
+
+        // Clean up test fixtures for sync-sessions tests
+        cleanupTestFixtures()
 
         try super.tearDownWithError()
     }
@@ -111,19 +125,23 @@ class E2ETestBase: XCTestCase {
             connectButton.tap()
         }
 
-        sleep(3)
+        // Verify connected WHILE STILL IN SETTINGS (connectionStatus is only visible in SettingsView)
+        let connectedLabel = app.staticTexts["connectionStatus"]
+        XCTAssertTrue(connectedLabel.waitForExistence(timeout: 10), "Should show Connected status")
 
+        // Wait for connection to complete
+        let predicate = NSPredicate(format: "label == %@", "Connected")
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: connectedLabel)
+        let result = XCTWaiter().wait(for: [expectation], timeout: 10)
+        XCTAssertEqual(result, .completed, "Connection status should become Connected")
+
+        // Now dismiss settings
         let doneButton = app.buttons["Done"]
         if doneButton.exists {
             doneButton.tap()
         }
 
         sleep(1)
-
-        // Verify connected
-        let connectedLabel = app.staticTexts["connectionStatus"]
-        XCTAssertTrue(connectedLabel.waitForExistence(timeout: 5), "Should show Connected status")
-        XCTAssertEqual(connectedLabel.label, "Connected", "Connection status should be Connected")
     }
 
     func disconnectFromServer() {
@@ -292,6 +310,83 @@ class E2ETestBase: XCTestCase {
         let stateLabel = app.staticTexts["connectionStatus"]
         let exists = stateLabel.waitForExistence(timeout: timeout)
         return exists && stateLabel.label == expectedState
+    }
+
+    // MARK: - Navigation Helpers
+
+    /// Navigate to the test session (e2e_test_project) for voice testing
+    /// Call this at the start of tests that need voice controls
+    func navigateToTestSession() {
+        // Wait for projects list to load
+        let projectText = app.staticTexts["e2e_test_project"]
+        if projectText.waitForExistence(timeout: 5) {
+            projectText.tap()
+        } else {
+            // Fallback: look for any project
+            let firstProject = app.cells.firstMatch
+            if firstProject.waitForExistence(timeout: 5) {
+                firstProject.tap()
+            }
+        }
+
+        // Wait for sessions list and tap first session
+        sleep(1)
+
+        // Try to tap a session by known title, or fallback to first cell
+        // e2e_test_project has an empty transcript, so session title is "Untitled"
+        let untitledSession = app.staticTexts["Untitled"]
+        if untitledSession.waitForExistence(timeout: 5) {
+            untitledSession.tap()
+        } else {
+            // Fallback: tap first cell
+            let firstSession = app.cells.firstMatch
+            if firstSession.waitForExistence(timeout: 5) {
+                firstSession.tap()
+            }
+        }
+
+        // Wait for session view to load
+        sleep(2)
+    }
+
+    // MARK: - Test Fixtures for Sync-Sessions
+
+    /// Create mock project directories with session files for testing
+    func createTestFixtures() {
+        let fileManager = FileManager.default
+
+        // Project 1: 2 sessions
+        try? fileManager.createDirectory(atPath: testProject1Path, withIntermediateDirectories: true)
+
+        // Session 1: Hello conversation
+        let session1 = """
+{"type":"user","message":{"role":"user","content":"Hello Claude"},"timestamp":"2026-01-01T10:00:00Z"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hi! How can I help?"}]},"timestamp":"2026-01-01T10:00:05Z"}
+"""
+        try? session1.write(toFile: "\(testProject1Path)/session1.jsonl", atomically: true, encoding: .utf8)
+
+        // Session 2: Code question
+        let session2 = """
+{"type":"user","message":{"role":"user","content":"How do I write a Swift function?"},"timestamp":"2026-01-02T10:00:00Z"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Here's how to write a Swift function..."}]},"timestamp":"2026-01-02T10:00:05Z"}
+{"type":"user","message":{"role":"user","content":"Thanks!"},"timestamp":"2026-01-02T10:00:10Z"}
+"""
+        try? session2.write(toFile: "\(testProject1Path)/session2.jsonl", atomically: true, encoding: .utf8)
+
+        // Project 2: 1 session
+        try? fileManager.createDirectory(atPath: testProject2Path, withIntermediateDirectories: true)
+
+        let session3 = """
+{"type":"user","message":{"role":"user","content":"What is TDD?"},"timestamp":"2026-01-01T09:00:00Z"}
+"""
+        try? session3.write(toFile: "\(testProject2Path)/session1.jsonl", atomically: true, encoding: .utf8)
+    }
+
+    /// Clean up test fixtures
+    func cleanupTestFixtures() {
+        let fileManager = FileManager.default
+        try? fileManager.removeItem(atPath: testProject1Path)
+        try? fileManager.removeItem(atPath: testProject2Path)
     }
 }
 
