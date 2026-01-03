@@ -174,6 +174,10 @@ class SessionManager:
                                 text_parts.append(block.get('text', ''))
                         content = ' '.join(text_parts)
 
+                    # Skip empty messages (thinking-only, tool_use, tool_result, etc.)
+                    if not content or not content.strip():
+                        continue
+
                     timestamp_str = entry.get('timestamp', '')
                     try:
                         from datetime import datetime
