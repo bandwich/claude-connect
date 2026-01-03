@@ -79,3 +79,45 @@ class TestVoiceInputWithVSCode:
             mock_ws = AsyncMock()
             await server.handle_voice_input(mock_ws, {"text": "hello"})
             mock_applescript.assert_called_once_with("hello")
+
+
+class TestCloseSession:
+    """Tests for close_session handler"""
+
+    @pytest.mark.asyncio
+    async def test_close_session_sends_ctrl_c(self):
+        """close_session should send Ctrl+C via VSCodeController"""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+
+        server.vscode_controller = Mock()
+        server.vscode_controller.is_connected.return_value = True
+        server.vscode_controller.send_sequence = AsyncMock(return_value=True)
+
+        mock_ws = AsyncMock()
+
+        await server.handle_close_session(mock_ws)
+
+        server.vscode_controller.send_sequence.assert_called_once_with("\x03")
+
+    @pytest.mark.asyncio
+    async def test_close_session_returns_success_status(self):
+        """close_session should send success status to client"""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+        server.vscode_controller = Mock()
+        server.vscode_controller.is_connected.return_value = True
+        server.vscode_controller.send_sequence = AsyncMock(return_value=True)
+
+        mock_ws = AsyncMock()
+        sent_messages = []
+        mock_ws.send = AsyncMock(side_effect=lambda msg: sent_messages.append(msg))
+
+        await server.handle_close_session(mock_ws)
+
+        responses = [json.loads(m) for m in sent_messages]
+        closed_response = next((r for r in responses if r.get("type") == "session_closed"), None)
+        assert closed_response is not None
+        assert closed_response["success"] is True

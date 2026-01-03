@@ -417,6 +417,19 @@ end tell
         }
         await websocket.send(json.dumps(response))
 
+    async def handle_close_session(self, websocket):
+        """Handle close_session request - sends Ctrl+C to terminal"""
+        success = False
+
+        if self.vscode_controller.is_connected():
+            success = await self.vscode_controller.send_sequence("\x03")
+
+        response = {
+            "type": "session_closed",
+            "success": success
+        }
+        await websocket.send(json.dumps(response))
+
     async def handle_message(self, websocket, message):
         """Handle incoming message"""
         try:
@@ -431,6 +444,8 @@ end tell
                 await self.handle_list_sessions(websocket, data)
             elif msg_type == 'get_session':
                 await self.handle_get_session(websocket, data)
+            elif msg_type == 'close_session':
+                await self.handle_close_session(websocket)
         except Exception as e:
             print(f"Error: {e}")
 
