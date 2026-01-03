@@ -77,6 +77,6 @@ class VSCodeController:
         await self._send_command("workbench.action.terminal.kill")
 
     async def open_folder(self, folder_path: str):
-        """Open a folder in VS Code (uses CLI)"""
+        """Open a folder in VS Code"""
         import subprocess
-        subprocess.run(["code", folder_path])
+        subprocess.run(["open", "-a", "Visual Studio Code", folder_path])

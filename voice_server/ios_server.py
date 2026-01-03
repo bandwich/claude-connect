@@ -420,11 +420,15 @@ end tell
         await websocket.send(json.dumps(response))
 
     async def handle_close_session(self, websocket):
-        """Handle close_session request - sends Ctrl+C to terminal"""
+        """Handle close_session request - kills the active terminal"""
         success = False
 
         if self.vscode_controller.is_connected():
-            success = await self.vscode_controller.send_sequence("\x03")
+            try:
+                await self.vscode_controller.kill_terminal()
+                success = True
+            except Exception as e:
+                print(f"Error closing session: {e}")
 
         response = {
             "type": "session_closed",

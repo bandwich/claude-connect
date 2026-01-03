@@ -87,21 +87,21 @@ class TestCloseSession:
     """Tests for close_session handler"""
 
     @pytest.mark.asyncio
-    async def test_close_session_sends_ctrl_c(self):
-        """close_session should send Ctrl+C via VSCodeController"""
+    async def test_close_session_kills_terminal(self):
+        """close_session should kill terminal via VSCodeController"""
         from ios_server import VoiceServer
 
         server = VoiceServer()
 
         server.vscode_controller = Mock()
         server.vscode_controller.is_connected.return_value = True
-        server.vscode_controller.send_sequence = AsyncMock(return_value=True)
+        server.vscode_controller.kill_terminal = AsyncMock()
 
         mock_ws = AsyncMock()
 
         await server.handle_close_session(mock_ws)
 
-        server.vscode_controller.send_sequence.assert_called_once_with("\x03")
+        server.vscode_controller.kill_terminal.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_close_session_returns_success_status(self):
@@ -111,7 +111,7 @@ class TestCloseSession:
         server = VoiceServer()
         server.vscode_controller = Mock()
         server.vscode_controller.is_connected.return_value = True
-        server.vscode_controller.send_sequence = AsyncMock(return_value=True)
+        server.vscode_controller.kill_terminal = AsyncMock()
 
         mock_ws = AsyncMock()
         sent_messages = []
