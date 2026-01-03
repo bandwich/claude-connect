@@ -16,6 +16,11 @@ class E2ETestBase: XCTestCase {
     let testServerHost = "127.0.0.1"
     let testServerPort = 8765
 
+    /// Test fixture paths for sync-sessions E2E tests
+    let testProjectsDir = "/Users/aaron/.claude/projects"
+    let testProject1Path = "/Users/aaron/.claude/projects/-e2e-test-project1"
+    let testProject2Path = "/Users/aaron/.claude/projects/-e2e-test-project2"
+
     var app: XCUIApplication! {
         return Self.app
     }
@@ -49,6 +54,9 @@ class E2ETestBase: XCTestCase {
         // Clear the transcript file (don't create new one - server is already watching this one)
         try "".write(toFile: transcriptPath!, atomically: true, encoding: .utf8)
 
+        // Create test fixtures for sync-sessions tests
+        createTestFixtures()
+
         // Launch app
         Self.app.launch()
         sleep(2)
@@ -68,6 +76,9 @@ class E2ETestBase: XCTestCase {
         if let path = transcriptPath, FileManager.default.fileExists(atPath: path) {
             try? "".write(toFile: path, atomically: true, encoding: .utf8)
         }
+
+        // Clean up test fixtures for sync-sessions tests
+        cleanupTestFixtures()
 
         try super.tearDownWithError()
     }
@@ -292,6 +303,46 @@ class E2ETestBase: XCTestCase {
         let stateLabel = app.staticTexts["connectionStatus"]
         let exists = stateLabel.waitForExistence(timeout: timeout)
         return exists && stateLabel.label == expectedState
+    }
+
+    // MARK: - Test Fixtures for Sync-Sessions
+
+    /// Create mock project directories with session files for testing
+    func createTestFixtures() {
+        let fileManager = FileManager.default
+
+        // Project 1: 2 sessions
+        try? fileManager.createDirectory(atPath: testProject1Path, withIntermediateDirectories: true)
+
+        // Session 1: Hello conversation
+        let session1 = """
+        {"type":"user","message":{"role":"user","content":"Hello Claude"},"timestamp":"2026-01-01T10:00:00Z"}
+        {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hi! How can I help?"}]},"timestamp":"2026-01-01T10:00:05Z"}
+        """
+        try? session1.write(toFile: "\(testProject1Path)/session1.jsonl", atomically: true, encoding: .utf8)
+
+        // Session 2: Code question
+        let session2 = """
+        {"type":"user","message":{"role":"user","content":"How do I write a Swift function?"},"timestamp":"2026-01-02T10:00:00Z"}
+        {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Here's how to write a Swift function..."}]},"timestamp":"2026-01-02T10:00:05Z"}
+        {"type":"user","message":{"role":"user","content":"Thanks!"},"timestamp":"2026-01-02T10:00:10Z"}
+        """
+        try? session2.write(toFile: "\(testProject1Path)/session2.jsonl", atomically: true, encoding: .utf8)
+
+        // Project 2: 1 session
+        try? fileManager.createDirectory(atPath: testProject2Path, withIntermediateDirectories: true)
+
+        let session3 = """
+        {"type":"user","message":{"role":"user","content":"What is TDD?"},"timestamp":"2026-01-01T09:00:00Z"}
+        """
+        try? session3.write(toFile: "\(testProject2Path)/session1.jsonl", atomically: true, encoding: .utf8)
+    }
+
+    /// Clean up test fixtures
+    func cleanupTestFixtures() {
+        let fileManager = FileManager.default
+        try? fileManager.removeItem(atPath: testProject1Path)
+        try? fileManager.removeItem(atPath: testProject2Path)
     }
 }
 
