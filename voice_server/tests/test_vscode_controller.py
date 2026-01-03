@@ -30,3 +30,23 @@ class TestVSCodeController:
         msg = json.loads(sent_messages[0])
         assert msg['command'] == 'workbench.action.terminal.sendSequence'
         assert msg['args'] == {'text': 'hello world'}
+
+
+class TestVSCodeControllerConnection:
+    """Tests for VSCodeController connection management"""
+
+    def test_is_connected_returns_false_initially(self):
+        """Should return False before connect() is called"""
+        from vscode_controller import VSCodeController
+
+        controller = VSCodeController()
+        assert controller.is_connected() is False
+
+    def test_is_connected_returns_true_after_connect(self):
+        """Should return True after successful connect()"""
+        from vscode_controller import VSCodeController
+
+        controller = VSCodeController()
+        # Mock successful connection
+        controller._connected = True
+        assert controller.is_connected() is True

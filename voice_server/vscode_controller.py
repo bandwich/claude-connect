@@ -16,6 +16,10 @@ class VSCodeController:
         self._ws: Optional[websockets.WebSocketClientProtocol] = None
         self._connected = False
 
+    def is_connected(self) -> bool:
+        """Check if connected to VS Code extension"""
+        return self._connected
+
     async def connect(self) -> bool:
         """Connect to VS Code extension WebSocket server"""
         try:
