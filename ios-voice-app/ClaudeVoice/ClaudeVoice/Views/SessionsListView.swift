@@ -9,6 +9,7 @@ struct SessionsListView: View {
     @State private var selectedSession: Session?
     @State private var showingSessionView = false
     @State private var showingSettings = false
+    @State private var isCreating = false
 
     var body: some View {
         List(sessions) { session in
@@ -40,8 +41,15 @@ struct SessionsListView: View {
         .navigationTitle(project.name)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button(action: { showingSettings = true }) {
-                    Image(systemName: "gearshape.fill")
+                HStack(spacing: 16) {
+                    Button(action: createNewSession) {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel("New Session")
+
+                    Button(action: { showingSettings = true }) {
+                        Image(systemName: "gearshape.fill")
+                    }
                 }
             }
         }
@@ -63,5 +71,20 @@ struct SessionsListView: View {
                 )
             }
         }
+    }
+
+    private func createNewSession() {
+        guard !isCreating else { return }
+        isCreating = true
+
+        webSocketManager.onSessionActionResult = { response in
+            isCreating = false
+            if response.success {
+                // Refresh sessions list
+                webSocketManager.requestSessions(folderName: project.folderName)
+            }
+        }
+
+        webSocketManager.newSession(projectPath: project.path)
     }
 }
