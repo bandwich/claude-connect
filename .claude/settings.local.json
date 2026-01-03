@@ -9,7 +9,8 @@
       "Bash(do crash_date=\"Dec 29 $time\" test_date=\"16:10:05\" echo \"Latest crash: $file\" echo \"Crash time: $month $day $time\" echo \"Test start: 2025-12-29 16:10:05\" echo \"\" echo \"Crash is BEFORE test start \\(14:55 < 16:10\\)\" done)",
       "Bash(done)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(grep:*)"
     ]
   }
 }
