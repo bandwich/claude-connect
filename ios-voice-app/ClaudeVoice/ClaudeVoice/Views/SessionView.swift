@@ -13,8 +13,8 @@ struct SessionView: View {
     @State private var currentTranscript = ""
     @State private var showingSettings = false
     @State private var isInitialLoad = true
-    @State private var isResuming = false
-    @State private var isClosing = false
+    @State private var isSyncing = false
+    @State private var syncError: String? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -58,10 +58,31 @@ struct SessionView: View {
                         .padding(.horizontal)
                 }
 
-                Text(webSocketManager.voiceState.description)
+                // Show sync status or voice state
+                if isSyncing {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                        Text("Syncing with VSCode...")
+                    }
                     .font(.caption)
                     .foregroundColor(.secondary)
-                    .accessibilityIdentifier("voiceState")
+                    .accessibilityIdentifier("syncStatus")
+                } else if let error = syncError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundColor(.red)
+                        .accessibilityIdentifier("syncError")
+                } else if isSessionSynced {
+                    Text(webSocketManager.voiceState.description)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .accessibilityIdentifier("voiceState")
+                } else {
+                    Text("Waiting for sync...")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
 
                 Button(action: toggleRecording) {
                     HStack {
@@ -87,28 +108,19 @@ struct SessionView: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 HStack(spacing: 16) {
-                    // Show connected indicator OR open button based on sync state
-                    if isSessionActive {
-                        // Connected indicator - this session is open in VSCode
+                    // Show sync status indicator
+                    if isSyncing {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                            .accessibilityLabel("Syncing")
+                    } else if isSessionSynced {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundColor(.green)
-                            .accessibilityLabel("Session Active in VSCode")
-                    } else {
-                        // Open button - session not active, allow opening
-                        Button(action: resumeSession) {
-                            Image(systemName: "arrow.up.forward.app")
-                        }
-                        .disabled(isResuming || !webSocketManager.vscodeConnected)
-                        .accessibilityLabel("Open in VSCode")
-                    }
-
-                    // Close button - only show when this session is active
-                    if isSessionActive {
-                        Button(action: closeSession) {
-                            Image(systemName: "xmark.circle")
-                        }
-                        .disabled(isClosing)
-                        .accessibilityLabel("Close Session")
+                            .accessibilityLabel("Synced with VSCode")
+                    } else if syncError != nil {
+                        Image(systemName: "exclamationmark.circle.fill")
+                            .foregroundColor(.red)
+                            .accessibilityLabel("Sync Error")
                     }
 
                     Button(action: { showingSettings = true }) {
@@ -129,6 +141,7 @@ struct SessionView: View {
     }
 
     private var canRecord: Bool {
+        guard isSessionSynced else { return false }
         if case .connected = webSocketManager.connectionState {
             return speechRecognizer.isAuthorized
                 && !audioPlayer.isPlaying
@@ -137,7 +150,7 @@ struct SessionView: View {
         return false
     }
 
-    private var isSessionActive: Bool {
+    private var isSessionSynced: Bool {
         webSocketManager.activeSessionId == session.id
     }
 
@@ -147,6 +160,9 @@ struct SessionView: View {
             self.messages = messages
         }
         webSocketManager.requestSessionHistory(folderName: project.folderName, sessionId: session.id)
+
+        // Auto-resume session in VSCode
+        syncSession()
 
         // Setup speech recognizer
         speechRecognizer.onRecordingStarted = { [weak webSocketManager] in
@@ -194,6 +210,33 @@ struct SessionView: View {
         }
     }
 
+    private func syncSession() {
+        // Skip if already synced to this session
+        guard !isSessionSynced else { return }
+
+        // Check if VSCode is connected
+        guard webSocketManager.vscodeConnected else {
+            syncError = "VSCode not connected"
+            return
+        }
+
+        isSyncing = true
+        syncError = nil
+
+        webSocketManager.onSessionActionResult = { response in
+            isSyncing = false
+            if response.success {
+                // Session synced - vscode_status broadcast will update activeSessionId
+                print("Session synced successfully")
+            } else {
+                syncError = response.error ?? "Failed to sync"
+                print("Failed to sync session: \(response.error ?? "Unknown error")")
+            }
+        }
+
+        webSocketManager.resumeSession(sessionId: session.id)
+    }
+
     private func toggleRecording() {
         if speechRecognizer.isRecording {
             speechRecognizer.stopRecording()
@@ -204,37 +247,6 @@ struct SessionView: View {
                 print("Failed to start recording: \(error)")
             }
         }
-    }
-
-    private func resumeSession() {
-        guard !isResuming else { return }
-        isResuming = true
-
-        webSocketManager.onSessionActionResult = { response in
-            isResuming = false
-            if response.success {
-                // Session resumed - voice input is now active for this session
-                print("Session resumed successfully")
-            } else {
-                print("Failed to resume session: \(response.error ?? "Unknown error")")
-            }
-        }
-
-        webSocketManager.resumeSession(sessionId: session.id)
-    }
-
-    private func closeSession() {
-        guard !isClosing else { return }
-        isClosing = true
-
-        webSocketManager.onSessionActionResult = { response in
-            isClosing = false
-            if response.success {
-                print("Session closed successfully")
-            }
-        }
-
-        webSocketManager.closeSession()
     }
 }
 
