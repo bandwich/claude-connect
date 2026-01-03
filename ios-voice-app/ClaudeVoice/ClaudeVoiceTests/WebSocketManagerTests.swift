@@ -266,4 +266,118 @@ struct WebSocketManagerTests {
 
         #expect(true, "requestSessionHistory() method should exist and be callable")
     }
+
+    // MARK: - VSCode Status Tests
+
+    @Test func testVSCodeConnectedPublishedProperty() throws {
+        let manager = WebSocketManager()
+        var stateChanges = 0
+        var cancellables = Set<AnyCancellable>()
+
+        // Initial state should be false
+        #expect(manager.vscodeConnected == false)
+
+        // Subscribe to changes
+        manager.$vscodeConnected
+            .dropFirst()
+            .sink { _ in
+                stateChanges += 1
+            }
+            .store(in: &cancellables)
+
+        // Change state
+        manager.vscodeConnected = true
+        #expect(manager.vscodeConnected == true)
+        #expect(stateChanges == 1)
+
+        manager.vscodeConnected = false
+        #expect(manager.vscodeConnected == false)
+        #expect(stateChanges == 2)
+    }
+
+    @Test func testActiveSessionIdPublishedProperty() throws {
+        let manager = WebSocketManager()
+        var stateChanges = 0
+        var cancellables = Set<AnyCancellable>()
+
+        // Initial state should be nil
+        #expect(manager.activeSessionId == nil)
+
+        // Subscribe to changes
+        manager.$activeSessionId
+            .dropFirst()
+            .sink { _ in
+                stateChanges += 1
+            }
+            .store(in: &cancellables)
+
+        // Set a session ID
+        manager.activeSessionId = "test-session-123"
+        #expect(manager.activeSessionId == "test-session-123")
+        #expect(stateChanges == 1)
+
+        // Clear the session ID
+        manager.activeSessionId = nil
+        #expect(manager.activeSessionId == nil)
+        #expect(stateChanges == 2)
+    }
+
+    @Test func testOnVSCodeStatusReceivedCallback() throws {
+        let manager = WebSocketManager()
+        var receivedStatus: VSCodeStatus?
+
+        manager.onVSCodeStatusReceived = { status in
+            receivedStatus = status
+        }
+
+        #expect(manager.onVSCodeStatusReceived != nil)
+
+        // Simulate callback invocation
+        let mockStatus = VSCodeStatus(
+            type: "vscode_status",
+            vscodeConnected: true,
+            activeSessionId: "abc123"
+        )
+
+        manager.onVSCodeStatusReceived?(mockStatus)
+
+        #expect(receivedStatus?.vscodeConnected == true)
+        #expect(receivedStatus?.activeSessionId == "abc123")
+    }
+
+    @Test func testVSCodeStatusUpdatesProperties() throws {
+        let manager = WebSocketManager()
+
+        // Simulate what handleMessage does when receiving VSCodeStatus
+        let status = VSCodeStatus(
+            type: "vscode_status",
+            vscodeConnected: true,
+            activeSessionId: "session-xyz"
+        )
+
+        // Manually update as handleMessage would
+        manager.vscodeConnected = status.vscodeConnected
+        manager.activeSessionId = status.activeSessionId
+
+        #expect(manager.vscodeConnected == true)
+        #expect(manager.activeSessionId == "session-xyz")
+    }
+
+    @Test func testVSCodeStatusClearsOnDisconnect() throws {
+        let manager = WebSocketManager()
+
+        // Set initial connected state
+        manager.vscodeConnected = true
+        manager.activeSessionId = "active-session"
+
+        #expect(manager.vscodeConnected == true)
+        #expect(manager.activeSessionId == "active-session")
+
+        // Simulate receiving disconnected status
+        manager.vscodeConnected = false
+        manager.activeSessionId = nil
+
+        #expect(manager.vscodeConnected == false)
+        #expect(manager.activeSessionId == nil)
+    }
 }

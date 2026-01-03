@@ -7,6 +7,9 @@ struct ProjectsListView: View {
     @State private var selectedProject: Project?
     @State private var showingSessionsList = false
     @State private var showingSettings = false
+    @State private var showingAddProject = false
+    @State private var newProjectName = ""
+    @State private var isCreating = false
 
     var body: some View {
         Group {
@@ -63,13 +66,31 @@ struct ProjectsListView: View {
         .navigationTitle("Projects")
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button(action: { showingSettings = true }) {
-                    Image(systemName: "gearshape.fill")
+                HStack(spacing: 16) {
+                    Button(action: { showingAddProject = true }) {
+                        Image(systemName: "folder.badge.plus")
+                    }
+                    .accessibilityLabel("Add Project")
+
+                    Button(action: { showingSettings = true }) {
+                        Image(systemName: "gearshape.fill")
+                    }
                 }
             }
         }
         .sheet(isPresented: $showingSettings) {
             SettingsView(webSocketManager: webSocketManager)
+        }
+        .alert("New Project", isPresented: $showingAddProject) {
+            TextField("Project name", text: $newProjectName)
+            Button("Cancel", role: .cancel) {
+                newProjectName = ""
+            }
+            Button("Create") {
+                createProject()
+            }
+        } message: {
+            Text("Enter a name for the new project")
         }
         .onAppear {
             webSocketManager.onProjectsReceived = { projects in
@@ -92,5 +113,27 @@ struct ProjectsListView: View {
                 )
             }
         }
+    }
+
+    private func createProject() {
+        let name = newProjectName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, !isCreating else {
+            newProjectName = ""
+            return
+        }
+
+        isCreating = true
+
+        webSocketManager.onSessionActionResult = { response in
+            isCreating = false
+            newProjectName = ""
+
+            if response.success {
+                // Refresh projects list
+                webSocketManager.requestProjects()
+            }
+        }
+
+        webSocketManager.addProject(name: name)
     }
 }

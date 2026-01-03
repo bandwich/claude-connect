@@ -16,6 +16,10 @@ class VSCodeController:
         self._ws: Optional[websockets.WebSocketClientProtocol] = None
         self._connected = False
 
+    def is_connected(self) -> bool:
+        """Check if connected to VS Code extension"""
+        return self._connected
+
     async def connect(self) -> bool:
         """Connect to VS Code extension WebSocket server"""
         try:
@@ -45,12 +49,24 @@ class VSCodeController:
 
         await self._ws.send(json.dumps(message))
 
-    async def send_sequence(self, text: str):
-        """Send text to the active terminal"""
-        await self._send_command(
-            "workbench.action.terminal.sendSequence",
-            {"text": text}
-        )
+    async def send_sequence(self, text: str) -> bool:
+        """Send text to the active terminal
+
+        Returns:
+            True if sent successfully, False if not connected
+        """
+        if not self._connected or not self._ws:
+            return False
+
+        try:
+            await self._send_command(
+                "workbench.action.terminal.sendSequence",
+                {"text": text}
+            )
+            return True
+        except Exception as e:
+            print(f"Failed to send sequence: {e}")
+            return False
 
     async def new_terminal(self):
         """Open a new terminal"""
@@ -61,6 +77,6 @@ class VSCodeController:
         await self._send_command("workbench.action.terminal.kill")
 
     async def open_folder(self, folder_path: str):
-        """Open a folder in VS Code (uses CLI)"""
+        """Open a folder in VS Code"""
         import subprocess
-        subprocess.run(["code", folder_path])
+        subprocess.run(["open", "-a", "Visual Studio Code", folder_path])

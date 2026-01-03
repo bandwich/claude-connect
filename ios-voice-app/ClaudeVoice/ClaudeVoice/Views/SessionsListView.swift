@@ -9,6 +9,7 @@ struct SessionsListView: View {
     @State private var selectedSession: Session?
     @State private var showingSessionView = false
     @State private var showingSettings = false
+    @State private var isCreating = false
 
     var body: some View {
         List(sessions) { session in
@@ -16,21 +17,30 @@ struct SessionsListView: View {
                 selectedSession = session
                 showingSessionView = true
             }) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(session.title)
-                        .font(.headline)
-                        .lineLimit(2)
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(session.title)
+                            .font(.headline)
+                            .lineLimit(2)
 
-                    HStack {
-                        Text(session.formattedDate)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                        HStack {
+                            Text(session.formattedDate)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
 
-                        Spacer()
+                            Spacer()
 
-                        Text("\(session.messageCount) messages")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                            Text("\(session.messageCount) messages")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+
+                    // Show active indicator if this session is open in VSCode
+                    if webSocketManager.activeSessionId == session.id {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                            .accessibilityLabel("Active in VSCode")
                     }
                 }
                 .padding(.vertical, 4)
@@ -40,8 +50,15 @@ struct SessionsListView: View {
         .navigationTitle(project.name)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button(action: { showingSettings = true }) {
-                    Image(systemName: "gearshape.fill")
+                HStack(spacing: 16) {
+                    Button(action: createNewSession) {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel("New Session")
+
+                    Button(action: { showingSettings = true }) {
+                        Image(systemName: "gearshape.fill")
+                    }
                 }
             }
         }
@@ -63,5 +80,21 @@ struct SessionsListView: View {
                 )
             }
         }
+    }
+
+    private func createNewSession() {
+        guard !isCreating else { return }
+        isCreating = true
+
+        webSocketManager.onSessionActionResult = { response in
+            isCreating = false
+            if response.success {
+                // Navigate to the new session
+                selectedSession = Session.newSession()
+                showingSessionView = true
+            }
+        }
+
+        webSocketManager.newSession(projectPath: project.path)
     }
 }

@@ -18,6 +18,14 @@ struct Session: Codable, Identifiable {
         formatter.unitsStyle = .abbreviated
         return formatter.localizedString(for: date, relativeTo: Date())
     }
+
+    var isNewSession: Bool {
+        id.isEmpty
+    }
+
+    static func newSession() -> Session {
+        Session(id: "", title: "New Session", timestamp: Date().timeIntervalSince1970, messageCount: 0)
+    }
 }
 
 struct SessionsResponse: Codable {
@@ -36,4 +44,30 @@ struct SessionHistoryMessage: Codable, Identifiable {
 struct SessionHistoryResponse: Codable {
     let type: String
     let messages: [SessionHistoryMessage]
+}
+
+struct SessionActionResponse: Codable {
+    let type: String
+    let success: Bool
+    let sessionId: String?
+    let path: String?
+    let name: String?
+    let error: String?
+
+    enum CodingKeys: String, CodingKey {
+        case type, success, path, name, error
+        case sessionId = "session_id"
+    }
+}
+
+struct VSCodeStatus: Codable {
+    let type: String
+    let vscodeConnected: Bool
+    let activeSessionId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case vscodeConnected = "vscode_connected"
+        case activeSessionId = "active_session_id"
+    }
 }
