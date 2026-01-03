@@ -50,3 +50,38 @@ class TestVSCodeControllerConnection:
         # Mock successful connection
         controller._connected = True
         assert controller.is_connected() is True
+
+
+class TestVSCodeControllerGracefulFallback:
+    """Tests for graceful fallback when not connected"""
+
+    @pytest.mark.asyncio
+    async def test_send_sequence_returns_false_when_disconnected(self):
+        """Should return False instead of raising when not connected"""
+        from vscode_controller import VSCodeController
+
+        controller = VSCodeController()
+        # Don't connect - controller._connected is False
+
+        result = await controller.send_sequence("test")
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_send_sequence_returns_true_when_connected(self):
+        """Should return True when message is sent"""
+        from vscode_controller import VSCodeController
+
+        controller = VSCodeController()
+
+        # Mock the WebSocket
+        sent_messages = []
+        class MockWS:
+            async def send(self, msg):
+                sent_messages.append(msg)
+
+        controller._ws = MockWS()
+        controller._connected = True
+
+        result = await controller.send_sequence("hello")
+        assert result is True
+        assert len(sent_messages) == 1

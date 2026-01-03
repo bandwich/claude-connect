@@ -49,12 +49,24 @@ class VSCodeController:
 
         await self._ws.send(json.dumps(message))
 
-    async def send_sequence(self, text: str):
-        """Send text to the active terminal"""
-        await self._send_command(
-            "workbench.action.terminal.sendSequence",
-            {"text": text}
-        )
+    async def send_sequence(self, text: str) -> bool:
+        """Send text to the active terminal
+
+        Returns:
+            True if sent successfully, False if not connected
+        """
+        if not self._connected or not self._ws:
+            return False
+
+        try:
+            await self._send_command(
+                "workbench.action.terminal.sendSequence",
+                {"text": text}
+            )
+            return True
+        except Exception as e:
+            print(f"Failed to send sequence: {e}")
+            return False
 
     async def new_terminal(self):
         """Open a new terminal"""
