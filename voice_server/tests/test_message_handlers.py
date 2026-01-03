@@ -121,3 +121,48 @@ class TestCloseSession:
         closed_response = next((r for r in responses if r.get("type") == "session_closed"), None)
         assert closed_response is not None
         assert closed_response["success"] is True
+
+
+class TestNewSession:
+    """Tests for new_session handler"""
+
+    @pytest.mark.asyncio
+    async def test_new_session_opens_terminal_and_runs_claude(self):
+        """new_session should open terminal and run claude"""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+
+        server.vscode_controller = Mock()
+        server.vscode_controller.is_connected.return_value = True
+        server.vscode_controller.new_terminal = AsyncMock()
+        server.vscode_controller.send_sequence = AsyncMock(return_value=True)
+
+        mock_ws = AsyncMock()
+
+        await server.handle_new_session(mock_ws, {"project_path": "/Users/test/myproject"})
+
+        server.vscode_controller.new_terminal.assert_called_once()
+        server.vscode_controller.send_sequence.assert_called_with("claude\n")
+
+    @pytest.mark.asyncio
+    async def test_new_session_returns_success_status(self):
+        """new_session should send success status"""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+        server.vscode_controller = Mock()
+        server.vscode_controller.is_connected.return_value = True
+        server.vscode_controller.new_terminal = AsyncMock()
+        server.vscode_controller.send_sequence = AsyncMock(return_value=True)
+
+        mock_ws = AsyncMock()
+        sent_messages = []
+        mock_ws.send = AsyncMock(side_effect=lambda msg: sent_messages.append(msg))
+
+        await server.handle_new_session(mock_ws, {"project_path": "/test"})
+
+        responses = [json.loads(m) for m in sent_messages]
+        new_response = next((r for r in responses if r.get("type") == "session_created"), None)
+        assert new_response is not None
+        assert new_response["success"] is True

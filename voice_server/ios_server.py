@@ -430,6 +430,25 @@ end tell
         }
         await websocket.send(json.dumps(response))
 
+    async def handle_new_session(self, websocket, data):
+        """Handle new_session request - opens terminal and starts claude"""
+        project_path = data.get("project_path", "")
+        success = False
+
+        if self.vscode_controller.is_connected():
+            try:
+                await self.vscode_controller.new_terminal()
+                await asyncio.sleep(0.5)
+                success = await self.vscode_controller.send_sequence("claude\n")
+            except Exception as e:
+                print(f"Error creating new session: {e}")
+
+        response = {
+            "type": "session_created",
+            "success": success
+        }
+        await websocket.send(json.dumps(response))
+
     async def handle_message(self, websocket, message):
         """Handle incoming message"""
         try:
@@ -446,6 +465,8 @@ end tell
                 await self.handle_get_session(websocket, data)
             elif msg_type == 'close_session':
                 await self.handle_close_session(websocket)
+            elif msg_type == 'new_session':
+                await self.handle_new_session(websocket, data)
         except Exception as e:
             print(f"Error: {e}")
 
