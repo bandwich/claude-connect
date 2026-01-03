@@ -12,14 +12,14 @@ final class E2ESessionsListTests: E2ETestBase {
     
     func test_tap_project_shows_sessions() throws {
         // Wait for projects to load
-        let project1 = app.staticTexts["e2e-test-project1"]
+        let project1 = app.staticTexts["e2e_test_project1"]
         XCTAssertTrue(project1.waitForExistence(timeout: 5), "Should show project1")
 
         // Tap project
         project1.tap()
 
         // Should show sessions list with project name as title
-        let navTitle = app.navigationBars["e2e-test-project1"]
+        let navTitle = app.navigationBars["e2e_test_project1"]
         XCTAssertTrue(navTitle.waitForExistence(timeout: 5), "Should navigate to sessions list")
 
         // Should show session titles (first user message)
@@ -33,7 +33,7 @@ final class E2ESessionsListTests: E2ETestBase {
     
     func test_sessions_show_message_counts() throws {
         // Navigate to project1
-        let project1 = app.staticTexts["e2e-test-project1"]
+        let project1 = app.staticTexts["e2e_test_project1"]
         XCTAssertTrue(project1.waitForExistence(timeout: 5))
         project1.tap()
 
@@ -45,12 +45,12 @@ final class E2ESessionsListTests: E2ETestBase {
     
     func test_back_navigation_returns_to_projects() throws {
         // Navigate to sessions
-        let project1 = app.staticTexts["e2e-test-project1"]
+        let project1 = app.staticTexts["e2e_test_project1"]
         XCTAssertTrue(project1.waitForExistence(timeout: 5))
         project1.tap()
 
         // Wait for sessions list
-        let navTitle = app.navigationBars["e2e-test-project1"]
+        let navTitle = app.navigationBars["e2e_test_project1"]
         XCTAssertTrue(navTitle.waitForExistence(timeout: 5))
 
         // Tap back

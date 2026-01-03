@@ -18,8 +18,8 @@ class E2ETestBase: XCTestCase {
 
     /// Test fixture paths for sync-sessions E2E tests
     let testProjectsDir = "/Users/aaron/.claude/projects"
-    let testProject1Path = "/Users/aaron/.claude/projects/-e2e-test-project1"
-    let testProject2Path = "/Users/aaron/.claude/projects/-e2e-test-project2"
+    let testProject1Path = "/Users/aaron/.claude/projects/-e2e_test_project1"
+    let testProject2Path = "/Users/aaron/.claude/projects/-e2e_test_project2"
 
     var app: XCUIApplication! {
         return Self.app
@@ -51,7 +51,10 @@ class E2ETestBase: XCTestCase {
         transcriptPath = "/Users/aaron/.claude/projects/e2e_test_project/e2e_transcript.jsonl"
         print("📝 Using hardcoded Mac path: \(transcriptPath!)")
 
-        // Clear the transcript file (don't create new one - server is already watching this one)
+        // Ensure e2e_test_project directory exists and clear transcript file
+        let fileManager = FileManager.default
+        let transcriptDir = (transcriptPath! as NSString).deletingLastPathComponent
+        try? fileManager.createDirectory(atPath: transcriptDir, withIntermediateDirectories: true)
         try "".write(toFile: transcriptPath!, atomically: true, encoding: .utf8)
 
         // Create test fixtures for sync-sessions tests
@@ -328,13 +331,22 @@ class E2ETestBase: XCTestCase {
 
         // Wait for sessions list and tap first session
         sleep(1)
-        let firstSession = app.cells.firstMatch
-        if firstSession.waitForExistence(timeout: 5) {
-            firstSession.tap()
+
+        // Try to tap a session by known title, or fallback to first cell
+        // e2e_test_project has an empty transcript, so session title is "Untitled"
+        let untitledSession = app.staticTexts["Untitled"]
+        if untitledSession.waitForExistence(timeout: 5) {
+            untitledSession.tap()
+        } else {
+            // Fallback: tap first cell
+            let firstSession = app.cells.firstMatch
+            if firstSession.waitForExistence(timeout: 5) {
+                firstSession.tap()
+            }
         }
 
         // Wait for session view to load
-        sleep(1)
+        sleep(2)
     }
 
     // MARK: - Test Fixtures for Sync-Sessions
@@ -348,25 +360,25 @@ class E2ETestBase: XCTestCase {
 
         // Session 1: Hello conversation
         let session1 = """
-        {"type":"user","message":{"role":"user","content":"Hello Claude"},"timestamp":"2026-01-01T10:00:00Z"}
-        {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hi! How can I help?"}]},"timestamp":"2026-01-01T10:00:05Z"}
-        """
+{"type":"user","message":{"role":"user","content":"Hello Claude"},"timestamp":"2026-01-01T10:00:00Z"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hi! How can I help?"}]},"timestamp":"2026-01-01T10:00:05Z"}
+"""
         try? session1.write(toFile: "\(testProject1Path)/session1.jsonl", atomically: true, encoding: .utf8)
 
         // Session 2: Code question
         let session2 = """
-        {"type":"user","message":{"role":"user","content":"How do I write a Swift function?"},"timestamp":"2026-01-02T10:00:00Z"}
-        {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Here's how to write a Swift function..."}]},"timestamp":"2026-01-02T10:00:05Z"}
-        {"type":"user","message":{"role":"user","content":"Thanks!"},"timestamp":"2026-01-02T10:00:10Z"}
-        """
+{"type":"user","message":{"role":"user","content":"How do I write a Swift function?"},"timestamp":"2026-01-02T10:00:00Z"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Here's how to write a Swift function..."}]},"timestamp":"2026-01-02T10:00:05Z"}
+{"type":"user","message":{"role":"user","content":"Thanks!"},"timestamp":"2026-01-02T10:00:10Z"}
+"""
         try? session2.write(toFile: "\(testProject1Path)/session2.jsonl", atomically: true, encoding: .utf8)
 
         // Project 2: 1 session
         try? fileManager.createDirectory(atPath: testProject2Path, withIntermediateDirectories: true)
 
         let session3 = """
-        {"type":"user","message":{"role":"user","content":"What is TDD?"},"timestamp":"2026-01-01T09:00:00Z"}
-        """
+{"type":"user","message":{"role":"user","content":"What is TDD?"},"timestamp":"2026-01-01T09:00:00Z"}
+"""
         try? session3.write(toFile: "\(testProject2Path)/session1.jsonl", atomically: true, encoding: .utf8)
     }
 

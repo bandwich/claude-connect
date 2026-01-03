@@ -48,6 +48,12 @@ struct SessionView: View {
 
                 VoiceIndicator(state: webSocketManager.voiceState)
                     .frame(height: 60)
+                    .accessibilityIdentifier("VoiceIndicator")
+
+                Text(webSocketManager.voiceState.description)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .accessibilityIdentifier("voiceState")
 
                 Button(action: toggleRecording) {
                     HStack {

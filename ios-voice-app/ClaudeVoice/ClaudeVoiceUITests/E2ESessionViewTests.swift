@@ -12,12 +12,12 @@ final class E2ESessionViewTests: E2ETestBase {
     /// Navigate to a specific session for testing
     private func navigateToSession1() {
         // Tap project1
-        let project1 = app.staticTexts["e2e-test-project1"]
+        let project1 = app.staticTexts["e2e_test_project1"]
         XCTAssertTrue(project1.waitForExistence(timeout: 5))
         project1.tap()
 
         // Wait for sessions list
-        let navTitle = app.navigationBars["e2e-test-project1"]
+        let navTitle = app.navigationBars["e2e_test_project1"]
         XCTAssertTrue(navTitle.waitForExistence(timeout: 5))
 
         // Tap first session
