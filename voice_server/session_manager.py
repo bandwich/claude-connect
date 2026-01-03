@@ -89,9 +89,13 @@ class SessionManager:
         # Sort by modification time (most recent first)
         session_files.sort(key=os.path.getmtime, reverse=True)
 
-        for filepath in session_files[:limit]:
+        for filepath in session_files:
             session_id = os.path.splitext(os.path.basename(filepath))[0]
             title, message_count, timestamp = self._parse_session_file(filepath)
+
+            # Filter out Warmup sessions (subagent warmups) and empty sessions
+            if title.startswith("Warmup") or message_count == 0:
+                continue
 
             sessions.append(Session(
                 id=session_id,
@@ -100,8 +104,9 @@ class SessionManager:
                 message_count=message_count
             ))
 
-        # Filter out Warmup sessions (subagent warmups) and empty sessions
-        sessions = [s for s in sessions if not s.title.startswith("Warmup") and s.message_count > 0]
+            # Stop once we have enough valid sessions
+            if len(sessions) >= limit:
+                break
 
         return sessions
 
