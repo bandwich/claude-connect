@@ -37,3 +37,17 @@ struct SessionHistoryResponse: Codable {
     let type: String
     let messages: [SessionHistoryMessage]
 }
+
+struct SessionActionResponse: Codable {
+    let type: String
+    let success: Bool
+    let sessionId: String?
+    let path: String?
+    let name: String?
+    let error: String?
+
+    enum CodingKeys: String, CodingKey {
+        case type, success, path, name, error
+        case sessionId = "session_id"
+    }
+}

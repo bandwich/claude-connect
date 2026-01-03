@@ -17,6 +17,7 @@ class WebSocketManager: NSObject, ObservableObject {
     var onProjectsReceived: (([Project]) -> Void)?
     var onSessionsReceived: (([Session]) -> Void)?
     var onSessionHistoryReceived: (([SessionHistoryMessage]) -> Void)?
+    var onSessionActionResult: ((SessionActionResponse) -> Void)?
     var isPlayingAudio: Bool = false // Tracks if audio is currently playing
     private var lastContentBlocks: [ContentBlock] = []  // NEW: store for future UI
 
@@ -176,6 +177,37 @@ class WebSocketManager: NSObject, ObservableObject {
         sendJSON(message)
     }
 
+    // MARK: - Session Action Methods
+
+    func closeSession() {
+        let message = ["type": "close_session"]
+        sendJSON(message)
+    }
+
+    func newSession(projectPath: String) {
+        let message: [String: Any] = [
+            "type": "new_session",
+            "project_path": projectPath
+        ]
+        sendJSON(message)
+    }
+
+    func resumeSession(sessionId: String) {
+        let message: [String: Any] = [
+            "type": "resume_session",
+            "session_id": sessionId
+        ]
+        sendJSON(message)
+    }
+
+    func addProject(name: String) {
+        let message: [String: Any] = [
+            "type": "add_project",
+            "name": name
+        ]
+        sendJSON(message)
+    }
+
     private func sendJSON(_ dict: [String: Any]) {
         guard let data = try? JSONSerialization.data(withJSONObject: dict),
               let jsonString = String(data: data, encoding: .utf8) else {
@@ -265,6 +297,11 @@ class WebSocketManager: NSObject, ObservableObject {
                 DispatchQueue.main.async {
                     self.onSessionHistoryReceived?(historyResponse.messages)
                 }
+            } else if let actionResponse = try? JSONDecoder().decode(SessionActionResponse.self, from: data) {
+                logToFile("✅ Decoded as SessionActionResponse: \(actionResponse.type)")
+                DispatchQueue.main.async {
+                    self.onSessionActionResult?(actionResponse)
+                }
             } else {
                 print("❌ Failed to decode message as any known type")
                 print("   Raw data: \(String(data: data, encoding: .utf8) ?? "N/A")")
@@ -292,6 +329,10 @@ class WebSocketManager: NSObject, ObservableObject {
             } else if let historyResponse = try? JSONDecoder().decode(SessionHistoryResponse.self, from: data) {
                 DispatchQueue.main.async {
                     self.onSessionHistoryReceived?(historyResponse.messages)
+                }
+            } else if let actionResponse = try? JSONDecoder().decode(SessionActionResponse.self, from: data) {
+                DispatchQueue.main.async {
+                    self.onSessionActionResult?(actionResponse)
                 }
             } else {
                 print("❌ Failed to decode binary message")
