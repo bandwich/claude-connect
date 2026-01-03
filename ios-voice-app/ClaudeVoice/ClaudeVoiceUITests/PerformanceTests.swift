@@ -7,9 +7,12 @@
 
 import XCTest
 
-final class PerformanceTests: E2ETestBase {
+final class PerformanceTests: IntegrationTestBase {
 
-    // Base class handles connection in setUpWithError
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        connectToTestServer()
+    }
 
     // Test 1: End-to-end latency (response injection to audio playback)
     @MainActor
@@ -75,6 +78,9 @@ final class PerformanceTests: E2ETestBase {
             // Should complete and return to idle
             XCTAssertTrue(waitForVoiceState("Idle", timeout: 10),
                          "Iteration \(i): Should return to idle")
+
+            // Small delay between iterations
+            sleep(1)
         }
 
         // Verify all interactions were logged

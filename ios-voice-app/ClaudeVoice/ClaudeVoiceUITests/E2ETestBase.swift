@@ -89,10 +89,7 @@ class E2ETestBase: XCTestCase {
         createTestFixtures()
 
         Self.app.launch()
-
-        // Wait for app to be ready
-        let settingsButton = app.buttons["gearshape.fill"]
-        _ = settingsButton.waitForExistence(timeout: 5)
+        sleep(2)  // Wait for app to fully initialize
 
         connectToServer()
     }
@@ -143,6 +140,7 @@ class E2ETestBase: XCTestCase {
             let connectionHeader = app.staticTexts["Connection"]
             if connectionHeader.exists {
                 connectionHeader.tap()
+                sleep(1)  // Wait for section to expand
             }
         }
 
@@ -162,6 +160,8 @@ class E2ETestBase: XCTestCase {
         if doneButton.exists {
             doneButton.tap()
         }
+
+        sleep(1)  // Wait for navigation to complete
     }
 
     /// Alias for connectToServer (compatibility with IntegrationTestBase tests)
@@ -184,6 +184,8 @@ class E2ETestBase: XCTestCase {
         if doneButton.waitForExistence(timeout: 2) {
             doneButton.tap()
         }
+
+        sleep(1)
     }
 
     // MARK: - State Waiting
@@ -205,6 +207,14 @@ class E2ETestBase: XCTestCase {
         let stateLabel = app.staticTexts["connectionStatus"]
         let exists = stateLabel.waitForExistence(timeout: timeout)
         return exists && stateLabel.label == expectedState
+    }
+
+    /// Wait for Speaking state then Idle state - common pattern in conversation tests
+    func waitForSpeakingThenIdle(speakingTimeout: TimeInterval = 10.0, idleTimeout: TimeInterval = 10.0) -> Bool {
+        guard waitForVoiceState("Speaking", timeout: speakingTimeout) else {
+            return false
+        }
+        return waitForVoiceState("Idle", timeout: idleTimeout)
     }
 
     // MARK: - UI Helpers
@@ -248,6 +258,7 @@ class E2ETestBase: XCTestCase {
         }
 
         wait(for: [expectation], timeout: 5.0)
+        sleep(1)  // Wait for server to receive WebSocket message
     }
 
     func injectAssistantResponse(_ text: String) {
@@ -280,6 +291,9 @@ class E2ETestBase: XCTestCase {
         } catch {
             XCTFail("Failed to inject response: \(error)")
         }
+
+        // Brief delay for file system sync
+        usleep(100000) // 100ms
     }
 
     func injectUserMessage(_ text: String) {
@@ -312,14 +326,30 @@ class E2ETestBase: XCTestCase {
         } catch {
             XCTFail("Failed to inject user message: \(error)")
         }
+
+        // Brief delay for file system sync
+        usleep(100000) // 100ms
     }
 
     func simulateConversationTurn(userInput: String, assistantResponse: String) {
         print("📝 Simulating conversation turn: '\(userInput)' -> '\(assistantResponse)'")
 
+        // Send voice input via WebSocket
         sendVoiceInput(userInput)
+
+        // Wait for server to process WebSocket message
+        usleep(500000) // 500ms
+
+        // Inject user message to transcript
         injectUserMessage(userInput)
+
+        // Wait for file watcher to detect
+        usleep(200000) // 200ms
+
+        // Inject assistant response
         injectAssistantResponse(assistantResponse)
+
+        // Don't wait here - let the test's waitForVoiceState do the waiting
     }
 
     // MARK: - Server API Helpers (from IntegrationTestBase)
@@ -384,6 +414,8 @@ class E2ETestBase: XCTestCase {
             }
         }
 
+        sleep(1)  // Wait for sessions list to load
+
         let untitledSession = app.staticTexts["Untitled"]
         if untitledSession.waitForExistence(timeout: 5) {
             untitledSession.tap()
@@ -394,7 +426,7 @@ class E2ETestBase: XCTestCase {
             }
         }
 
-        _ = app.staticTexts["voiceState"].waitForExistence(timeout: 5)
+        sleep(2)  // Wait for session view to load
     }
 
     // MARK: - Test Fixtures for Sync-Sessions

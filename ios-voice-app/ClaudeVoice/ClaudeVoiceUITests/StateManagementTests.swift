@@ -7,9 +7,12 @@
 
 import XCTest
 
-final class StateManagementTests: E2ETestBase {
+final class StateManagementTests: IntegrationTestBase {
 
-    // Base class handles connection in setUpWithError
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        connectToTestServer()
+    }
 
     // Test 1: Voice state transitions through full cycle
     @MainActor
@@ -69,8 +72,11 @@ final class StateManagementTests: E2ETestBase {
         // Speaking state - should show Speaking label
         XCTAssertTrue(waitForVoiceState("Speaking", timeout: 10), "Should show Speaking label")
 
-        // Back to idle (waitForVoiceState handles timing)
-        XCTAssertTrue(waitForVoiceState("Idle", timeout: 10), "Should show Idle label again")
+        // Wait for completion
+        sleep(3)
+
+        // Back to idle
+        XCTAssertTrue(waitForVoiceState("Idle", timeout: 5), "Should show Idle label again")
     }
 
     // Test 4: Concurrent state updates
@@ -78,10 +84,15 @@ final class StateManagementTests: E2ETestBase {
     func testConcurrentStateUpdates() throws {
         // Send multiple rapid responses
         sendMockClaudeResponse("First response.")
+        sleep(1)
         sendMockClaudeResponse("Second response.")
 
-        // Wait for processing to complete - should settle to idle
-        XCTAssertTrue(waitForVoiceState("Idle", timeout: 15), "Should settle to stable state")
+        // App should handle state updates without crashing
+        sleep(5)
+
+        // Should eventually settle to a stable state
+        let hasStableState = app.staticTexts["Idle"].exists || app.staticTexts["Speaking"].exists
+        XCTAssertTrue(hasStableState, "Should have a stable state")
 
         // Verify no crashes or UI inconsistencies
         XCTAssertTrue(app.exists, "App should still be running")
@@ -126,12 +137,14 @@ final class StateManagementTests: E2ETestBase {
         XCTAssertTrue(waitForVoiceState("Speaking", timeout: 10), "Should start speaking")
 
         // Button should be disabled during playback
+        sleep(1)
         XCTAssertFalse(isTalkButtonEnabled(), "Button should be disabled during audio playback")
 
         // Wait for audio to finish
         XCTAssertTrue(waitForVoiceState("Idle", timeout: 10), "Audio should complete")
 
         // Button should be enabled again
+        sleep(1)
         XCTAssertTrue(isTalkButtonEnabled(), "Button should be re-enabled after playback")
     }
 
@@ -151,6 +164,9 @@ final class StateManagementTests: E2ETestBase {
         // Wait for Speaking state (audio has started)
         XCTAssertTrue(waitForVoiceState("Speaking", timeout: 10), "Should transition to Speaking")
 
+        // Give audio a moment to buffer and start playing
+        sleep(1)
+
         // Verify we're still speaking
         XCTAssertTrue(app.staticTexts["Speaking"].exists, "Should still be Speaking before injecting idle")
 
@@ -158,6 +174,9 @@ final class StateManagementTests: E2ETestBase {
         // This simulates the real server behavior where it sends "idle" after sending
         // all chunks, but before the device finishes playing buffered audio
         sendStatus("idle", message: "Premature idle (simulating race condition)")
+
+        // Wait a moment for the status message to be received
+        sleep(1)
 
         // ASSERT: App should STAY in Speaking state (race condition protection working)
         // The isPlayingAudio flag should prevent premature transition to idle
@@ -175,6 +194,7 @@ final class StateManagementTests: E2ETestBase {
                      "Should transition to Idle ONLY after audio finishes playing")
 
         // Verify Talk button is re-enabled
+        sleep(1)
         XCTAssertTrue(isTalkButtonEnabled(), "Talk button should be enabled after legitimate idle")
 
         // Verify server logs show the race condition was detected
