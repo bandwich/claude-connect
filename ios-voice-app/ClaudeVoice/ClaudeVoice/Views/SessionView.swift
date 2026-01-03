@@ -48,6 +48,8 @@ struct SessionView: View {
 
                 VoiceIndicator(state: webSocketManager.voiceState)
                     .frame(height: 60)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Voice Indicator")
                     .accessibilityIdentifier("VoiceIndicator")
 
                 Text(webSocketManager.voiceState.description)
@@ -67,6 +69,7 @@ struct SessionView: View {
                     .background(buttonColor)
                     .cornerRadius(12)
                 }
+                .accessibilityLabel(speechRecognizer.isRecording ? "Stop" : "Tap to Talk")
                 .padding(.horizontal, 40)
                 .disabled(!canRecord)
             }
