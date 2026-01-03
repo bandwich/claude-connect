@@ -326,3 +326,64 @@ class TestAddProject:
             # send_sequence is called multiple times (claude\n, then \r for trust)
             calls = [str(c) for c in server.vscode_controller.send_sequence.call_args_list]
             assert any("claude" in c for c in calls)
+
+
+class TestActiveSessionTracking:
+    """Tests for active session tracking"""
+
+    @pytest.mark.asyncio
+    async def test_resume_session_sets_active_session_id(self):
+        """resume_session should set active_session_id"""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+        server.vscode_controller = AsyncMock()
+        server.vscode_controller.is_connected.return_value = True
+        server.vscode_controller.kill_terminal = AsyncMock()
+        server.vscode_controller.new_terminal = AsyncMock()
+        server.vscode_controller.send_sequence = AsyncMock(return_value=True)
+
+        mock_ws = AsyncMock()
+        mock_ws.send = AsyncMock()
+
+        await server.handle_resume_session(mock_ws, {"session_id": "abc123"})
+
+        assert server.active_session_id == "abc123"
+
+    @pytest.mark.asyncio
+    async def test_close_session_clears_active_session_id(self):
+        """close_session should clear active_session_id"""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+        server.active_session_id = "abc123"
+        server.vscode_controller = AsyncMock()
+        server.vscode_controller.is_connected.return_value = True
+        server.vscode_controller.kill_terminal = AsyncMock()
+
+        mock_ws = AsyncMock()
+        mock_ws.send = AsyncMock()
+
+        await server.handle_close_session(mock_ws)
+
+        assert server.active_session_id is None
+
+    @pytest.mark.asyncio
+    async def test_new_session_clears_active_session_id(self):
+        """new_session should clear active_session_id (new session has no ID yet)"""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+        server.active_session_id = "old-session"
+        server.vscode_controller = AsyncMock()
+        server.vscode_controller.is_connected.return_value = True
+        server.vscode_controller.kill_terminal = AsyncMock()
+        server.vscode_controller.new_terminal = AsyncMock()
+        server.vscode_controller.send_sequence = AsyncMock(return_value=True)
+
+        mock_ws = AsyncMock()
+        mock_ws.send = AsyncMock()
+
+        await server.handle_new_session(mock_ws, {"project_path": "/test"})
+
+        assert server.active_session_id is None

@@ -222,6 +222,7 @@ class VoiceServer:
         self.session_manager = SessionManager()
         self.vscode_controller = VSCodeController()
         self.projects_base_path = PROJECTS_BASE_PATH
+        self.active_session_id = None  # Track which session is open in VSCode
 
     def find_transcript_path(self):
         """Find the transcript file to watch.
@@ -427,6 +428,7 @@ end tell
             try:
                 await self.vscode_controller.kill_terminal()
                 success = True
+                self.active_session_id = None  # Clear active session
             except Exception as e:
                 print(f"Error closing session: {e}")
 
@@ -453,6 +455,8 @@ end tell
                 await self.vscode_controller.new_terminal()
                 await asyncio.sleep(0.5)
                 success = await self.vscode_controller.send_sequence("claude\n")
+                if success:
+                    self.active_session_id = None  # New session has no ID yet
             except Exception as e:
                 print(f"Error creating new session: {e}")
 
@@ -481,6 +485,8 @@ end tell
                 success = await self.vscode_controller.send_sequence(
                     f"claude --resume {session_id}\n"
                 )
+                if success:
+                    self.active_session_id = session_id  # Track active session
             except Exception as e:
                 print(f"Error resuming session: {e}")
 
