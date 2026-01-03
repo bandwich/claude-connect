@@ -18,6 +18,14 @@ struct Session: Codable, Identifiable {
         formatter.unitsStyle = .abbreviated
         return formatter.localizedString(for: date, relativeTo: Date())
     }
+
+    var isNewSession: Bool {
+        id.isEmpty
+    }
+
+    static func newSession() -> Session {
+        Session(id: "", title: "New Session", timestamp: Date().timeIntervalSince1970, messageCount: 0)
+    }
 }
 
 struct SessionsResponse: Codable {

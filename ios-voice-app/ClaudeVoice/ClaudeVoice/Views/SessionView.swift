@@ -151,18 +151,28 @@ struct SessionView: View {
     }
 
     private var isSessionSynced: Bool {
-        webSocketManager.activeSessionId == session.id
+        if session.isNewSession {
+            // New session is synced when VSCode is connected and no specific session is active
+            // (meaning the new claude session we just started is running)
+            return webSocketManager.vscodeConnected && webSocketManager.activeSessionId == nil
+        } else {
+            // Resumed session is synced when activeSessionId matches
+            return webSocketManager.activeSessionId == session.id
+        }
     }
 
     private func setupView() {
-        // Load message history
-        webSocketManager.onSessionHistoryReceived = { messages in
-            self.messages = messages
-        }
-        webSocketManager.requestSessionHistory(folderName: project.folderName, sessionId: session.id)
+        // Load message history (skip for new sessions - no history yet)
+        if !session.isNewSession {
+            webSocketManager.onSessionHistoryReceived = { messages in
+                self.messages = messages
+            }
+            webSocketManager.requestSessionHistory(folderName: project.folderName, sessionId: session.id)
 
-        // Auto-resume session in VSCode
-        syncSession()
+            // Auto-resume session in VSCode (only for existing sessions)
+            syncSession()
+        }
+        // New sessions are already running from the newSession call
 
         // Setup speech recognizer
         speechRecognizer.onRecordingStarted = { [weak webSocketManager] in

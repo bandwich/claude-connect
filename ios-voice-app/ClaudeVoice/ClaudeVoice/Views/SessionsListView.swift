@@ -89,8 +89,9 @@ struct SessionsListView: View {
         webSocketManager.onSessionActionResult = { response in
             isCreating = false
             if response.success {
-                // Refresh sessions list
-                webSocketManager.requestSessions(folderName: project.folderName)
+                // Navigate to the new session
+                selectedSession = Session.newSession()
+                showingSessionView = true
             }
         }
 
