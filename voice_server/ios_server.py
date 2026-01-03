@@ -28,6 +28,7 @@ from vscode_controller import VSCodeController
 # Configuration
 PORT = 8765
 TRANSCRIPT_DIR = os.path.expanduser("~/.claude/projects/")
+PROJECTS_BASE_PATH = os.path.expanduser("~/Desktop/code")
 
 
 def extract_text_for_tts(content_blocks: list[ContentBlock]) -> str:
@@ -220,6 +221,7 @@ class VoiceServer:
         self.last_content_blocks = []  # New: store for future reference
         self.session_manager = SessionManager()
         self.vscode_controller = VSCodeController()
+        self.projects_base_path = PROJECTS_BASE_PATH
 
     def find_transcript_path(self):
         """Find the transcript file to watch.
@@ -471,6 +473,47 @@ end tell
         }
         await websocket.send(json.dumps(response))
 
+    async def handle_add_project(self, websocket, data):
+        """Handle add_project request - creates directory and opens in VS Code"""
+        name = data.get("name", "").strip()
+        success = False
+        project_path = ""
+
+        if not name:
+            response = {
+                "type": "project_created",
+                "success": False,
+                "error": "Project name is required"
+            }
+            await websocket.send(json.dumps(response))
+            return
+
+        safe_name = "".join(c for c in name if c.isalnum() or c in "-_.")
+        project_path = os.path.join(self.projects_base_path, safe_name)
+
+        try:
+            os.makedirs(project_path, exist_ok=True)
+
+            if self.vscode_controller.is_connected():
+                await self.vscode_controller.open_folder(project_path)
+                await asyncio.sleep(1.0)
+                await self.vscode_controller.new_terminal()
+                await asyncio.sleep(0.5)
+                success = await self.vscode_controller.send_sequence("claude\n")
+            else:
+                success = True
+
+        except Exception as e:
+            print(f"Error creating project: {e}")
+
+        response = {
+            "type": "project_created",
+            "success": success,
+            "path": project_path,
+            "name": safe_name
+        }
+        await websocket.send(json.dumps(response))
+
     async def handle_message(self, websocket, message):
         """Handle incoming message"""
         try:
@@ -491,6 +534,8 @@ end tell
                 await self.handle_new_session(websocket, data)
             elif msg_type == 'resume_session':
                 await self.handle_resume_session(websocket, data)
+            elif msg_type == 'add_project':
+                await self.handle_add_project(websocket, data)
         except Exception as e:
             print(f"Error: {e}")
 

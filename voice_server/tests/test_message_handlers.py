@@ -2,6 +2,8 @@
 import pytest
 import json
 import asyncio
+import tempfile
+import os
 from unittest.mock import Mock, AsyncMock, patch
 
 
@@ -212,3 +214,77 @@ class TestResumeSession:
         assert resume_response is not None
         assert resume_response["success"] is True
         assert resume_response["session_id"] == "test123"
+
+
+class TestAddProject:
+    """Tests for add_project handler"""
+
+    @pytest.mark.asyncio
+    async def test_add_project_creates_directory(self):
+        """add_project should create project directory"""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            server.projects_base_path = tmpdir
+
+            server.vscode_controller = Mock()
+            server.vscode_controller.is_connected.return_value = True
+            server.vscode_controller.open_folder = AsyncMock()
+            server.vscode_controller.new_terminal = AsyncMock()
+            server.vscode_controller.send_sequence = AsyncMock(return_value=True)
+
+            mock_ws = AsyncMock()
+
+            await server.handle_add_project(mock_ws, {"name": "test-project"})
+
+            project_path = os.path.join(tmpdir, "test-project")
+            assert os.path.exists(project_path)
+            assert os.path.isdir(project_path)
+
+    @pytest.mark.asyncio
+    async def test_add_project_opens_in_vscode(self):
+        """add_project should open folder in VS Code"""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            server.projects_base_path = tmpdir
+
+            server.vscode_controller = Mock()
+            server.vscode_controller.is_connected.return_value = True
+            server.vscode_controller.open_folder = AsyncMock()
+            server.vscode_controller.new_terminal = AsyncMock()
+            server.vscode_controller.send_sequence = AsyncMock(return_value=True)
+
+            mock_ws = AsyncMock()
+
+            await server.handle_add_project(mock_ws, {"name": "my-project"})
+
+            expected_path = f"{tmpdir}/my-project"
+            server.vscode_controller.open_folder.assert_called_once_with(expected_path)
+
+    @pytest.mark.asyncio
+    async def test_add_project_starts_claude(self):
+        """add_project should start claude in new terminal"""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            server.projects_base_path = tmpdir
+
+            server.vscode_controller = Mock()
+            server.vscode_controller.is_connected.return_value = True
+            server.vscode_controller.open_folder = AsyncMock()
+            server.vscode_controller.new_terminal = AsyncMock()
+            server.vscode_controller.send_sequence = AsyncMock(return_value=True)
+
+            mock_ws = AsyncMock()
+
+            await server.handle_add_project(mock_ws, {"name": "new-proj"})
+
+            server.vscode_controller.new_terminal.assert_called_once()
+            server.vscode_controller.send_sequence.assert_called_with("claude\n")
