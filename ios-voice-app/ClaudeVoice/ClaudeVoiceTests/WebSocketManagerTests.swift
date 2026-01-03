@@ -179,8 +179,8 @@ struct WebSocketManagerTests {
 
         // Simulate callback invocation
         let mockProjects = [
-            Project(path: "/path/a", name: "a", sessionCount: 5),
-            Project(path: "/path/b", name: "b", sessionCount: 3)
+            Project(path: "/path/a", name: "a", sessionCount: 5, folderName: "-path-a"),
+            Project(path: "/path/b", name: "b", sessionCount: 3, folderName: "-path-b")
         ]
 
         manager.onProjectsReceived?(mockProjects)
@@ -251,7 +251,8 @@ struct WebSocketManagerTests {
         let manager = WebSocketManager()
 
         // Verify the method exists and can be called without crashing
-        manager.requestSessions(projectPath: "/Users/test/project")
+        // Uses folderName (actual directory name) not decoded path
+        manager.requestSessions(folderName: "-Users-test-project")
 
         #expect(true, "requestSessions() method should exist and be callable")
     }
@@ -260,7 +261,8 @@ struct WebSocketManagerTests {
         let manager = WebSocketManager()
 
         // Verify the method exists and can be called without crashing
-        manager.requestSessionHistory(projectPath: "/Users/test/project", sessionId: "abc123")
+        // Uses folderName (actual directory name) not decoded path
+        manager.requestSessionHistory(folderName: "-Users-test-project", sessionId: "abc123")
 
         #expect(true, "requestSessionHistory() method should exist and be callable")
     }

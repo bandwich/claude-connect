@@ -99,7 +99,7 @@ struct SessionView: View {
         webSocketManager.onSessionHistoryReceived = { messages in
             self.messages = messages
         }
-        webSocketManager.requestSessionHistory(projectPath: project.path, sessionId: session.id)
+        webSocketManager.requestSessionHistory(folderName: project.folderName, sessionId: session.id)
 
         // Setup speech recognizer
         speechRecognizer.onRecordingStarted = { [weak webSocketManager] in

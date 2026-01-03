@@ -649,8 +649,9 @@ struct SessionViewIntegrationTests {
         let websocketManager = WebSocketManager()
 
         // Verify the method can be called (SessionView calls this in setupView)
+        // Uses folderName (actual directory name) not decoded path
         websocketManager.requestSessionHistory(
-            projectPath: "/Users/test/project",
+            folderName: "-Users-test-project",
             sessionId: "abc123"
         )
 

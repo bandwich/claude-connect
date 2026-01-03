@@ -42,10 +42,12 @@ class TestSessionManager:
         p1 = next(p for p in projects if p.name == "project1")
         assert p1.path == "/Users/test/project1"
         assert p1.session_count == 2
+        assert p1.folder_name == "-Users-test-project1"  # Original folder name for direct lookup
 
         # Find project2
         p2 = next(p for p in projects if p.name == "project2")
         assert p2.session_count == 1
+        assert p2.folder_name == "-Users-test-project2"
 
     def test_list_sessions_returns_sessions_sorted_by_time(self, tmp_path):
         """Should return sessions sorted by most recent first"""
@@ -78,7 +80,8 @@ class TestSessionManager:
         os.utime(session2, (time.time(), time.time()))
 
         manager = SessionManager(projects_dir=str(tmp_path))
-        sessions = manager.list_sessions("/Users/test/myproject")
+        # Pass the actual folder name, not the decoded path
+        sessions = manager.list_sessions("-Users-test-myproject")
 
         assert len(sessions) == 2
         assert sessions[0].id == "def456"  # Most recent first
@@ -113,7 +116,8 @@ class TestSessionManager:
         )
 
         manager = SessionManager(projects_dir=str(tmp_path))
-        messages = manager.get_session_history("/Users/test/myproject", "abc123")
+        # Pass the actual folder name, not the decoded path
+        messages = manager.get_session_history("-Users-test-myproject", "abc123")
 
         assert len(messages) == 3
         assert messages[0].role == "user"

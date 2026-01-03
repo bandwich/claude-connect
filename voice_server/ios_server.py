@@ -357,7 +357,8 @@ end tell
                 {
                     "path": p.path,
                     "name": p.name,
-                    "session_count": p.session_count
+                    "session_count": p.session_count,
+                    "folder_name": p.folder_name  # For direct lookup without re-encoding
                 }
                 for p in projects
             ]
@@ -366,8 +367,8 @@ end tell
 
     async def handle_list_sessions(self, websocket, data):
         """Handle list_sessions request"""
-        project_path = data.get("project_path", "")
-        sessions = self.session_manager.list_sessions(project_path)
+        folder_name = data.get("folder_name", "")
+        sessions = self.session_manager.list_sessions(folder_name)
         response = {
             "type": "sessions",
             "sessions": [
@@ -384,9 +385,9 @@ end tell
 
     async def handle_get_session(self, websocket, data):
         """Handle get_session request"""
-        project_path = data.get("project_path", "")
+        folder_name = data.get("folder_name", "")
         session_id = data.get("session_id", "")
-        messages = self.session_manager.get_session_history(project_path, session_id)
+        messages = self.session_manager.get_session_history(folder_name, session_id)
         response = {
             "type": "session_history",
             "messages": [

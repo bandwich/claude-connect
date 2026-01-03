@@ -52,7 +52,7 @@ struct SessionsListView: View {
             webSocketManager.onSessionsReceived = { sessions in
                 self.sessions = sessions
             }
-            webSocketManager.requestSessions(projectPath: project.path)
+            webSocketManager.requestSessions(folderName: project.folderName)
         }
         .navigationDestination(isPresented: $showingSessionView) {
             if let session = selectedSession {

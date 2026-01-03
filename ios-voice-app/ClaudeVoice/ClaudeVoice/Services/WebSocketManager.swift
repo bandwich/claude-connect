@@ -159,18 +159,18 @@ class WebSocketManager: NSObject, ObservableObject {
         sendJSON(message)
     }
 
-    func requestSessions(projectPath: String) {
+    func requestSessions(folderName: String) {
         let message: [String: Any] = [
             "type": "list_sessions",
-            "project_path": projectPath
+            "folder_name": folderName
         ]
         sendJSON(message)
     }
 
-    func requestSessionHistory(projectPath: String, sessionId: String) {
+    func requestSessionHistory(folderName: String, sessionId: String) {
         let message: [String: Any] = [
             "type": "get_session",
-            "project_path": projectPath,
+            "folder_name": folderName,
             "session_id": sessionId
         ]
         sendJSON(message)

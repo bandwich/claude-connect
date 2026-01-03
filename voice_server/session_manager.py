@@ -13,6 +13,7 @@ class Project:
     path: str
     name: str
     session_count: int
+    folder_name: str  # Original folder name for direct lookup
 
 
 @dataclass
@@ -60,7 +61,8 @@ class SessionManager:
                 projects.append(Project(
                     path=decoded_path,
                     name=name,
-                    session_count=session_count
+                    session_count=session_count,
+                    folder_name=entry  # Store original folder name
                 ))
 
         return projects
@@ -69,9 +71,13 @@ class SessionManager:
         """Encode project path to folder name format"""
         return project_path.replace("/", "-")
 
-    def list_sessions(self, project_path: str, limit: int = 10) -> list[Session]:
-        """List sessions for a project, sorted by most recent first"""
-        folder_name = self._encode_project_path(project_path)
+    def list_sessions(self, folder_name: str, limit: int = 10) -> list[Session]:
+        """List sessions for a project, sorted by most recent first
+
+        Args:
+            folder_name: The actual folder name in projects_dir (not encoded path)
+            limit: Maximum number of sessions to return
+        """
         project_dir = os.path.join(self.projects_dir, folder_name)
 
         if not os.path.exists(project_dir):
@@ -134,9 +140,13 @@ class SessionManager:
 
         return title, message_count, last_timestamp
 
-    def get_session_history(self, project_path: str, session_id: str) -> list[SessionMessage]:
-        """Get all messages from a session"""
-        folder_name = self._encode_project_path(project_path)
+    def get_session_history(self, folder_name: str, session_id: str) -> list[SessionMessage]:
+        """Get all messages from a session
+
+        Args:
+            folder_name: The actual folder name in projects_dir (not encoded path)
+            session_id: The session ID (filename without .jsonl)
+        """
         filepath = os.path.join(self.projects_dir, folder_name, f"{session_id}.jsonl")
 
         if not os.path.exists(filepath):
