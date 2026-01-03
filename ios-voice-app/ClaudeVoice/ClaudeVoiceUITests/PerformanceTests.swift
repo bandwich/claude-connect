@@ -75,9 +75,6 @@ final class PerformanceTests: E2ETestBase {
             // Should complete and return to idle
             XCTAssertTrue(waitForVoiceState("Idle", timeout: 10),
                          "Iteration \(i): Should return to idle")
-
-            // Small delay between iterations
-            sleep(1)
         }
 
         // Verify all interactions were logged

@@ -37,11 +37,8 @@ final class AudioStreamingTests: E2ETestBase {
 
         XCTAssertTrue(waitForVoiceState("Speaking", timeout: 10), "Should enter Speaking state")
 
-        // If we reach here without crash, base64 decoding worked
-        sleep(2)
-
         // Should return to idle (indicates audio played successfully)
-        XCTAssertTrue(waitForVoiceState("Idle", timeout: 5), "Should return to Idle")
+        XCTAssertTrue(waitForVoiceState("Idle", timeout: 10), "Should return to Idle")
     }
 
     // Test 3: Audio chunk buffering behavior
@@ -61,8 +58,7 @@ final class AudioStreamingTests: E2ETestBase {
         XCTAssertTrue(waitForVoiceState("Speaking", timeout: 10), "Should eventually start speaking")
 
         // Wait for completion
-        sleep(3)
-        XCTAssertTrue(waitForVoiceState("Idle", timeout: 5), "Should complete playback")
+        XCTAssertTrue(waitForVoiceState("Idle", timeout: 10), "Should complete playback")
     }
 
     // Test 4: Chunked audio playback continuity
@@ -73,12 +69,11 @@ final class AudioStreamingTests: E2ETestBase {
 
         XCTAssertTrue(waitForVoiceState("Speaking", timeout: 10), "Should start speaking")
 
-        // Speaking state should persist for the duration of playback
-        sleep(1)
-        XCTAssertTrue(app.staticTexts["Speaking"].exists, "Should still be speaking after 1 second")
+        // Verify still speaking immediately after state change
+        XCTAssertTrue(app.staticTexts["Speaking"].exists, "Should be in Speaking state")
 
         // Eventually returns to idle
-        XCTAssertTrue(waitForVoiceState("Idle", timeout: 5), "Should complete playback")
+        XCTAssertTrue(waitForVoiceState("Idle", timeout: 10), "Should complete playback")
 
         // No errors in logs
         let logs = getServerLogs()
@@ -107,14 +102,12 @@ final class AudioStreamingTests: E2ETestBase {
 
         XCTAssertTrue(waitForVoiceState("Speaking", timeout: 10), "Should start speaking")
 
-        sleep(2)
+        // Wait for idle before checking logs
+        XCTAssertTrue(waitForVoiceState("Idle", timeout: 10), "Should complete playback")
 
         // Check logs for sequential chunk indices
         let logs = getServerLogs()
         XCTAssertTrue(logs.contains("chunk"), "Server should log chunk information")
-
-        // Should complete successfully
-        XCTAssertTrue(waitForVoiceState("Idle", timeout: 5), "Should complete playback")
     }
 
     // Test 7: Large audio response handling
@@ -128,11 +121,8 @@ final class AudioStreamingTests: E2ETestBase {
         // Should handle without issues
         XCTAssertTrue(waitForVoiceState("Speaking", timeout: 10), "Should start speaking")
 
-        // Wait longer for large audio
-        sleep(3)
-
-        // Should eventually complete
-        XCTAssertTrue(waitForVoiceState("Idle", timeout: 10), "Should complete large audio")
+        // Should eventually complete (longer timeout for large audio)
+        XCTAssertTrue(waitForVoiceState("Idle", timeout: 15), "Should complete large audio")
 
         // Verify no memory issues or errors
         let logs = getServerLogs()

@@ -54,16 +54,10 @@ final class ErrorHandlingTests: E2ETestBase {
         // Disconnect (simulates server crash)
         disconnectFromServer()
 
-        // App should handle gracefully
-        sleep(2)
-
         // Should show disconnected state
         let isDisconnected = waitForConnectionState("Disconnected", timeout: 5) ||
                            waitForConnectionState("Error", timeout: 1)
         XCTAssertTrue(isDisconnected, "Should detect disconnection")
-
-        // Audio should stop, state should reset
-        sleep(1)
 
         // App should not crash
         XCTAssertTrue(app.exists, "App should remain running")
@@ -91,15 +85,13 @@ final class ErrorHandlingTests: E2ETestBase {
         // Send multiple rapid requests
         for i in 1...3 {
             sendMockClaudeResponse("Response \(i)")
-            sleep(2)
+            // Wait for each to complete before sending next
+            _ = waitForVoiceState("Speaking", timeout: 5)
+            _ = waitForVoiceState("Idle", timeout: 10)
         }
 
-        // App should handle without crashing
-        sleep(5)
-
-        // Should be in a stable state
-        let hasStableState = app.staticTexts["Idle"].exists || app.staticTexts["Speaking"].exists
-        XCTAssertTrue(hasStableState, "Should reach stable state")
+        // Should be in idle state after all complete
+        XCTAssertTrue(waitForVoiceState("Idle", timeout: 10), "Should reach idle state")
 
         // App should still be connected
         XCTAssertTrue(app.staticTexts["Connected"].exists, "Should remain connected")

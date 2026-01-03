@@ -68,11 +68,8 @@ final class VoiceInputFlowTests: E2ETestBase {
         // Should transition to speaking state
         XCTAssertTrue(waitForVoiceState("Speaking", timeout: 10), "Should transition to Speaking state")
 
-        // Wait for audio to finish (1 second test audio + buffer)
-        sleep(3)
-
         // Should return to idle
-        XCTAssertTrue(waitForVoiceState("Idle", timeout: 5), "Should return to Idle after audio finishes")
+        XCTAssertTrue(waitForVoiceState("Idle", timeout: 10), "Should return to Idle after audio finishes")
 
         // Verify server logs show the complete flow
         let logs = getServerLogs()
@@ -91,17 +88,16 @@ final class VoiceInputFlowTests: E2ETestBase {
 
         // Tap and immediately release (simulating very short/no speech)
         tapTalkButton()
-        sleep(1)
 
         // Stop recording
         let stopButton = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Stop'")).firstMatch
-        if stopButton.exists {
+        if stopButton.waitForExistence(timeout: 2) {
             stopButton.tap()
         }
 
-        // Should remain functional
-        sleep(1)
-        XCTAssertTrue(isTalkButtonEnabled(), "Talk button should remain enabled after empty input")
+        // Should remain functional - wait for button to return
+        let talkButton = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Tap to Talk'")).firstMatch
+        XCTAssertTrue(talkButton.waitForExistence(timeout: 5), "Talk button should remain enabled after empty input")
     }
 
     // Test 5: Long voice input message handling
@@ -113,8 +109,9 @@ final class VoiceInputFlowTests: E2ETestBase {
         // Inject it as a mock response to test the system handles long text
         sendMockClaudeResponse(longMessage)
 
-        // Should handle without crashing
-        sleep(2)
+        // Should handle and complete
+        XCTAssertTrue(waitForVoiceState("Speaking", timeout: 10), "Should start speaking")
+        XCTAssertTrue(waitForVoiceState("Idle", timeout: 15), "Should complete")
 
         // Verify server logs show it was processed
         let logs = getServerLogs()
