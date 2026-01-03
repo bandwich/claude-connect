@@ -166,3 +166,49 @@ class TestNewSession:
         new_response = next((r for r in responses if r.get("type") == "session_created"), None)
         assert new_response is not None
         assert new_response["success"] is True
+
+
+class TestResumeSession:
+    """Tests for resume_session handler"""
+
+    @pytest.mark.asyncio
+    async def test_resume_session_runs_claude_with_resume_flag(self):
+        """resume_session should run 'claude --resume <id>'"""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+
+        server.vscode_controller = Mock()
+        server.vscode_controller.is_connected.return_value = True
+        server.vscode_controller.new_terminal = AsyncMock()
+        server.vscode_controller.send_sequence = AsyncMock(return_value=True)
+
+        mock_ws = AsyncMock()
+
+        await server.handle_resume_session(mock_ws, {"session_id": "abc123-def456"})
+
+        server.vscode_controller.new_terminal.assert_called_once()
+        server.vscode_controller.send_sequence.assert_called_with("claude --resume abc123-def456\n")
+
+    @pytest.mark.asyncio
+    async def test_resume_session_returns_success(self):
+        """resume_session should return success status"""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+        server.vscode_controller = Mock()
+        server.vscode_controller.is_connected.return_value = True
+        server.vscode_controller.new_terminal = AsyncMock()
+        server.vscode_controller.send_sequence = AsyncMock(return_value=True)
+
+        mock_ws = AsyncMock()
+        sent_messages = []
+        mock_ws.send = AsyncMock(side_effect=lambda msg: sent_messages.append(msg))
+
+        await server.handle_resume_session(mock_ws, {"session_id": "test123"})
+
+        responses = [json.loads(m) for m in sent_messages]
+        resume_response = next((r for r in responses if r.get("type") == "session_resumed"), None)
+        assert resume_response is not None
+        assert resume_response["success"] is True
+        assert resume_response["session_id"] == "test123"

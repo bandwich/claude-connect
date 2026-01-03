@@ -449,6 +449,28 @@ end tell
         }
         await websocket.send(json.dumps(response))
 
+    async def handle_resume_session(self, websocket, data):
+        """Handle resume_session request - runs 'claude --resume <id>'"""
+        session_id = data.get("session_id", "")
+        success = False
+
+        if self.vscode_controller.is_connected() and session_id:
+            try:
+                await self.vscode_controller.new_terminal()
+                await asyncio.sleep(0.5)
+                success = await self.vscode_controller.send_sequence(
+                    f"claude --resume {session_id}\n"
+                )
+            except Exception as e:
+                print(f"Error resuming session: {e}")
+
+        response = {
+            "type": "session_resumed",
+            "success": success,
+            "session_id": session_id
+        }
+        await websocket.send(json.dumps(response))
+
     async def handle_message(self, websocket, message):
         """Handle incoming message"""
         try:
@@ -467,6 +489,8 @@ end tell
                 await self.handle_close_session(websocket)
             elif msg_type == 'new_session':
                 await self.handle_new_session(websocket, data)
+            elif msg_type == 'resume_session':
+                await self.handle_resume_session(websocket, data)
         except Exception as e:
             print(f"Error: {e}")
 
