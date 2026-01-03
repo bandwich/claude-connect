@@ -20,9 +20,10 @@ cd ios-voice-app/ClaudeVoice && ./run_e2e_tests.sh
 
 | Suite | Count | Type | Location |
 |-------|-------|------|----------|
-| Server Tests | ~65 | pytest | `voice_server/tests/` |
+| Server Tests | ~67 | pytest | `voice_server/tests/` |
 | iOS Unit Tests | ~69 | XCTest | `ios-voice-app/ClaudeVoice/ClaudeVoiceTests/` |
 | E2E Tests | 18 | XCUITest | `ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/E2E*.swift` |
+| Integration Tests | ~34 | XCUITest | `ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/*Tests.swift` |
 
 ---
 
@@ -39,11 +40,12 @@ pytest test_ios_server.py::TestVoiceServer::test_send_status -v  # specific test
 ```
 
 **What's tested:**
-- WebSocket server initialization and message handling
-- Transcript file monitoring and assistant message extraction
-- TTS utilities and audio streaming
-- Session management (projects, sessions, history)
-- JSON parsing and message formatting
+- WebSocket server initialization and message handling (`test_ios_server.py`, `test_message_handlers.py`)
+- Transcript file monitoring and response extraction (`test_response_extraction.py`, `test_text_extraction.py`)
+- TTS utilities and audio streaming (`test_tts_utils.py`)
+- Session management (projects, sessions, history) (`test_session_manager.py`)
+- Structured content parsing and models (`test_content_handler.py`, `test_content_models.py`)
+- VSCode controller automation (`test_vscode_controller.py`)
 
 ---
 
@@ -97,6 +99,32 @@ The E2E runner (`run_e2e_tests.sh`):
 **Support utilities:** `tests/e2e_support/`
 - `server_manager.py` - Server lifecycle management
 - `transcript_injector.py` - Mock message injection
+
+---
+
+## Integration Tests (XCUITest + Test Server)
+
+**Location:** `ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/*Tests.swift` (non-E2E)
+
+These tests use `IntegrationTestBase` and require a running test server:
+
+```bash
+# Start server first
+python3 voice_server/ios_server.py
+
+# Run integration tests
+xcodebuild test -scheme ClaudeVoice \
+  -destination 'platform=iOS Simulator,name=iPhone 16' \
+  -only-testing:ClaudeVoiceUITests/StateManagementTests
+```
+
+**Test suites (~34 tests):**
+- `StateManagementTests` - Voice state transitions, button enable/disable states
+- `VoiceInputFlowTests` - Voice input delivery and processing flow
+- `AudioStreamingTests` - Audio chunk handling and playback
+- `ErrorHandlingTests` - Error states and recovery
+- `TranscriptMonitoringTests` - Transcript file watching
+- `PerformanceTests` - Performance benchmarks
 
 ---
 
