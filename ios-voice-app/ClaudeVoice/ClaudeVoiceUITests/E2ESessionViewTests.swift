@@ -42,13 +42,8 @@ final class E2ESessionViewTests: E2ETestBase {
     func test_session_view_shows_voice_controls() throws {
         navigateToSession1()
 
-        // Should have talk button
         let talkButton = app.buttons["Tap to Talk"]
         XCTAssertTrue(talkButton.waitForExistence(timeout: 5), "Should show talk button")
-
-        // Should have voice indicator
-        let voiceIndicator = app.otherElements["VoiceIndicator"]
-        XCTAssertTrue(voiceIndicator.waitForExistence(timeout: 5), "Should show voice indicator")
     }
 
     

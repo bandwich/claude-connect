@@ -56,12 +56,6 @@ struct SessionView: View {
                         .padding(.horizontal)
                 }
 
-                VoiceIndicator(state: webSocketManager.voiceState)
-                    .frame(height: 60)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("Voice Indicator")
-                    .accessibilityIdentifier("VoiceIndicator")
-
                 Text(webSocketManager.voiceState.description)
                     .font(.caption)
                     .foregroundColor(.secondary)
@@ -108,7 +102,9 @@ struct SessionView: View {
 
     private var canRecord: Bool {
         if case .connected = webSocketManager.connectionState {
-            return speechRecognizer.isAuthorized && !audioPlayer.isPlaying
+            return speechRecognizer.isAuthorized
+                && !audioPlayer.isPlaying
+                && webSocketManager.voiceState != .processing
         }
         return false
     }
