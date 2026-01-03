@@ -100,8 +100,8 @@ class SessionManager:
                 message_count=message_count
             ))
 
-        # Filter out Warmup sessions (subagent warmups)
-        sessions = [s for s in sessions if not s.title.startswith("Warmup")]
+        # Filter out Warmup sessions (subagent warmups) and empty sessions
+        sessions = [s for s in sessions if not s.title.startswith("Warmup") and s.message_count > 0]
 
         return sessions
 

@@ -150,3 +150,26 @@ class TestSessionManager:
 
         assert len(sessions) == 1
         assert sessions[0].id == "normal456"
+
+    def test_list_sessions_filters_zero_message_sessions(self, tmp_path):
+        """Sessions with 0 messages should be filtered out"""
+        from session_manager import SessionManager
+
+        project_dir = tmp_path / "test-project"
+        project_dir.mkdir()
+
+        # Create an empty session (no user/assistant messages)
+        empty_session = project_dir / "empty123.jsonl"
+        empty_session.write_text('{"type": "system", "content": "init"}\n')
+
+        # Create a session with messages
+        normal_session = project_dir / "normal456.jsonl"
+        normal_session.write_text(json.dumps({
+            "message": {"role": "user", "content": "Hello"}
+        }) + "\n")
+
+        manager = SessionManager(str(tmp_path))
+        sessions = manager.list_sessions("test-project")
+
+        assert len(sessions) == 1
+        assert sessions[0].id == "normal456"
