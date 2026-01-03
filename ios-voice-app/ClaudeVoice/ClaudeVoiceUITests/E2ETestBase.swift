@@ -84,7 +84,9 @@ class E2ETestBase: XCTestCase {
         let fileManager = FileManager.default
         let transcriptDir = (transcriptPath! as NSString).deletingLastPathComponent
         try? fileManager.createDirectory(atPath: transcriptDir, withIntermediateDirectories: true)
-        try "".write(toFile: transcriptPath!, atomically: true, encoding: .utf8)
+        // Seed with initial message so session isn't filtered (sessions with 0 messages are hidden)
+        let seedMessage = #"{"type":"user","message":{"role":"user","content":"E2E Test Session"},"timestamp":"2026-01-01T00:00:00Z"}"# + "\n"
+        try seedMessage.write(toFile: transcriptPath!, atomically: true, encoding: .utf8)
 
         createTestFixtures()
 
@@ -416,9 +418,9 @@ class E2ETestBase: XCTestCase {
 
         sleep(1)  // Wait for sessions list to load
 
-        let untitledSession = app.staticTexts["Untitled"]
-        if untitledSession.waitForExistence(timeout: 5) {
-            untitledSession.tap()
+        let testSession = app.staticTexts["E2E Test Session"]
+        if testSession.waitForExistence(timeout: 5) {
+            testSession.tap()
         } else {
             let firstSession = app.cells.firstMatch
             if firstSession.waitForExistence(timeout: 5) {

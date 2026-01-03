@@ -12,6 +12,7 @@ struct SessionView: View {
     @State private var messages: [SessionHistoryMessage] = []
     @State private var currentTranscript = ""
     @State private var showingSettings = false
+    @State private var isInitialLoad = true
 
     var body: some View {
         VStack(spacing: 0) {
@@ -27,7 +28,16 @@ struct SessionView: View {
                     .padding()
                 }
                 .onChange(of: messages.count) { _, _ in
-                    if let lastMessage = messages.last {
+                    guard let lastMessage = messages.last else { return }
+
+                    if isInitialLoad {
+                        // Initial load: scroll instantly without animation
+                        isInitialLoad = false
+                        DispatchQueue.main.async {
+                            proxy.scrollTo(lastMessage.id, anchor: .bottom)
+                        }
+                    } else {
+                        // New messages during session: animate
                         withAnimation {
                             proxy.scrollTo(lastMessage.id, anchor: .bottom)
                         }
