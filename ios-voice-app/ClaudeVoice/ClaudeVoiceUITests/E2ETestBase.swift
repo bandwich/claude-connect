@@ -309,6 +309,34 @@ class E2ETestBase: XCTestCase {
         return exists && stateLabel.label == expectedState
     }
 
+    // MARK: - Navigation Helpers
+
+    /// Navigate to the test session (e2e_test_project) for voice testing
+    /// Call this at the start of tests that need voice controls
+    func navigateToTestSession() {
+        // Wait for projects list to load
+        let projectText = app.staticTexts["e2e_test_project"]
+        if projectText.waitForExistence(timeout: 5) {
+            projectText.tap()
+        } else {
+            // Fallback: look for any project
+            let firstProject = app.cells.firstMatch
+            if firstProject.waitForExistence(timeout: 5) {
+                firstProject.tap()
+            }
+        }
+
+        // Wait for sessions list and tap first session
+        sleep(1)
+        let firstSession = app.cells.firstMatch
+        if firstSession.waitForExistence(timeout: 5) {
+            firstSession.tap()
+        }
+
+        // Wait for session view to load
+        sleep(1)
+    }
+
     // MARK: - Test Fixtures for Sync-Sessions
 
     /// Create mock project directories with session files for testing

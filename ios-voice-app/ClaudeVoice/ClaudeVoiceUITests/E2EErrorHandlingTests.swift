@@ -9,8 +9,10 @@ import XCTest
 
 final class E2EErrorHandlingTests: E2ETestBase {
 
-    @MainActor
     func test_malformed_message_handling() throws {
+        // Navigate to session view first
+        navigateToTestSession()
+
         // Send valid conversation turn first
         simulateConversationTurn(userInput: "Test message", assistantResponse: "Valid message")
         XCTAssertTrue(waitForVoiceState("Speaking", timeout: 10), "Should handle valid message")
@@ -28,16 +30,18 @@ final class E2EErrorHandlingTests: E2ETestBase {
 
         sleep(2)
 
-        // Should still be connected and functional
-        XCTAssertTrue(app.staticTexts["Connected"].exists, "Should remain connected")
+        // Should still be functional (check via voice state, not connection label)
+        XCTAssertTrue(waitForVoiceState("Idle", timeout: 5), "Should remain in idle state")
 
         // Send another valid conversation turn
         simulateConversationTurn(userInput: "Another test", assistantResponse: "Another valid message")
         XCTAssertTrue(waitForVoiceState("Speaking", timeout: 10), "Should still work after error")
     }
 
-    @MainActor
     func test_server_error_during_processing() throws {
+        // Navigate to session view first
+        navigateToTestSession()
+
         // Inject a response with moderately long text (tests handling without blocking server)
         let longText = String(repeating: "Very long message. ", count: 20)
         simulateConversationTurn(userInput: "Send long response", assistantResponse: longText)
@@ -52,14 +56,14 @@ final class E2EErrorHandlingTests: E2ETestBase {
         simulateConversationTurn(userInput: "Send normal response", assistantResponse: "Normal message")
         sleep(2)
 
-        let hasValidState = app.staticTexts["Idle"].exists ||
-                           app.staticTexts["Speaking"].exists ||
-                           app.staticTexts["Connected"].exists
+        let hasValidState = waitForVoiceState("Idle", timeout: 5) || waitForVoiceState("Speaking", timeout: 5)
         XCTAssertTrue(hasValidState, "Should be in valid state")
     }
 
-    @MainActor
     func test_empty_voice_input() throws {
+        // Navigate to session view first
+        navigateToTestSession()
+
         // Send empty voice input
         sendVoiceInput("")
 
