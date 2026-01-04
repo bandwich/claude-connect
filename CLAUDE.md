@@ -39,6 +39,7 @@ tests/e2e_support/            # E2E test utilities
 
 See [`tests/TESTS.md`](tests/TESTS.md) for full test documentation.
 
+**Automatable (for auto-fix skill):**
 ```bash
 # Server tests (Python)
 cd voice_server/tests && ./run_tests.sh
@@ -48,9 +49,15 @@ cd ios-voice-app/ClaudeVoice
 xcodebuild test -scheme ClaudeVoice \
   -destination 'platform=iOS Simulator,name=iPhone 16' \
   -only-testing:ClaudeVoiceTests
+```
 
-# E2E tests (integration - uses real server)
+**Requires human (not for auto-fix):**
+```bash
+# E2E tests - requires simulator, may timeout
 cd ios-voice-app/ClaudeVoice && ./run_e2e_tests.sh
+
+# Integration tests - requires manually starting server first
+# See tests/TESTS.md for details
 ```
 
 ### Running
@@ -59,6 +66,10 @@ cd ios-voice-app/ClaudeVoice && ./run_e2e_tests.sh
 # Start voice server
 source .venv/bin/activate
 python3 voice_server/ios_server.py
+
+# Clean iOS build (only required after adding new files)
+cd ios-voice-app/ClaudeVoice
+xcodebuild clean -scheme ClaudeVoice
 
 # Build iOS app (simulator)
 cd ios-voice-app/ClaudeVoice

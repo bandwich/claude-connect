@@ -1,0 +1,15 @@
+# Voice Server Dependencies
+
+# WebSocket server
+websockets>=10.0
+
+# File system monitoring
+watchdog>=3.0
+
+# Data models
+pydantic>=2.0
+
+# Text-to-speech (Kokoro)
+kokoro>=0.3
+soundfile>=0.12
+numpy>=1.20

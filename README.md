@@ -31,7 +31,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 
 # Install dependencies
-pip install websockets watchdog kokoro soundfile numpy
+pip install -r requirements.txt
 ```
 
 ### iOS App
