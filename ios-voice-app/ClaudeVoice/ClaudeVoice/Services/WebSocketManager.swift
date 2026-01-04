@@ -22,6 +22,9 @@ class WebSocketManager: NSObject, ObservableObject {
     var onSessionHistoryReceived: (([SessionHistoryMessage]) -> Void)?
     var onSessionActionResult: ((SessionActionResponse) -> Void)?
     var onVSCodeStatusReceived: ((VSCodeStatus) -> Void)?
+    var onPermissionRequest: ((PermissionRequest) -> Void)?
+    var onPermissionResolved: ((PermissionResolved) -> Void)?
+    @Published var pendingPermission: PermissionRequest? = nil
     var isPlayingAudio: Bool = false // Tracks if audio is currently playing
     private var lastContentBlocks: [ContentBlock] = []  // NEW: store for future UI
 
@@ -227,6 +230,26 @@ class WebSocketManager: NSObject, ObservableObject {
         }
     }
 
+    func sendPermissionResponse(_ response: PermissionResponse) {
+        guard let data = try? JSONEncoder().encode(response),
+              let jsonString = String(data: data, encoding: .utf8) else {
+            print("❌ Failed to encode permission response")
+            return
+        }
+
+        let wsMessage = URLSessionWebSocketTask.Message.string(jsonString)
+        webSocketTask?.send(wsMessage) { error in
+            if let error = error {
+                print("❌ Failed to send permission response: \(error)")
+            } else {
+                print("✅ Permission response sent")
+                DispatchQueue.main.async {
+                    self.pendingPermission = nil
+                }
+            }
+        }
+    }
+
     private func receiveMessage() {
         webSocketTask?.receive { [weak self] result in
             guard let self = self else { return }
@@ -313,6 +336,20 @@ class WebSocketManager: NSObject, ObservableObject {
                     self.activeSessionId = vscodeStatus.activeSessionId
                     self.onVSCodeStatusReceived?(vscodeStatus)
                 }
+            } else if let permissionRequest = try? JSONDecoder().decode(PermissionRequest.self, from: data) {
+                logToFile("✅ Decoded as PermissionRequest: \(permissionRequest.requestId)")
+                DispatchQueue.main.async {
+                    self.pendingPermission = permissionRequest
+                    self.onPermissionRequest?(permissionRequest)
+                }
+            } else if let permissionResolved = try? JSONDecoder().decode(PermissionResolved.self, from: data) {
+                logToFile("✅ Decoded as PermissionResolved: \(permissionResolved.requestId)")
+                DispatchQueue.main.async {
+                    if self.pendingPermission?.requestId == permissionResolved.requestId {
+                        self.pendingPermission = nil
+                    }
+                    self.onPermissionResolved?(permissionResolved)
+                }
             } else {
                 print("❌ Failed to decode message as any known type")
                 print("   Raw data: \(String(data: data, encoding: .utf8) ?? "N/A")")
@@ -350,6 +387,18 @@ class WebSocketManager: NSObject, ObservableObject {
                     self.vscodeConnected = vscodeStatus.vscodeConnected
                     self.activeSessionId = vscodeStatus.activeSessionId
                     self.onVSCodeStatusReceived?(vscodeStatus)
+                }
+            } else if let permissionRequest = try? JSONDecoder().decode(PermissionRequest.self, from: data) {
+                DispatchQueue.main.async {
+                    self.pendingPermission = permissionRequest
+                    self.onPermissionRequest?(permissionRequest)
+                }
+            } else if let permissionResolved = try? JSONDecoder().decode(PermissionResolved.self, from: data) {
+                DispatchQueue.main.async {
+                    if self.pendingPermission?.requestId == permissionResolved.requestId {
+                        self.pendingPermission = nil
+                    }
+                    self.onPermissionResolved?(permissionResolved)
                 }
             } else {
                 print("❌ Failed to decode binary message")
