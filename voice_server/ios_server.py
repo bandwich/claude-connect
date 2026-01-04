@@ -24,6 +24,8 @@ from watchdog.events import FileSystemEventHandler
 from content_models import TextBlock, ThinkingBlock, ToolUseBlock, ContentBlock, AssistantResponse
 from session_manager import SessionManager
 from vscode_controller import VSCodeController
+from permission_handler import PermissionHandler
+from http_server import start_http_server
 
 # Configuration
 PORT = 8765
@@ -221,6 +223,7 @@ class VoiceServer:
         self.last_content_blocks = []  # New: store for future reference
         self.session_manager = SessionManager()
         self.vscode_controller = VSCodeController()
+        self.permission_handler = PermissionHandler()
         self.projects_base_path = PROJECTS_BASE_PATH
         self.active_session_id = None  # Track which session is open in VSCode
 
@@ -576,6 +579,32 @@ end tell
         }
         await websocket.send(json.dumps(response))
 
+    async def handle_permission_response(self, data):
+        """Handle permission response from iOS"""
+        request_id = data.get('request_id', '')
+        decision = data.get('decision', 'deny')
+
+        if self.permission_handler.is_request_pending(request_id):
+            # Normal flow - resolve the waiting hook
+            self.permission_handler.resolve_request(request_id, {
+                "decision": decision,
+                "input": data.get('input'),
+                "selected_option": data.get('selected_option')
+            })
+        elif self.permission_handler.is_request_timed_out(request_id):
+            # Late response - inject into terminal
+            await self.inject_terminal_response(decision, data)
+
+    async def inject_terminal_response(self, decision, data):
+        """Inject permission response into terminal after timeout"""
+        if decision == "allow":
+            text = data.get('input', 'y')
+        else:
+            text = 'n'
+
+        await self.send_to_vs_code(text)
+        print(f"Injected late response: {text}")
+
     async def handle_message(self, websocket, message):
         """Handle incoming message"""
         try:
@@ -598,12 +627,15 @@ end tell
                 await self.handle_resume_session(websocket, data)
             elif msg_type == 'add_project':
                 await self.handle_add_project(websocket, data)
+            elif msg_type == 'permission_response':
+                await self.handle_permission_response(data)
         except Exception as e:
             print(f"Error: {e}")
 
     async def handle_client(self, websocket, path):
         """Handle client connection"""
         self.clients.add(websocket)
+        self.permission_handler.websocket_clients.add(websocket)
         print(f"Client connected. Total clients: {len(self.clients)}")
         try:
             await self.send_status(websocket, "idle", "Connected")
@@ -615,6 +647,7 @@ end tell
             print(f"Client error: {e}")
         finally:
             self.clients.discard(websocket)
+            self.permission_handler.websocket_clients.discard(websocket)
             print(f"Client disconnected. Total clients: {len(self.clients)}")
 
     async def start(self):
@@ -641,6 +674,9 @@ end tell
             self.observer = Observer()
             self.observer.schedule(self.transcript_handler, os.path.dirname(self.transcript_path))
             self.observer.start()
+
+        # Start HTTP server for permission hooks
+        http_runner = await start_http_server(self.permission_handler)
 
         import socket
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
