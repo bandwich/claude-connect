@@ -13,6 +13,7 @@ class WebSocketManager: NSObject, ObservableObject {
 
     @Published var vscodeConnected: Bool = false
     @Published var activeSessionId: String? = nil
+    @Published var outputState: ClaudeOutputState = .idle
 
     var onAudioChunk: ((AudioChunkMessage) -> Void)?
     var onStatusUpdate: ((StatusMessage) -> Void)?
@@ -339,12 +340,14 @@ class WebSocketManager: NSObject, ObservableObject {
             } else if let permissionRequest = try? JSONDecoder().decode(PermissionRequest.self, from: data) {
                 logToFile("✅ Decoded as PermissionRequest: \(permissionRequest.requestId)")
                 DispatchQueue.main.async {
+                    self.outputState = .awaitingPermission(permissionRequest.requestId)
                     self.pendingPermission = permissionRequest
                     self.onPermissionRequest?(permissionRequest)
                 }
             } else if let permissionResolved = try? JSONDecoder().decode(PermissionResolved.self, from: data) {
                 logToFile("✅ Decoded as PermissionResolved: \(permissionResolved.requestId)")
                 DispatchQueue.main.async {
+                    self.outputState = .idle
                     if self.pendingPermission?.requestId == permissionResolved.requestId {
                         self.pendingPermission = nil
                     }
@@ -390,11 +393,13 @@ class WebSocketManager: NSObject, ObservableObject {
                 }
             } else if let permissionRequest = try? JSONDecoder().decode(PermissionRequest.self, from: data) {
                 DispatchQueue.main.async {
+                    self.outputState = .awaitingPermission(permissionRequest.requestId)
                     self.pendingPermission = permissionRequest
                     self.onPermissionRequest?(permissionRequest)
                 }
             } else if let permissionResolved = try? JSONDecoder().decode(PermissionResolved.self, from: data) {
                 DispatchQueue.main.async {
+                    self.outputState = .idle
                     if self.pendingPermission?.requestId == permissionResolved.requestId {
                         self.pendingPermission = nil
                     }
@@ -444,7 +449,7 @@ class WebSocketManager: NSObject, ObservableObject {
         // Store content blocks
         lastContentBlocks = message.contentBlocks
 
-        // Log block types for debugging
+        // Log block types for debugging and update output state
         for (index, block) in message.contentBlocks.enumerated() {
             switch block {
             case .text(let textBlock):
@@ -453,9 +458,11 @@ class WebSocketManager: NSObject, ObservableObject {
             case .thinking(let thinkingBlock):
                 print("  Block \(index): thinking - \(thinkingBlock.thinking.prefix(50))...")
                 logToFile("  Block \(index): thinking")
+                DispatchQueue.main.async { self.outputState = .thinking }
             case .toolUse(let toolBlock):
                 print("  Block \(index): tool_use - \(toolBlock.name)")
                 logToFile("  Block \(index): tool_use - \(toolBlock.name)")
+                DispatchQueue.main.async { self.outputState = .usingTool(toolBlock.name) }
             }
         }
 

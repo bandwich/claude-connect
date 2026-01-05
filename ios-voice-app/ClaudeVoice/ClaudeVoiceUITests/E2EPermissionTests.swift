@@ -177,6 +177,44 @@ final class E2EPermissionTests: E2ETestBase {
         XCTAssertTrue(waitForPermissionSheetDismissed(), "Sheet should dismiss after submit")
     }
 
+    // MARK: - Write Permission Tests (New File)
+
+    /// Tests write permission flow: shows "New File" title, DiffView, Approve/Reject
+    func test_write_permission_complete_flow() throws {
+        navigateToTestSession()
+
+        // --- Test 1: Verify write permission shows New File UI ---
+        let _ = injectPermissionRequest(
+            promptType: "write",
+            toolName: "Write",
+            filePath: "src/newFile.ts",
+            oldContent: "",  // Empty for new file
+            newContent: "export function newHelper() {\n  return 'hello';\n}"
+        )
+
+        XCTAssertTrue(waitForPermissionSheet(timeout: 5), "Permission sheet should appear")
+
+        // Verify New File title
+        XCTAssertTrue(app.navigationBars["New File"].exists, "Should show New File title")
+
+        // Verify file path is shown
+        let filePath = app.staticTexts["src/newFile.ts"]
+        XCTAssertTrue(filePath.waitForExistence(timeout: 2), "Should show file path")
+
+        // Verify new content is visible (all additions for new file)
+        let hasContent = app.staticTexts["export function newHelper() {"].exists ||
+                        app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'newHelper'")).count > 0
+        XCTAssertTrue(hasContent, "Should show new file content")
+
+        // Verify Approve and Reject buttons
+        XCTAssertTrue(app.buttons["Approve"].exists, "Approve button should exist")
+        XCTAssertTrue(app.buttons["Reject"].exists, "Reject button should exist")
+
+        // --- Test 2: Verify Approve dismisses sheet ---
+        app.buttons["Approve"].tap()
+        XCTAssertTrue(waitForPermissionSheetDismissed(), "Sheet should dismiss after Approve")
+    }
+
     // MARK: - Task/Agent Permission Tests
 
     /// Tests task/agent permission: shows description, Allow/Deny work
