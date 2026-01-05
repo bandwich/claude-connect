@@ -5,9 +5,17 @@
 # Reads JSON from stdin, POSTs to server, outputs response JSON
 # Exit 0 on success with decision, exit 2 to fall back to terminal
 
-set -e
-
 SERVER_URL="${VOICE_SERVER_URL:-http://localhost:8766}"
+
+# Check if server is running - exit immediately if not
+# Use /dev/null for stdin since we haven't consumed it yet
+if ! curl -s --max-time 0.5 "${SERVER_URL}/health" >/dev/null 2>&1; then
+    # Server not running - fall back to terminal silently
+    cat >/dev/null  # Consume stdin to avoid broken pipe
+    exit 2
+fi
+
+set -e
 
 # Read JSON payload from stdin
 PAYLOAD=$(cat)

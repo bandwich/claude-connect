@@ -73,8 +73,14 @@ struct SessionView: View {
                         .font(.caption)
                         .foregroundColor(.red)
                         .accessibilityIdentifier("syncError")
+                } else if let statusText = webSocketManager.outputState.statusText {
+                    // Show output state when active (thinking, using tool, speaking)
+                    Text(statusText)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .accessibilityIdentifier("outputStatus")
                 } else {
-                    // Show voice state always (button is disabled until synced)
+                    // Show voice state when idle
                     Text(webSocketManager.voiceState.description)
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -131,7 +137,27 @@ struct SessionView: View {
         }
         .sheet(item: $webSocketManager.pendingPermission) { request in
             PermissionPromptView(request: request) { response in
+                // Add permission response to message history
+                let decisionText = response.decision == .allow ? "✓ Allowed" : "✗ Denied"
+                let responseMessage = SessionHistoryMessage(
+                    role: "assistant",
+                    content: "\(decisionText): \(permissionDescription(for: request))",
+                    timestamp: response.timestamp
+                )
+                messages.append(responseMessage)
+
                 webSocketManager.sendPermissionResponse(response)
+            }
+        }
+        .onChange(of: webSocketManager.pendingPermission) { _, newValue in
+            // Add permission request to message history when it arrives
+            if let request = newValue {
+                let requestMessage = SessionHistoryMessage(
+                    role: "assistant",
+                    content: "⏳ Permission requested: \(permissionDescription(for: request))",
+                    timestamp: request.timestamp
+                )
+                messages.append(requestMessage)
             }
         }
         .onAppear(perform: setupView)
@@ -144,10 +170,9 @@ struct SessionView: View {
 
     private var canRecord: Bool {
         guard isSessionSynced else { return false }
+        guard webSocketManager.outputState.canSendVoiceInput else { return false }
         if case .connected = webSocketManager.connectionState {
-            return speechRecognizer.isAuthorized
-                && !audioPlayer.isPlaying
-                && webSocketManager.voiceState != .processing
+            return speechRecognizer.isAuthorized && !audioPlayer.isPlaying
         }
         return false
     }
@@ -193,6 +218,15 @@ struct SessionView: View {
 
         speechRecognizer.onFinalTranscription = { text in
             currentTranscript = text
+
+            // Add user message to list immediately
+            let userMessage = SessionHistoryMessage(
+                role: "user",
+                content: text,
+                timestamp: Date().timeIntervalSince1970
+            )
+            messages.append(userMessage)
+
             webSocketManager.sendVoiceInput(text: text)
 
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
@@ -211,6 +245,7 @@ struct SessionView: View {
             DispatchQueue.main.async {
                 webSocketManager.isPlayingAudio = true
                 webSocketManager.voiceState = .speaking
+                webSocketManager.outputState = .speaking
             }
         }
 
@@ -218,6 +253,36 @@ struct SessionView: View {
             DispatchQueue.main.async {
                 webSocketManager.isPlayingAudio = false
                 webSocketManager.voiceState = .idle
+                webSocketManager.outputState = .idle
+            }
+        }
+
+        // Subscribe to real-time assistant responses
+        webSocketManager.onAssistantResponse = { response in
+            // Extract text from content blocks
+            var textContent = ""
+            for block in response.contentBlocks {
+                switch block {
+                case .text(let textBlock):
+                    textContent += textBlock.text
+                case .thinking:
+                    break
+                case .toolUse:
+                    break
+                }
+            }
+
+            guard !textContent.isEmpty else { return }
+
+            // Create message and append to list
+            let message = SessionHistoryMessage(
+                role: "assistant",
+                content: textContent,
+                timestamp: response.timestamp
+            )
+
+            DispatchQueue.main.async {
+                messages.append(message)
             }
         }
     }
@@ -260,6 +325,40 @@ struct SessionView: View {
             }
         }
     }
+
+    private func permissionDescription(for request: PermissionRequest) -> String {
+        switch request.promptType {
+        case .bash:
+            if let command = request.toolInput?.command {
+                // Truncate long commands
+                let truncated = command.count > 50 ? String(command.prefix(50)) + "..." : command
+                return "`\(truncated)`"
+            }
+            return "Run command"
+        case .edit:
+            if let path = request.context?.filePath {
+                return "Edit \(path)"
+            }
+            return "Edit file"
+        case .write:
+            if let path = request.context?.filePath {
+                return "Create \(path)"
+            }
+            return "Create file"
+        case .task:
+            if let desc = request.toolInput?.description {
+                let truncated = desc.count > 50 ? String(desc.prefix(50)) + "..." : desc
+                return "Agent: \(truncated)"
+            }
+            return "Run agent"
+        case .question:
+            if let text = request.question?.text {
+                let truncated = text.count > 50 ? String(text.prefix(50)) + "..." : text
+                return truncated
+            }
+            return "Answer question"
+        }
+    }
 }
 
 struct MessageBubble: View {
@@ -276,6 +375,7 @@ struct MessageBubble: View {
                 .background(message.role == "user" ? Color.blue : Color(.systemGray5))
                 .foregroundColor(message.role == "user" ? .white : .primary)
                 .cornerRadius(16)
+                .accessibilityIdentifier("messageBubble")
 
             if message.role == "assistant" {
                 Spacer()

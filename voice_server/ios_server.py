@@ -591,6 +591,12 @@ end tell
                 "input": data.get('input'),
                 "selected_option": data.get('selected_option')
             })
+            # Notify iOS that the permission was resolved
+            await self.permission_handler.broadcast({
+                "type": "permission_resolved",
+                "request_id": request_id,
+                "answered_in": "ios"
+            })
         elif self.permission_handler.is_request_timed_out(request_id):
             # Late response - inject into terminal
             await self.inject_terminal_response(decision, data)
@@ -606,10 +612,30 @@ end tell
         print(f"Injected late response: {text}")
 
     async def handle_message(self, websocket, message):
-        """Handle incoming message"""
+        """Handle incoming message with state validation"""
         try:
             data = json.loads(message)
             msg_type = data.get('type')
+
+            # Validate permission_response has a pending request
+            if msg_type == 'permission_response':
+                request_id = data.get('request_id', '')
+                if not self.permission_handler.is_request_pending(request_id) and \
+                   not self.permission_handler.is_request_timed_out(request_id):
+                    await websocket.send(json.dumps({
+                        "type": "error",
+                        "message": "No pending permission request"
+                    }))
+                    return
+
+            # Reject voice_input while permission is pending
+            if msg_type == 'voice_input':
+                if self.permission_handler.pending_permissions:
+                    await websocket.send(json.dumps({
+                        "type": "error",
+                        "message": "Cannot send voice input while permission pending"
+                    }))
+                    return
 
             if msg_type == 'voice_input':
                 await self.handle_voice_input(websocket, data)

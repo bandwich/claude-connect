@@ -47,7 +47,10 @@ class TestPermissionIntegration(AioHTTPTestCase):
 
         assert resp.status == 200
         result = await resp.json()
-        assert result["decision"] == "allow"
+        # Verify Claude Code hook format
+        assert "hookSpecificOutput" in result
+        assert result["hookSpecificOutput"]["hookEventName"] == "PermissionRequest"
+        assert result["hookSpecificOutput"]["decision"]["behavior"] == "allow"
 
     @unittest_run_loop
     async def test_full_permission_flow_deny(self):
@@ -72,7 +75,10 @@ class TestPermissionIntegration(AioHTTPTestCase):
 
         assert resp.status == 200
         result = await resp.json()
-        assert result["decision"] == "deny"
+        # Verify Claude Code hook format
+        assert "hookSpecificOutput" in result
+        assert result["hookSpecificOutput"]["hookEventName"] == "PermissionRequest"
+        assert result["hookSpecificOutput"]["decision"]["behavior"] == "deny"
 
     @unittest_run_loop
     async def test_question_with_text_input(self):
@@ -98,8 +104,10 @@ class TestPermissionIntegration(AioHTTPTestCase):
 
         assert resp.status == 200
         result = await resp.json()
-        assert result["decision"] == "allow"
-        assert result["input"] == "calculateTotal"
+        # Verify Claude Code hook format (input is handled internally, not in hook output)
+        assert "hookSpecificOutput" in result
+        assert result["hookSpecificOutput"]["hookEventName"] == "PermissionRequest"
+        assert result["hookSpecificOutput"]["decision"]["behavior"] == "allow"
 
     @unittest_run_loop
     async def test_question_with_option_selection(self):
@@ -128,8 +136,10 @@ class TestPermissionIntegration(AioHTTPTestCase):
 
         assert resp.status == 200
         result = await resp.json()
-        assert result["decision"] == "allow"
-        assert result["selected_option"] == 1
+        # Verify Claude Code hook format (selected_option is handled internally, not in hook output)
+        assert "hookSpecificOutput" in result
+        assert result["hookSpecificOutput"]["hookEventName"] == "PermissionRequest"
+        assert result["hookSpecificOutput"]["decision"]["behavior"] == "allow"
 
     @unittest_run_loop
     async def test_timeout_returns_ask_behavior(self):
@@ -175,4 +185,7 @@ class TestPermissionIntegration(AioHTTPTestCase):
 
         assert resp.status == 200
         result = await resp.json()
-        assert result["decision"] == "allow"
+        # Verify Claude Code hook format
+        assert "hookSpecificOutput" in result
+        assert result["hookSpecificOutput"]["hookEventName"] == "PermissionRequest"
+        assert result["hookSpecificOutput"]["decision"]["behavior"] == "allow"

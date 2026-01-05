@@ -51,7 +51,10 @@ class TestHTTPServer(AioHTTPTestCase):
 
         assert resp.status == 200
         data = await resp.json()
-        assert data["decision"] == "allow"
+        # Verify Claude Code hook JSON format
+        assert "hookSpecificOutput" in data
+        assert data["hookSpecificOutput"]["hookEventName"] == "PermissionRequest"
+        assert data["hookSpecificOutput"]["decision"]["behavior"] == "allow"
 
     @unittest_run_loop
     async def test_permission_endpoint_timeout(self):

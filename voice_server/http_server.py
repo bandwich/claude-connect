@@ -52,7 +52,17 @@ def create_http_app(permission_handler: PermissionHandler) -> web.Application:
             return web.json_response({"behavior": "ask"})
 
         permission_handler.cleanup_request(request_id)
-        return web.json_response(response)
+
+        # Format response for Claude Code hook (expects hookSpecificOutput wrapper)
+        hook_response = {
+            "hookSpecificOutput": {
+                "hookEventName": "PermissionRequest",
+                "decision": {
+                    "behavior": response.get("decision", "deny")
+                }
+            }
+        }
+        return web.json_response(hook_response)
 
     async def handle_permission_resolved(request: web.Request) -> web.Response:
         """Handle POST /permission_resolved from PostToolUse hook"""
