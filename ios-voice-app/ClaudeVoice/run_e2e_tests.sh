@@ -1,11 +1,18 @@
 #!/bin/bash
 # E2E Test Runner - Starts server then runs tests
+# Usage: ./run_e2e_tests.sh [TestSuiteName]
+# Examples:
+#   ./run_e2e_tests.sh                    # Run all E2E tests
+#   ./run_e2e_tests.sh E2EPermissionTests # Run only permission tests
 
 set -e
 set -o pipefail  # Capture xcodebuild exit code, not tee's
 
 echo "🧪 E2E Test Runner"
 echo "=================="
+
+# Optional: specific test suite to run
+SPECIFIC_SUITE="$1"
 
 # Configuration
 PROJECT_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -14,6 +21,18 @@ SERVER_SCRIPT="$PROJECT_ROOT/voice_server/ios_server.py"
 TRANSCRIPT_DIR="$HOME/.claude/projects/e2e_test_project"
 TRANSCRIPT_FILE="$TRANSCRIPT_DIR/e2e_transcript.jsonl"
 LOG_FILE="/tmp/e2e_server.log"
+
+# All available E2E test suites
+ALL_SUITES=(
+    "E2EHappyPathTests"
+    "E2EConnectionTests"
+    "E2EErrorHandlingTests"
+    "E2EProjectsListTests"
+    "E2ESessionsListTests"
+    "E2ESessionViewTests"
+    "E2EVSCodeConnectionTests"
+    "E2EPermissionTests"
+)
 
 # Kill any existing server on port 8765
 if lsof -i :8765 > /dev/null 2>&1; then
@@ -58,23 +77,27 @@ fi
 
 echo "✅ Server started successfully"
 
-# Run E2E tests
-echo ""
-echo "🏃 Running E2E tests..."
-echo ""
+# Build test arguments
+if [ -n "$SPECIFIC_SUITE" ]; then
+    echo ""
+    echo "🏃 Running E2E tests: $SPECIFIC_SUITE"
+    echo ""
+    TEST_ARGS="-only-testing:ClaudeVoiceUITests/$SPECIFIC_SUITE"
+else
+    echo ""
+    echo "🏃 Running all E2E tests..."
+    echo ""
+    TEST_ARGS=""
+    for suite in "${ALL_SUITES[@]}"; do
+        TEST_ARGS="$TEST_ARGS -only-testing:ClaudeVoiceUITests/$suite"
+    done
+fi
 
 xcodebuild test \
     -scheme ClaudeVoice \
     -sdk iphonesimulator \
     -destination 'platform=iOS Simulator,name=iPhone 16' \
-    -only-testing:ClaudeVoiceUITests/E2EHappyPathTests \
-    -only-testing:ClaudeVoiceUITests/E2EConnectionTests \
-    -only-testing:ClaudeVoiceUITests/E2EErrorHandlingTests \
-    -only-testing:ClaudeVoiceUITests/E2EProjectsListTests \
-    -only-testing:ClaudeVoiceUITests/E2ESessionsListTests \
-    -only-testing:ClaudeVoiceUITests/E2ESessionViewTests \
-    -only-testing:ClaudeVoiceUITests/E2EVSCodeConnectionTests \
-    -only-testing:ClaudeVoiceUITests/E2EPermissionTests \
+    $TEST_ARGS \
     -parallel-testing-enabled NO \
     2>&1 | tee /tmp/e2e_test.log
 
@@ -87,7 +110,11 @@ kill $SERVER_PID 2>/dev/null || true
 rm -rf "$TRANSCRIPT_DIR"
 
 if [ $TEST_EXIT_CODE -eq 0 ]; then
-    echo "✅ All E2E tests passed!"
+    if [ -n "$SPECIFIC_SUITE" ]; then
+        echo "✅ $SPECIFIC_SUITE passed!"
+    else
+        echo "✅ All E2E tests passed!"
+    fi
 else
     echo "❌ Some E2E tests failed"
     echo "   Check server logs: $LOG_FILE"

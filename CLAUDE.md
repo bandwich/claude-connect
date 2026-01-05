@@ -56,6 +56,9 @@ xcodebuild test -scheme ClaudeVoice \
 # E2E tests - requires simulator, may timeout
 cd ios-voice-app/ClaudeVoice && ./run_e2e_tests.sh
 
+# Run specific E2E test suite
+cd ios-voice-app/ClaudeVoice && ./run_e2e_tests.sh E2EPermissionTests
+
 # Integration tests - requires manually starting server first
 # See tests/TESTS.md for details
 ```

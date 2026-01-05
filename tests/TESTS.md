@@ -79,13 +79,17 @@ xcodebuild test -scheme ClaudeVoice \
 **Location:** `ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/E2E*.swift`
 
 ```bash
+# Run all E2E tests
 cd ios-voice-app/ClaudeVoice && ./run_e2e_tests.sh
+
+# Run specific E2E test suite
+cd ios-voice-app/ClaudeVoice && ./run_e2e_tests.sh E2EPermissionTests
 ```
 
 The E2E runner (`run_e2e_tests.sh`):
 1. Starts the real `ios_server.py`
 2. Creates a test transcript file
-3. Runs E2E test suites
+3. Runs E2E test suites (all or specified)
 4. Cleans up server and files
 
 **Test suites:**
@@ -95,6 +99,8 @@ The E2E runner (`run_e2e_tests.sh`):
 - `E2EProjectsListTests` - Projects list loading and display
 - `E2ESessionsListTests` - Session navigation and counts
 - `E2ESessionViewTests` - Message history and voice controls
+- `E2EVSCodeConnectionTests` - VSCode integration flows
+- `E2EPermissionTests` - Permission prompt UI (bash, edit, question, task)
 
 **Support utilities:** `tests/e2e_support/`
 - `server_manager.py` - Server lifecycle management
