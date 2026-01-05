@@ -365,10 +365,8 @@ class E2ETestBase: XCTestCase {
     ) -> String {
         let requestId = UUID().uuidString
 
+        // Build payload matching what the hook sends to HTTP server
         var payload: [String: Any] = [
-            "type": "permission_request",
-            "request_id": requestId,
-            "prompt_type": promptType,
             "tool_name": toolName,
             "timestamp": Date().timeIntervalSince1970
         ]
@@ -396,23 +394,22 @@ class E2ETestBase: XCTestCase {
             payload["question"] = question
         }
 
-        // Send via WebSocket
-        let expectation = XCTestExpectation(description: "Send permission request")
+        // POST to HTTP server (port 8766) - this triggers broadcast to iOS app
+        let httpPort = testServerPort + 1
+        let url = URL(string: "http://\(testServerHost):\(httpPort)/permission?timeout=5")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        let url = URL(string: "ws://\(testServerHost):\(testServerPort)")!
-        let task = URLSession.shared.webSocketTask(with: url)
-        task.resume()
-
-        if let jsonData = try? JSONSerialization.data(withJSONObject: payload),
-           let jsonString = String(data: jsonData, encoding: .utf8) {
-            task.send(.string(jsonString)) { error in
-                task.cancel(with: .goingAway, reason: nil)
-                expectation.fulfill()
-            }
+        if let jsonData = try? JSONSerialization.data(withJSONObject: payload) {
+            request.httpBody = jsonData
         }
 
-        wait(for: [expectation], timeout: 5.0)
-        sleep(1) // Wait for WebSocket message delivery and UI update
+        // Fire and forget - don't wait for response (it would block waiting for user action)
+        let task = URLSession.shared.dataTask(with: request)
+        task.resume()
+
+        sleep(2) // Wait for HTTP request to be processed and WebSocket broadcast
 
         return requestId
     }
