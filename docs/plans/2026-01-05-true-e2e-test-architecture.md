@@ -11,27 +11,31 @@ Voice Input → Server → [VSCode - UNTESTED] → Tests inject transcript → A
 
 **Desired flow (true E2E):**
 ```
-Voice Input → Server → Mock VSCode Server → Writes to Transcript → App
+Voice Input → Server → Real VSCode → Real Terminal → Transcript → App
 ```
 
-**Key insight:** If VSCode connection breaks, happy path tests should fail immediately.
+**Key insight:** If VSCode connection breaks, ALL conversation tests should fail immediately.
 
 ---
 
 ## Architecture
 
-### Mock VSCode Server
+### Requirements
 
-Create a mock WebSocket server that:
-1. Listens on port 3710 (same as vscode-remote-control extension)
-2. Receives `sendSequence` commands from ios_server
-3. Parses the command text
-4. If text ends with `\r` (Enter), writes a simulated response to transcript
-5. This simulates what Claude CLI would do
+1. **Real VSCode** running with vscode-remote-control extension
+2. **Real terminal** in VSCode with something that processes commands
+3. **No mock servers** - use actual components
+
+### Test Prerequisites
+
+Before running E2E tests:
+- VSCode must be open
+- vscode-remote-control extension must be active (ws://localhost:3710)
+- A terminal must be open with Claude CLI or test responder script
 
 ### Test Flow Changes
 
-**Before:**
+**Before (bypasses VSCode):**
 ```swift
 func simulateConversationTurn(userInput: String, assistantResponse: String) {
     sendVoiceInput(userInput)        // Send to server
@@ -40,297 +44,169 @@ func simulateConversationTurn(userInput: String, assistantResponse: String) {
 }
 ```
 
-**After:**
+**After (real E2E):**
 ```swift
-func sendVoiceAndWaitForResponse(userInput: String, expectedInTranscript: Bool = true) {
-    sendVoiceInput(userInput)  // Send to server
-    // Server sends to Mock VSCode (port 3710)
-    // Mock VSCode writes to transcript
+func sendVoiceInput(_ text: String) {
+    // Send to server via WebSocket
+    // Server sends to real VSCode terminal
+    // Terminal processes command
+    // Response written to transcript
     // App detects transcript change
-    // NO INJECTION - real flow
+    // NO INJECTION
 }
 ```
 
 ---
 
-## Part 1: Create Mock VSCode Server
+## Affected Tests
 
-### Task 1: Create MockVSCodeServer class
+ALL tests using `simulateConversationTurn` or `injectUserMessage`/`injectAssistantMessage`:
+
+| Test File | Uses Injection | Needs Update |
+|-----------|----------------|--------------|
+| E2EHappyPathTests | Yes | Yes |
+| E2ESessionViewTests | Yes | Yes |
+| E2EConnectionTests | Yes | Yes |
+| E2EErrorHandlingTests | Yes | Yes |
+| E2EPermissionTests | No (uses HTTP) | No |
+| E2EProjectsListTests | No | No |
+| E2ESessionsListTests | No | No |
+| E2EVSCodeConnectionTests | No | No |
+
+---
+
+## Part 1: Create Test Responder Script
+
+### Task 1: Create a simple script that responds to commands in terminal
+
+For E2E tests, we need something in the VSCode terminal that:
+1. Reads commands from stdin
+2. Writes responses to the transcript file
 
 **Files:**
-- Create: `tests/e2e_support/mock_vscode_server.py`
-
-### Step 1: Implement mock server
+- Create: `tests/e2e_support/test_responder.py`
 
 ```python
 #!/usr/bin/env python3
-"""Mock VSCode remote-control extension for E2E tests"""
-import asyncio
+"""
+Simple responder for E2E tests.
+Reads lines from stdin, writes mock responses to transcript.
+Run this in VSCode terminal during E2E tests.
+"""
+import sys
 import json
-import websockets
-from typing import Optional
+import time
 import os
 
-class MockVSCodeServer:
-    """
-    Simulates vscode-remote-control extension.
-    When it receives sendSequence with text ending in \r,
-    it writes a mock Claude response to the transcript.
-    """
+def main():
+    transcript_path = os.environ.get("E2E_TRANSCRIPT_PATH")
+    if not transcript_path:
+        print("E2E_TRANSCRIPT_PATH not set", file=sys.stderr)
+        sys.exit(1)
 
-    def __init__(self, port: int = 3710, transcript_path: Optional[str] = None):
-        self.port = port
-        self.transcript_path = transcript_path
-        self.server = None
-        self.received_commands = []
+    print(f"Test responder ready. Transcript: {transcript_path}")
 
-    async def handle_connection(self, websocket):
-        """Handle incoming WebSocket connection"""
-        async for message in websocket:
-            try:
-                data = json.loads(message)
-                command = data.get("command", "")
-                args = data.get("args", {})
+    for line in sys.stdin:
+        text = line.strip()
+        if not text:
+            continue
 
-                self.received_commands.append(data)
-                print(f"[MockVSCode] Received: {command}")
+        print(f"Received: {text}")
 
-                if command == "workbench.action.terminal.sendSequence":
-                    text = args.get("text", "")
-                    await self._handle_send_sequence(text)
-
-            except json.JSONDecodeError:
-                print(f"[MockVSCode] Invalid JSON: {message}")
-
-    async def _handle_send_sequence(self, text: str):
-        """Handle terminal sendSequence command"""
-        print(f"[MockVSCode] sendSequence: {repr(text)}")
-
-        # Only process if text ends with carriage return (Enter pressed)
-        if not text.endswith("\r"):
-            print(f"[MockVSCode] Text does not end with \\r, not executing")
-            return
-
-        # Strip the \r and get the command
-        command_text = text[:-1]
-
-        # Write mock response to transcript
-        if self.transcript_path:
-            await self._write_mock_response(command_text)
-
-    async def _write_mock_response(self, user_input: str):
-        """Write mock Claude response to transcript file"""
-        import time
-
-        # User message
+        # Write to transcript
         user_msg = {
             "type": "user",
-            "message": {"content": user_input},
+            "message": {"content": text},
             "timestamp": time.time()
         }
-
-        # Assistant response
         assistant_msg = {
             "type": "assistant",
-            "message": {"content": f"Mock response to: {user_input}"},
+            "message": {"content": f"Test response to: {text}"},
             "timestamp": time.time() + 0.1
         }
 
-        with open(self.transcript_path, "a") as f:
+        with open(transcript_path, "a") as f:
             f.write(json.dumps(user_msg) + "\n")
             f.write(json.dumps(assistant_msg) + "\n")
 
-        print(f"[MockVSCode] Wrote response to transcript")
-
-    async def start(self):
-        """Start the mock server"""
-        self.server = await websockets.serve(
-            self.handle_connection,
-            "localhost",
-            self.port
-        )
-        print(f"[MockVSCode] Server running on ws://localhost:{self.port}")
-
-    async def stop(self):
-        """Stop the mock server"""
-        if self.server:
-            self.server.close()
-            await self.server.wait_closed()
-
-    def get_received_commands(self):
-        """Get list of all received commands (for test assertions)"""
-        return self.received_commands.copy()
-
-    def clear_received_commands(self):
-        """Clear received commands list"""
-        self.received_commands.clear()
-```
-
-### Step 2: Add CLI interface
-
-Add to end of file:
-```python
-async def main():
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--port", type=int, default=3710)
-    parser.add_argument("--transcript", required=True)
-    args = parser.parse_args()
-
-    server = MockVSCodeServer(port=args.port, transcript_path=args.transcript)
-    await server.start()
-
-    try:
-        await asyncio.Future()  # Run forever
-    except KeyboardInterrupt:
-        await server.stop()
+        print(f"Wrote response to transcript")
 
 if __name__ == "__main__":
-    asyncio.run(main())
-```
-
-### Step 3: Verify
-
-```bash
-python tests/e2e_support/mock_vscode_server.py --transcript /tmp/test.jsonl &
-# In another terminal:
-python -c "
-import asyncio
-import websockets
-import json
-
-async def test():
-    async with websockets.connect('ws://localhost:3710') as ws:
-        await ws.send(json.dumps({
-            'command': 'workbench.action.terminal.sendSequence',
-            'args': {'text': 'hello world\r'}
-        }))
-
-asyncio.run(test())
-"
-cat /tmp/test.jsonl  # Should show mock response
+    main()
 ```
 
 ---
 
 ## Part 2: Update E2E Test Runner
 
-### Task 2: Start Mock VSCode Server in run_e2e_tests.sh
+### Task 2: Update run_e2e_tests.sh to verify VSCode is ready
 
 **Files:**
 - Modify: `ios-voice-app/ClaudeVoice/run_e2e_tests.sh`
 
-### Step 1: Add mock VSCode server startup
-
-After starting ios_server.py, add:
+Add check before running tests:
 ```bash
-# Start mock VSCode server
-echo "📺 Starting mock VSCode server..."
-python3 "$PROJECT_ROOT/tests/e2e_support/mock_vscode_server.py" \
-    --port 3710 \
-    --transcript "$E2E_TRANSCRIPT_PATH" &
-MOCK_VSCODE_PID=$!
-echo "   Mock VSCode PID: $MOCK_VSCODE_PID"
-sleep 1
-```
-
-### Step 2: Add cleanup
-
-In cleanup function:
-```bash
-if [ -n "$MOCK_VSCODE_PID" ]; then
-    kill $MOCK_VSCODE_PID 2>/dev/null || true
+# Verify VSCode extension is running
+echo "🔍 Checking VSCode remote-control extension..."
+if ! nc -z localhost 3710 2>/dev/null; then
+    echo "❌ VSCode remote-control extension not running on port 3710"
+    echo "   Please:"
+    echo "   1. Open VSCode"
+    echo "   2. Install/enable vscode-remote-control extension"
+    echo "   3. Open a terminal and run: E2E_TRANSCRIPT_PATH=$E2E_TRANSCRIPT_PATH python3 tests/e2e_support/test_responder.py"
+    exit 1
 fi
+echo "✅ VSCode extension detected"
 ```
 
 ---
 
-## Part 3: Update Happy Path Tests
+## Part 3: Remove Transcript Injection
 
-### Task 3: Remove transcript injection from happy path
+### Task 3: Update E2ETestBase to remove injection helpers
 
 **Files:**
-- Modify: `ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/E2EHappyPathTests.swift`
 - Modify: `ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/E2ETestBase.swift`
 
-### Step 1: Add new helper method to E2ETestBase
+1. Remove `simulateConversationTurn` method
+2. Remove `injectUserMessage` method
+3. Remove `injectAssistantMessage` method
+4. Keep `sendVoiceInput` - this is the real E2E method
 
-```swift
-/// Send voice input and wait for response via real flow
-/// (no transcript injection - relies on mock VSCode server)
-func sendVoiceAndWaitForResponse(
-    _ text: String,
-    timeout: TimeInterval = 15.0
-) -> Bool {
-    sendVoiceInput(text)
+### Task 4: Update E2EHappyPathTests
 
-    // Wait for voice state to transition through the flow
-    // Processing -> Speaking -> Idle
-    let startIdle = waitForVoiceState("Idle", timeout: 5)
-    guard startIdle else { return false }
-
-    // Wait for speaking (response received from mock VSCode)
-    let speaking = waitForVoiceState("Speaking", timeout: timeout)
-    guard speaking else { return false }
-
-    // Wait to return to idle
-    return waitForVoiceState("Idle", timeout: timeout)
-}
-```
-
-### Step 2: Update E2EHappyPathTests
-
-Replace `simulateConversationTurn` calls with `sendVoiceAndWaitForResponse`:
-
+Replace injection with real flow:
 ```swift
 func test_voice_conversation_flow() throws {
     navigateToTestSession()
+    XCTAssertTrue(waitForVoiceState("Idle", timeout: 5))
 
-    XCTAssertTrue(waitForVoiceState("Idle", timeout: 5), "Should start in Idle")
+    // Real E2E: send voice, wait for response via VSCode → transcript → app
+    sendVoiceInput("Hello Claude")
+    XCTAssertTrue(waitForVoiceState("Speaking", timeout: 15), "Should receive response")
+    XCTAssertTrue(waitForVoiceState("Idle", timeout: 15), "Should return to idle")
 
-    // Test 1: Single turn via real flow
-    XCTAssertTrue(
-        sendVoiceAndWaitForResponse("Hello Claude"),
-        "Should complete voice conversation turn"
-    )
-
-    // Test 2: Multiple turns
-    XCTAssertTrue(
-        sendVoiceAndWaitForResponse("Second message"),
-        "Should complete second turn"
-    )
-
-    XCTAssertTrue(
-        sendVoiceAndWaitForResponse("Third message"),
-        "Should complete third turn"
-    )
+    sendVoiceInput("Second message")
+    XCTAssertTrue(waitForVoiceState("Speaking", timeout: 15))
+    XCTAssertTrue(waitForVoiceState("Idle", timeout: 15))
 }
 ```
 
+### Task 5: Update E2ESessionViewTests
+
+### Task 6: Update E2EConnectionTests
+
+### Task 7: Update E2EErrorHandlingTests
+
 ---
 
-## Part 4: Verify Bug Detection
+## Part 4: Verify Architecture
 
-### Task 4: Temporarily break VSCode send to verify tests catch it
+### Task 8: Test that VSCode failures cause test failures
 
-### Step 1: Change `\r` back to `\n` temporarily
-
-In `ios_server.py` line 298:
-```python
-success = await self.vscode_controller.send_sequence(text + "\n")  # Bug!
-```
-
-### Step 2: Run E2EHappyPathTests
-
-```bash
-./run_e2e_tests.sh E2EHappyPathTests
-```
-
-**Expected:** Tests should FAIL because mock VSCode only writes to transcript when command ends with `\r`.
-
-### Step 3: Fix bug and verify tests pass
-
-Change back to `\r` and run tests again. Should pass.
+1. Stop VSCode or kill the extension
+2. Run any conversation test
+3. Verify it fails (not passes with false confidence)
 
 ---
 
@@ -340,18 +216,19 @@ Change back to `\r` and run tests again. Should pass.
 
 | Component | Before | After |
 |-----------|--------|-------|
-| Mock VSCode | None | New server on port 3710 |
-| Happy path tests | Inject transcript | Real flow via mock VSCode |
-| Bug detection | Manual only | Automated |
+| VSCode | Optional/bypassed | Required |
+| Transcript injection | Used everywhere | Removed |
+| Test prerequisites | Just server | Server + VSCode + responder |
 
 ### Test Coverage
 
 - ✅ Voice input → Server WebSocket
-- ✅ Server → VSCode terminal send (NEW)
-- ✅ Terminal command execution (Enter key) (NEW)
+- ✅ Server → VSCode terminal send
+- ✅ Terminal command submission (Enter key)
+- ✅ Terminal → Transcript write
 - ✅ Transcript file watching
 - ✅ App UI response
 
 ### Key Benefit
 
-If the `\n` vs `\r` bug returns, or if VSCode connection breaks, **happy path tests fail immediately** instead of passing with false confidence.
+If ANY part of the VSCode integration breaks, conversation tests fail immediately.
