@@ -9,13 +9,12 @@ import XCTest
 
 final class E2ESessionsListTests: E2ETestBase {
 
-    
-    func test_tap_project_shows_sessions() throws {
-        // Wait for projects to load
+    /// Tests sessions list: tap project shows sessions, message counts, back navigation
+    func test_sessions_list_complete_flow() throws {
+        // --- Test 1: Tap project shows sessions ---
         let project1 = app.staticTexts["e2e_test_project1"]
         XCTAssertTrue(project1.waitForExistence(timeout: 5), "Should show project1")
 
-        // Tap project
         project1.tap()
 
         // Should show sessions list with project name as title
@@ -28,36 +27,15 @@ final class E2ESessionsListTests: E2ETestBase {
 
         let session2Title = app.staticTexts["How do I write a Swift function?"]
         XCTAssertTrue(session2Title.waitForExistence(timeout: 5), "Should show session 2 title")
-    }
 
-    
-    func test_sessions_show_message_counts() throws {
-        // Navigate to project1
-        let project1 = app.staticTexts["e2e_test_project1"]
-        XCTAssertTrue(project1.waitForExistence(timeout: 5))
-        project1.tap()
-
-        // Session 1 has 2 messages, Session 2 has 3 messages
+        // --- Test 2: Sessions show message counts ---
         let count2 = app.staticTexts["2 messages"]
         XCTAssertTrue(count2.waitForExistence(timeout: 5), "Should show message count")
-    }
 
-    
-    func test_back_navigation_returns_to_projects() throws {
-        // Navigate to sessions
-        let project1 = app.staticTexts["e2e_test_project1"]
-        XCTAssertTrue(project1.waitForExistence(timeout: 5))
-        project1.tap()
-
-        // Wait for sessions list
-        let navTitle = app.navigationBars["e2e_test_project1"]
-        XCTAssertTrue(navTitle.waitForExistence(timeout: 5))
-
-        // Tap back
+        // --- Test 3: Back navigation returns to projects ---
         let backButton = app.navigationBars.buttons.element(boundBy: 0)
         backButton.tap()
 
-        // Should return to projects list
         let projectsTitle = app.navigationBars["Projects"]
         XCTAssertTrue(projectsTitle.waitForExistence(timeout: 5), "Should return to projects list")
     }
