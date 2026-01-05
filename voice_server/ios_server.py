@@ -295,12 +295,12 @@ end tell
         Tries VSCodeController first, falls back to AppleScript if not connected.
         """
         if self.vscode_controller.is_connected():
-            success = await self.vscode_controller.send_sequence(text + "\r")
+            success = await self.vscode_controller.send_sequence(text)
             if success:
+                applescript = 'tell application "System Events" to keystroke return'
+                subprocess.run(['osascript', '-e', applescript])
                 return
-            print("VSCode send failed, falling back to AppleScript")
 
-        # Fallback to AppleScript
         await self.send_to_vs_code_applescript(text)
 
     async def stream_audio(self, websocket, text):
