@@ -282,14 +282,12 @@ class E2ETestBase: XCTestCase {
                 return
             }
 
-            let fileHandle = FileHandle(forWritingAtPath: transcriptPath)
-            if let handle = fileHandle {
-                handle.seekToEndOfFile()
-                handle.write((jsonString + "\n").data(using: .utf8)!)
-                handle.closeFile()
-            } else {
-                try (jsonString + "\n").write(toFile: transcriptPath, atomically: true, encoding: .utf8)
-            }
+            let lineData = (jsonString + "\n").data(using: .utf8)!
+            let fileURL = URL(fileURLWithPath: transcriptPath)
+            let handle = try FileHandle(forWritingTo: fileURL)
+            try handle.seekToEnd()
+            try handle.write(contentsOf: lineData)
+            try handle.close()
         } catch {
             XCTFail("Failed to inject response: \(error)")
         }
@@ -317,14 +315,12 @@ class E2ETestBase: XCTestCase {
                 return
             }
 
-            let fileHandle = FileHandle(forWritingAtPath: transcriptPath)
-            if let handle = fileHandle {
-                handle.seekToEndOfFile()
-                handle.write((jsonString + "\n").data(using: .utf8)!)
-                handle.closeFile()
-            } else {
-                try (jsonString + "\n").write(toFile: transcriptPath, atomically: true, encoding: .utf8)
-            }
+            let lineData = (jsonString + "\n").data(using: .utf8)!
+            let fileURL = URL(fileURLWithPath: transcriptPath)
+            let handle = try FileHandle(forWritingTo: fileURL)
+            try handle.seekToEnd()
+            try handle.write(contentsOf: lineData)
+            try handle.close()
         } catch {
             XCTFail("Failed to inject user message: \(error)")
         }
@@ -352,6 +348,96 @@ class E2ETestBase: XCTestCase {
         injectAssistantResponse(assistantResponse)
 
         // Don't wait here - let the test's waitForVoiceState do the waiting
+    }
+
+    // MARK: - Permission Request Helpers
+
+    func injectPermissionRequest(
+        promptType: String,
+        toolName: String,
+        command: String? = nil,
+        description: String? = nil,
+        filePath: String? = nil,
+        oldContent: String? = nil,
+        newContent: String? = nil,
+        questionText: String? = nil,
+        questionOptions: [String]? = nil
+    ) -> String {
+        let requestId = UUID().uuidString
+
+        var payload: [String: Any] = [
+            "type": "permission_request",
+            "request_id": requestId,
+            "prompt_type": promptType,
+            "tool_name": toolName,
+            "timestamp": Date().timeIntervalSince1970
+        ]
+
+        if command != nil || description != nil {
+            var toolInput: [String: Any] = [:]
+            if let cmd = command { toolInput["command"] = cmd }
+            if let desc = description { toolInput["description"] = desc }
+            payload["tool_input"] = toolInput
+        }
+
+        if filePath != nil || oldContent != nil || newContent != nil {
+            var context: [String: Any] = [:]
+            if let fp = filePath { context["file_path"] = fp }
+            if let old = oldContent { context["old_content"] = old }
+            if let new = newContent { context["new_content"] = new }
+            payload["context"] = context
+        }
+
+        if let text = questionText {
+            var question: [String: Any] = ["text": text]
+            if let opts = questionOptions {
+                question["options"] = opts
+            }
+            payload["question"] = question
+        }
+
+        // Send via WebSocket
+        let expectation = XCTestExpectation(description: "Send permission request")
+
+        let url = URL(string: "ws://\(testServerHost):\(testServerPort)")!
+        let task = URLSession.shared.webSocketTask(with: url)
+        task.resume()
+
+        if let jsonData = try? JSONSerialization.data(withJSONObject: payload),
+           let jsonString = String(data: jsonData, encoding: .utf8) {
+            task.send(.string(jsonString)) { error in
+                task.cancel(with: .goingAway, reason: nil)
+                expectation.fulfill()
+            }
+        }
+
+        wait(for: [expectation], timeout: 5.0)
+        sleep(1) // Wait for WebSocket message delivery and UI update
+
+        return requestId
+    }
+
+    func waitForPermissionSheet(timeout: TimeInterval = 5.0) -> Bool {
+        // Permission sheet has navigation title based on type
+        let sheetTitles = ["Command", "Edit", "New File", "Question", "Agent"]
+        for title in sheetTitles {
+            if app.navigationBars[title].waitForExistence(timeout: timeout / Double(sheetTitles.count)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    func waitForPermissionSheetDismissed(timeout: TimeInterval = 3.0) -> Bool {
+        let sheetTitles = ["Command", "Edit", "New File", "Question", "Agent"]
+        // Wait briefly, then check none exist
+        sleep(1)
+        for title in sheetTitles {
+            if app.navigationBars[title].exists {
+                return false
+            }
+        }
+        return true
     }
 
     // MARK: - Server API Helpers (from IntegrationTestBase)
