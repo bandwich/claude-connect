@@ -9,8 +9,9 @@ import XCTest
 
 final class E2EConnectionTests: E2ETestBase {
 
-    func test_initial_connection_to_real_server() throws {
-        // Connection is established in setUp, verify via settings
+    /// Tests connection and voice controls
+    func test_connection_and_voice_controls() throws {
+        // --- Test 1: Verify connected via settings ---
         let settingsButton = app.buttons["gearshape.fill"]
         XCTAssertTrue(settingsButton.waitForExistence(timeout: 5), "Settings button should exist")
         settingsButton.tap()
@@ -21,40 +22,46 @@ final class E2EConnectionTests: E2ETestBase {
 
         app.buttons["Done"].tap()
 
-        // Navigate to session and verify voice controls work
+        // --- Test 2: Navigate to session and verify voice controls ---
         navigateToTestSession()
         XCTAssertTrue(waitForVoiceState("Idle", timeout: 5), "Should be in Idle state")
 
-        // Verify talk button exists
         let talkButton = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Tap to Talk'")).firstMatch
         XCTAssertTrue(talkButton.exists, "Talk button should exist")
     }
 
-    func test_reconnection_after_disconnect() throws {
-        // Verify connected via settings
+    /// Tests disconnect, reconnect, and disconnect handling
+    func test_reconnection_flow() throws {
+        // --- Setup: Open settings ---
         let settingsButton = app.buttons["gearshape.fill"]
         settingsButton.tap()
 
         let statusLabel = app.staticTexts["connectionStatus"]
         XCTAssertTrue(statusLabel.waitForExistence(timeout: 5))
-        XCTAssertEqual(statusLabel.label, "Connected", "Should be connected")
+        XCTAssertEqual(statusLabel.label, "Connected", "Should start connected")
 
-        // Disconnect
+        // --- Test 1: Disconnect ---
         let disconnectButton = app.buttons["Disconnect"]
         XCTAssertTrue(disconnectButton.waitForExistence(timeout: 5))
         disconnectButton.tap()
 
-        // Wait for disconnection
-        let predicate = NSPredicate(format: "label == %@", "Disconnected")
-        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: statusLabel)
-        XCTWaiter().wait(for: [expectation], timeout: 5)
+        let disconnectPredicate = NSPredicate(format: "label == %@", "Disconnected")
+        let disconnectExpectation = XCTNSPredicateExpectation(predicate: disconnectPredicate, object: statusLabel)
+        XCTWaiter().wait(for: [disconnectExpectation], timeout: 5)
 
-        // Reconnect
+        // --- Test 2: Verify disconnected state in main view ---
+        app.buttons["Done"].tap()
+
+        let notConnectedText = app.staticTexts["Not Connected"]
+        XCTAssertTrue(notConnectedText.waitForExistence(timeout: 5), "Should show Not Connected")
+
+        // --- Test 3: Reconnect ---
+        settingsButton.tap()
+
         let connectButton = app.buttons["Connect"]
         XCTAssertTrue(connectButton.waitForExistence(timeout: 5))
         connectButton.tap()
 
-        // Wait for reconnection
         let reconnectPredicate = NSPredicate(format: "label == %@", "Connected")
         let reconnectExpectation = XCTNSPredicateExpectation(predicate: reconnectPredicate, object: statusLabel)
         let result = XCTWaiter().wait(for: [reconnectExpectation], timeout: 10)
@@ -62,47 +69,11 @@ final class E2EConnectionTests: E2ETestBase {
 
         app.buttons["Done"].tap()
 
-        // Navigate to session and verify voice works after reconnect
+        // --- Test 4: Verify voice works after reconnect ---
         navigateToTestSession()
         XCTAssertTrue(waitForVoiceState("Idle", timeout: 5), "Should be in idle state")
 
         simulateConversationTurn(userInput: "Test", assistantResponse: "Test after reconnect")
         XCTAssertTrue(waitForVoiceState("Speaking", timeout: 10), "Should work after reconnect")
-    }
-
-    func test_connection_failure_handling() throws {
-        // Open settings to check status
-        let settingsButton = app.buttons["gearshape.fill"]
-        settingsButton.tap()
-
-        let statusLabel = app.staticTexts["connectionStatus"]
-        XCTAssertTrue(statusLabel.waitForExistence(timeout: 5))
-        XCTAssertEqual(statusLabel.label, "Connected", "Should be connected")
-
-        // Disconnect
-        let disconnectButton = app.buttons["Disconnect"]
-        disconnectButton.tap()
-
-        // Wait for disconnection
-        let predicate = NSPredicate(format: "label == %@", "Disconnected")
-        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: statusLabel)
-        XCTWaiter().wait(for: [expectation], timeout: 5)
-
-        app.buttons["Done"].tap()
-
-        // When disconnected, main view should show "Not Connected"
-        let notConnectedText = app.staticTexts["Not Connected"]
-        XCTAssertTrue(notConnectedText.waitForExistence(timeout: 5), "Should show Not Connected")
-
-        // Reconnect via settings for other tests
-        settingsButton.tap()
-        let connectButton = app.buttons["Connect"]
-        connectButton.tap()
-
-        let reconnectPredicate = NSPredicate(format: "label == %@", "Connected")
-        let reconnectExpectation = XCTNSPredicateExpectation(predicate: reconnectPredicate, object: statusLabel)
-        XCTWaiter().wait(for: [reconnectExpectation], timeout: 10)
-
-        app.buttons["Done"].tap()
     }
 }
