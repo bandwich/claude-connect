@@ -314,6 +314,7 @@ struct MessageBubble: View {
                 .background(message.role == "user" ? Color.blue : Color(.systemGray5))
                 .foregroundColor(message.role == "user" ? .white : .primary)
                 .cornerRadius(16)
+                .accessibilityIdentifier("messageBubble")
 
             if message.role == "assistant" {
                 Spacer()
