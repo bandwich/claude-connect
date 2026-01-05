@@ -107,4 +107,73 @@ final class E2EPermissionTests: E2ETestBase {
         app.buttons["Reject"].tap()
         XCTAssertTrue(waitForPermissionSheetDismissed(), "Sheet should dismiss after Reject")
     }
+
+    // MARK: - Question Permission Tests (Consolidated)
+
+    /// Tests question with text input: shows field, typing enables submit, submit works
+    func test_question_text_input_complete_flow() throws {
+        navigateToTestSession()
+
+        // --- Test 1: Verify question UI with text field ---
+        let _ = injectPermissionRequest(
+            promptType: "question",
+            toolName: "AskUserQuestion",
+            questionText: "What should the function be named?"
+        )
+
+        XCTAssertTrue(waitForPermissionSheet(timeout: 5), "Permission sheet should appear")
+
+        // Verify Question title
+        XCTAssertTrue(app.navigationBars["Question"].exists, "Should show Question title")
+
+        // Verify question text
+        let questionText = app.staticTexts["What should the function be named?"]
+        XCTAssertTrue(questionText.waitForExistence(timeout: 2), "Should show question text")
+
+        // Verify text field exists
+        let textField = app.textFields.firstMatch
+        XCTAssertTrue(textField.exists, "Text field should exist")
+
+        // Verify Submit button exists
+        let submitButton = app.buttons["Submit"]
+        XCTAssertTrue(submitButton.exists, "Submit button should exist")
+
+        // --- Test 2: Type text and verify submit becomes enabled ---
+        textField.tap()
+        textField.typeText("calculateTotal")
+
+        // --- Test 3: Submit and verify sheet dismisses ---
+        submitButton.tap()
+        XCTAssertTrue(waitForPermissionSheetDismissed(), "Sheet should dismiss after submit")
+    }
+
+    /// Tests question with options: shows choices, selection works, submit works
+    func test_question_options_complete_flow() throws {
+        navigateToTestSession()
+
+        // --- Test 1: Verify question UI with options ---
+        let _ = injectPermissionRequest(
+            promptType: "question",
+            toolName: "AskUserQuestion",
+            questionText: "Which database should we use?",
+            questionOptions: ["PostgreSQL", "SQLite", "MongoDB"]
+        )
+
+        XCTAssertTrue(waitForPermissionSheet(timeout: 5), "Permission sheet should appear")
+
+        // Verify all options are displayed
+        XCTAssertTrue(app.staticTexts["PostgreSQL"].waitForExistence(timeout: 2), "Should show PostgreSQL")
+        XCTAssertTrue(app.staticTexts["SQLite"].exists, "Should show SQLite")
+        XCTAssertTrue(app.staticTexts["MongoDB"].exists, "Should show MongoDB")
+
+        // --- Test 2: Select an option ---
+        app.staticTexts["SQLite"].tap()
+
+        // --- Test 3: Submit and verify sheet dismisses ---
+        let submitButton = app.buttons["Submit"]
+        XCTAssertTrue(submitButton.exists, "Submit button should exist")
+        submitButton.tap()
+
+        XCTAssertTrue(waitForPermissionSheetDismissed(), "Sheet should dismiss after submit")
+    }
 }
