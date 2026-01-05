@@ -295,7 +295,7 @@ end tell
         Tries VSCodeController first, falls back to AppleScript if not connected.
         """
         if self.vscode_controller.is_connected():
-            success = await self.vscode_controller.send_sequence(text + "\n")
+            success = await self.vscode_controller.send_sequence(text + "\r")
             if success:
                 return
             print("VSCode send failed, falling back to AppleScript")

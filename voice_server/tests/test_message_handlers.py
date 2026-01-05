@@ -63,8 +63,8 @@ class TestVoiceInputWithVSCode:
         # Handle voice input
         await server.handle_voice_input(mock_ws, {"text": "hello claude"})
 
-        # Verify send_sequence was called with text + Enter
-        server.vscode_controller.send_sequence.assert_called_once_with("hello claude\n")
+        # Verify send_sequence was called with text + carriage return (Enter)
+        server.vscode_controller.send_sequence.assert_called_once_with("hello claude\r")
 
     @pytest.mark.asyncio
     async def test_voice_input_falls_back_to_applescript(self):
