@@ -137,7 +137,27 @@ struct SessionView: View {
         }
         .sheet(item: $webSocketManager.pendingPermission) { request in
             PermissionPromptView(request: request) { response in
+                // Add permission response to message history
+                let decisionText = response.decision == .allow ? "✓ Allowed" : "✗ Denied"
+                let responseMessage = SessionHistoryMessage(
+                    role: "assistant",
+                    content: "\(decisionText): \(permissionDescription(for: request))",
+                    timestamp: response.timestamp
+                )
+                messages.append(responseMessage)
+
                 webSocketManager.sendPermissionResponse(response)
+            }
+        }
+        .onChange(of: webSocketManager.pendingPermission) { _, newValue in
+            // Add permission request to message history when it arrives
+            if let request = newValue {
+                let requestMessage = SessionHistoryMessage(
+                    role: "assistant",
+                    content: "⏳ Permission requested: \(permissionDescription(for: request))",
+                    timestamp: request.timestamp
+                )
+                messages.append(requestMessage)
             }
         }
         .onAppear(perform: setupView)
@@ -303,6 +323,40 @@ struct SessionView: View {
             } catch {
                 print("Failed to start recording: \(error)")
             }
+        }
+    }
+
+    private func permissionDescription(for request: PermissionRequest) -> String {
+        switch request.promptType {
+        case .bash:
+            if let command = request.toolInput?.command {
+                // Truncate long commands
+                let truncated = command.count > 50 ? String(command.prefix(50)) + "..." : command
+                return "`\(truncated)`"
+            }
+            return "Run command"
+        case .edit:
+            if let path = request.context?.filePath {
+                return "Edit \(path)"
+            }
+            return "Edit file"
+        case .write:
+            if let path = request.context?.filePath {
+                return "Create \(path)"
+            }
+            return "Create file"
+        case .task:
+            if let desc = request.toolInput?.description {
+                let truncated = desc.count > 50 ? String(desc.prefix(50)) + "..." : desc
+                return "Agent: \(truncated)"
+            }
+            return "Run agent"
+        case .question:
+            if let text = request.question?.text {
+                let truncated = text.count > 50 ? String(text.prefix(50)) + "..." : text
+                return truncated
+            }
+            return "Answer question"
         }
     }
 }

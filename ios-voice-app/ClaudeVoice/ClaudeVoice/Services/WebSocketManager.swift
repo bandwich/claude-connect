@@ -246,6 +246,7 @@ class WebSocketManager: NSObject, ObservableObject {
                 print("✅ Permission response sent")
                 DispatchQueue.main.async {
                     self.pendingPermission = nil
+                    self.outputState = .idle  // Reset state after responding
                 }
             }
         }

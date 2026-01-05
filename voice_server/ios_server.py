@@ -591,6 +591,12 @@ end tell
                 "input": data.get('input'),
                 "selected_option": data.get('selected_option')
             })
+            # Notify iOS that the permission was resolved
+            await self.permission_handler.broadcast({
+                "type": "permission_resolved",
+                "request_id": request_id,
+                "answered_in": "ios"
+            })
         elif self.permission_handler.is_request_timed_out(request_id):
             # Late response - inject into terminal
             await self.inject_terminal_response(decision, data)

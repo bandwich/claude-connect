@@ -14,7 +14,7 @@ enum PermissionDecision: String, Codable {
     case deny
 }
 
-struct ToolInput: Codable {
+struct ToolInput: Codable, Equatable {
     let command: String?
     let description: String?
 
@@ -24,7 +24,7 @@ struct ToolInput: Codable {
     }
 }
 
-struct PermissionContext: Codable {
+struct PermissionContext: Codable, Equatable {
     let filePath: String?
     let oldContent: String?
     let newContent: String?
@@ -36,12 +36,12 @@ struct PermissionContext: Codable {
     }
 }
 
-struct PermissionQuestion: Codable {
+struct PermissionQuestion: Codable, Equatable {
     let text: String
     let options: [String]?
 }
 
-struct PermissionRequest: Codable, Identifiable {
+struct PermissionRequest: Codable, Identifiable, Equatable {
     let type: String
     let requestId: String
     let promptType: PermissionPromptType
