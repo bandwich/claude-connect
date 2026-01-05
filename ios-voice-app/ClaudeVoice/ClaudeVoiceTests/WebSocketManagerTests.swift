@@ -380,4 +380,39 @@ struct WebSocketManagerTests {
         #expect(manager.vscodeConnected == false)
         #expect(manager.activeSessionId == nil)
     }
+
+    // MARK: - Permission Request Tests
+
+    @Test func testDecodePermissionRequest() throws {
+        let json = """
+        {
+            "type": "permission_request",
+            "request_id": "uuid-123",
+            "prompt_type": "bash",
+            "tool_name": "Bash",
+            "tool_input": {"command": "npm install"},
+            "timestamp": 1234567890
+        }
+        """.data(using: .utf8)!
+
+        let request = try JSONDecoder().decode(PermissionRequest.self, from: json)
+
+        #expect(request.requestId == "uuid-123")
+        #expect(request.toolName == "Bash")
+    }
+
+    @Test func testDecodePermissionResolved() throws {
+        let json = """
+        {
+            "type": "permission_resolved",
+            "request_id": "uuid-123",
+            "answered_in": "terminal"
+        }
+        """.data(using: .utf8)!
+
+        let resolved = try JSONDecoder().decode(PermissionResolved.self, from: json)
+
+        #expect(resolved.requestId == "uuid-123")
+        #expect(resolved.answeredIn == "terminal")
+    }
 }

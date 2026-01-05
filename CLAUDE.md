@@ -56,6 +56,9 @@ xcodebuild test -scheme ClaudeVoice \
 # E2E tests - requires simulator, may timeout
 cd ios-voice-app/ClaudeVoice && ./run_e2e_tests.sh
 
+# Run specific E2E test suite
+cd ios-voice-app/ClaudeVoice && ./run_e2e_tests.sh E2EPermissionTests
+
 # Integration tests - requires manually starting server first
 # See tests/TESTS.md for details
 ```
@@ -98,6 +101,44 @@ tail -f /tmp/test_output.log
 xcrun simctl shutdown all
 xcrun simctl list
 ```
+
+## Permission Hooks Configuration
+
+To enable remote permission control from the iOS app, add hooks to your Claude Code settings.
+
+**Location:** `~/.claude/settings.json` or project `.claude/settings.json`
+
+```json
+{
+  "hooks": {
+    "PermissionRequest": [
+      {
+        "command": "/path/to/max/voice_server/hooks/permission_hook.sh",
+        "timeout": 185000
+      }
+    ],
+    "PostToolUse": [
+      {
+        "command": "/path/to/max/voice_server/hooks/post_tool_hook.sh"
+      }
+    ]
+  }
+}
+```
+
+**Environment Variables:**
+- `VOICE_SERVER_URL`: Override server URL (default: `http://localhost:8766`)
+
+**Ports Used:**
+- WebSocket: 8765 (iOS app connection)
+- HTTP: 8766 (Hook requests from Claude Code)
+
+**How It Works:**
+1. Claude Code triggers PermissionRequest hook before showing a prompt
+2. Hook POSTs to voice server, which forwards to iOS app via WebSocket
+3. User approves/denies on iOS, response flows back to hook
+4. Hook outputs decision JSON, Claude Code proceeds accordingly
+5. If timeout (3 min), falls back to terminal prompt with late-response injection
 
 ## WebSocket Protocol
 

@@ -129,6 +129,11 @@ struct SessionView: View {
         .sheet(isPresented: $showingSettings) {
             SettingsView(webSocketManager: webSocketManager)
         }
+        .sheet(item: $webSocketManager.pendingPermission) { request in
+            PermissionPromptView(request: request) { response in
+                webSocketManager.sendPermissionResponse(response)
+            }
+        }
         .onAppear(perform: setupView)
     }
 
