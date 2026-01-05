@@ -193,6 +193,15 @@ struct SessionView: View {
 
         speechRecognizer.onFinalTranscription = { text in
             currentTranscript = text
+
+            // Add user message to list immediately
+            let userMessage = SessionHistoryMessage(
+                role: "user",
+                content: text,
+                timestamp: Date().timeIntervalSince1970
+            )
+            messages.append(userMessage)
+
             webSocketManager.sendVoiceInput(text: text)
 
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
@@ -218,6 +227,35 @@ struct SessionView: View {
             DispatchQueue.main.async {
                 webSocketManager.isPlayingAudio = false
                 webSocketManager.voiceState = .idle
+            }
+        }
+
+        // Subscribe to real-time assistant responses
+        webSocketManager.onAssistantResponse = { response in
+            // Extract text from content blocks
+            var textContent = ""
+            for block in response.contentBlocks {
+                switch block {
+                case .text(let textBlock):
+                    textContent += textBlock.text
+                case .thinking:
+                    break
+                case .toolUse:
+                    break
+                }
+            }
+
+            guard !textContent.isEmpty else { return }
+
+            // Create message and append to list
+            let message = SessionHistoryMessage(
+                role: "assistant",
+                content: textContent,
+                timestamp: response.timestamp
+            )
+
+            DispatchQueue.main.async {
+                messages.append(message)
             }
         }
     }
