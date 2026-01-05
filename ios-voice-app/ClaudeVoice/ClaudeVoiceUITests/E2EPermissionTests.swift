@@ -38,9 +38,21 @@ final class E2EPermissionTests: E2ETestBase {
         XCTAssertTrue(app.buttons["Allow"].exists, "Allow button should exist")
         XCTAssertTrue(app.buttons["Deny"].exists, "Deny button should exist")
 
-        // --- Test 2: Verify Allow dismisses sheet ---
+        // --- Test 2: Verify Allow dismisses sheet and updates UI ---
         app.buttons["Allow"].tap()
         XCTAssertTrue(waitForPermissionSheetDismissed(), "Sheet should dismiss after Allow")
+
+        // Verify state returns to Idle (not stuck on Processing)
+        let idleState = app.staticTexts["Idle"]
+        XCTAssertTrue(idleState.waitForExistence(timeout: 5), "State should return to Idle after Allow")
+
+        // Verify permission request appeared in message history
+        let requestMessage = app.staticTexts.matching(NSPredicate(format: "label CONTAINS '⏳ Permission requested'")).firstMatch
+        XCTAssertTrue(requestMessage.exists, "Permission request should appear in message history")
+
+        // Verify permission response appeared in message history
+        let responseMessage = app.staticTexts.matching(NSPredicate(format: "label CONTAINS '✓ Allowed'")).firstMatch
+        XCTAssertTrue(responseMessage.exists, "Permission response should appear in message history")
 
         // --- Test 3: Verify Deny dismisses sheet ---
         // Inject another permission request

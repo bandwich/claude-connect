@@ -349,6 +349,7 @@ class WebSocketManager: NSObject, ObservableObject {
                 logToFile("✅ Decoded as PermissionResolved: \(permissionResolved.requestId)")
                 DispatchQueue.main.async {
                     self.outputState = .idle
+                    self.voiceState = .idle  // Reset voice state when permission resolved
                     if self.pendingPermission?.requestId == permissionResolved.requestId {
                         self.pendingPermission = nil
                     }
@@ -401,6 +402,7 @@ class WebSocketManager: NSObject, ObservableObject {
             } else if let permissionResolved = try? JSONDecoder().decode(PermissionResolved.self, from: data) {
                 DispatchQueue.main.async {
                     self.outputState = .idle
+                    self.voiceState = .idle  // Reset voice state when permission resolved
                     if self.pendingPermission?.requestId == permissionResolved.requestId {
                         self.pendingPermission = nil
                     }
