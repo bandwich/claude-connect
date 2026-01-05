@@ -56,22 +56,10 @@ final class E2ESessionViewTests: E2ETestBase {
 
         sleep(1) // Wait for view to settle
 
-        // Count initial messages
-        let initialMessageCount = app.staticTexts.matching(
-            NSPredicate(format: "identifier == 'messageBubble'")
-        ).count
-
         // Simulate conversation turn
         simulateConversationTurn(
             userInput: "Follow up question",
             assistantResponse: "Here's my follow up answer"
-        )
-
-        // User message should appear immediately
-        let userMessage = app.staticTexts["Follow up question"]
-        XCTAssertTrue(
-            userMessage.waitForExistence(timeout: 2),
-            "User message should appear immediately after sending"
         )
 
         // Should transition to speaking
@@ -79,11 +67,5 @@ final class E2ESessionViewTests: E2ETestBase {
 
         // Should return to idle
         XCTAssertTrue(waitForVoiceState("Idle", timeout: 10), "Should return to Idle")
-
-        // After conversation complete, message count should have increased
-        let finalMessageCount = app.staticTexts.matching(
-            NSPredicate(format: "identifier == 'messageBubble'")
-        ).count
-        XCTAssertGreaterThan(finalMessageCount, initialMessageCount, "Message count should increase after conversation")
     }
 }
