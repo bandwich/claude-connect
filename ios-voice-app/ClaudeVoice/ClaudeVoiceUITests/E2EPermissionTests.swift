@@ -176,4 +176,31 @@ final class E2EPermissionTests: E2ETestBase {
 
         XCTAssertTrue(waitForPermissionSheetDismissed(), "Sheet should dismiss after submit")
     }
+
+    // MARK: - Task/Agent Permission Tests
+
+    /// Tests task/agent permission: shows description, Allow/Deny work
+    func test_task_permission_complete_flow() throws {
+        navigateToTestSession()
+
+        // --- Test 1: Verify task permission UI ---
+        let _ = injectPermissionRequest(
+            promptType: "task",
+            toolName: "Task",
+            description: "Search codebase for authentication patterns"
+        )
+
+        XCTAssertTrue(waitForPermissionSheet(timeout: 5), "Permission sheet should appear")
+
+        // Verify Agent title
+        XCTAssertTrue(app.navigationBars["Agent"].exists, "Should show Agent title")
+
+        // Verify Allow and Deny buttons
+        XCTAssertTrue(app.buttons["Allow"].exists, "Allow button should exist")
+        XCTAssertTrue(app.buttons["Deny"].exists, "Deny button should exist")
+
+        // --- Test 2: Allow dismisses sheet ---
+        app.buttons["Allow"].tap()
+        XCTAssertTrue(waitForPermissionSheetDismissed(), "Sheet should dismiss after Allow")
+    }
 }
