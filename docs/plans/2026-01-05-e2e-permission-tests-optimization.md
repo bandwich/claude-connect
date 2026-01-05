@@ -540,11 +540,18 @@ cd ios-voice-app/ClaudeVoice && xcodebuild build-for-testing \
 ```
 Expected: BUILD SUCCEEDED
 
-### Step 3: Commit
+### Step 3: Run test suite to verify
+
+```bash
+cd ios-voice-app/ClaudeVoice && ./run_e2e_tests.sh E2EProjectsListTests
+```
+Expected: All tests pass
+
+### Step 4: Commit
 
 ```bash
 git add ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/E2EProjectsListTests.swift
-git commit -m "refactor: consolidate E2EProjectsListTests from 3 tests to 1"
+git commit -m "refactor: reduce E2EProjectsListTests from 3 tests to 1"
 ```
 
 ---
@@ -612,11 +619,18 @@ cd ios-voice-app/ClaudeVoice && xcodebuild build-for-testing \
 ```
 Expected: BUILD SUCCEEDED
 
-### Step 3: Commit
+### Step 3: Run test suite to verify
+
+```bash
+cd ios-voice-app/ClaudeVoice && ./run_e2e_tests.sh E2ESessionsListTests
+```
+Expected: All tests pass
+
+### Step 4: Commit
 
 ```bash
 git add ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/E2ESessionsListTests.swift
-git commit -m "refactor: consolidate E2ESessionsListTests from 3 tests to 1"
+git commit -m "refactor: reduce E2ESessionsListTests from 3 tests to 1"
 ```
 
 ---
@@ -713,11 +727,18 @@ cd ios-voice-app/ClaudeVoice && xcodebuild build-for-testing \
 ```
 Expected: BUILD SUCCEEDED
 
-### Step 3: Commit
+### Step 3: Run test suite to verify
+
+```bash
+cd ios-voice-app/ClaudeVoice && ./run_e2e_tests.sh E2ESessionViewTests
+```
+Expected: All tests pass
+
+### Step 4: Commit
 
 ```bash
 git add ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/E2ESessionViewTests.swift
-git commit -m "refactor: consolidate E2ESessionViewTests from 4 tests to 2"
+git commit -m "refactor: reduce E2ESessionViewTests from 4 tests to 2"
 ```
 
 ---
@@ -822,11 +843,18 @@ cd ios-voice-app/ClaudeVoice && xcodebuild build-for-testing \
 ```
 Expected: BUILD SUCCEEDED
 
-### Step 3: Commit
+### Step 3: Run test suite to verify
+
+```bash
+cd ios-voice-app/ClaudeVoice && ./run_e2e_tests.sh E2EConnectionTests
+```
+Expected: All tests pass
+
+### Step 4: Commit
 
 ```bash
 git add ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/E2EConnectionTests.swift
-git commit -m "refactor: consolidate E2EConnectionTests from 3 tests to 2"
+git commit -m "refactor: reduce E2EConnectionTests from 3 tests to 2"
 ```
 
 ---
@@ -892,11 +920,18 @@ cd ios-voice-app/ClaudeVoice && xcodebuild build-for-testing \
 ```
 Expected: BUILD SUCCEEDED
 
-### Step 3: Commit
+### Step 3: Run test suite to verify
+
+```bash
+cd ios-voice-app/ClaudeVoice && ./run_e2e_tests.sh E2EHappyPathTests
+```
+Expected: All tests pass
+
+### Step 4: Commit
 
 ```bash
 git add ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/E2EHappyPathTests.swift
-git commit -m "refactor: consolidate E2EHappyPathTests from 2 tests to 1"
+git commit -m "refactor: reduce E2EHappyPathTests from 2 tests to 1"
 ```
 
 ---
@@ -983,11 +1018,18 @@ cd ios-voice-app/ClaudeVoice && xcodebuild build-for-testing \
 ```
 Expected: BUILD SUCCEEDED
 
-### Step 3: Commit
+### Step 3: Run test suite to verify
+
+```bash
+cd ios-voice-app/ClaudeVoice && ./run_e2e_tests.sh E2EErrorHandlingTests
+```
+Expected: All tests pass
+
+### Step 4: Commit
 
 ```bash
 git add ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/E2EErrorHandlingTests.swift
-git commit -m "refactor: consolidate E2EErrorHandlingTests from 3 tests to 1"
+git commit -m "refactor: reduce E2EErrorHandlingTests from 3 tests to 1"
 ```
 
 ---
