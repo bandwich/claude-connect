@@ -34,7 +34,7 @@ class TestTranscriptHandler:
         assert handler.loop == loop
         assert handler.server == server
         assert handler.processed_line_count == 0
-        assert handler.last_file_path is None
+        assert handler.expected_session_file is None
         assert handler.last_modified == 0
 
     def test_on_modified_non_jsonl_files(self):
@@ -62,6 +62,21 @@ class TestTranscriptHandler:
         event = Mock()
         event.is_directory = True
         event.src_path = "/path/to/directory.jsonl"
+
+        handler.on_modified(event)
+
+        callback.assert_not_called()
+
+    def test_on_modified_ignores_agent_files(self):
+        """Test ignores sub-agent transcript files (agent-*.jsonl)"""
+        callback = Mock()
+        loop = Mock()
+        server = Mock()
+        handler = TranscriptHandler(None, callback, loop, server)
+
+        event = Mock()
+        event.is_directory = False
+        event.src_path = "/path/to/projects/agent-a2496e3.jsonl"
 
         handler.on_modified(event)
 
@@ -488,8 +503,8 @@ class TestTranscriptHandlerGlobalTracking:
         assert len(content_received) > first_count, "Should receive second message"
 
     @pytest.mark.asyncio
-    async def test_resets_tracking_on_file_change(self, tmp_path):
-        """Handler should reset tracking when watching a different file"""
+    async def test_ignores_events_from_wrong_session_file(self, tmp_path):
+        """Handler should only process events from expected_session_file"""
         from ios_server import TranscriptHandler, VoiceServer
 
         server = VoiceServer()
@@ -510,23 +525,15 @@ class TestTranscriptHandlerGlobalTracking:
             server
         )
 
-        # First file
+        # Set up expected session file
         transcript1 = tmp_path / "session1.jsonl"
-        transcript1.write_text(
-            '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"File 1"}]}}\n'
-        )
+        transcript1.write_text("")  # Empty initially
+        handler.set_session_file(str(transcript1))
 
-        class MockEvent1:
-            is_directory = False
-            src_path = str(transcript1)
-
-        handler.on_modified(MockEvent1())
-        await asyncio.sleep(0.2)
-
-        # Second file should reset tracking and process from beginning
+        # Event from different file should be ignored
         transcript2 = tmp_path / "session2.jsonl"
         transcript2.write_text(
-            '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"File 2"}]}}\n'
+            '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Wrong File"}]}}\n'
         )
 
         class MockEvent2:
@@ -536,8 +543,23 @@ class TestTranscriptHandlerGlobalTracking:
         handler.on_modified(MockEvent2())
         await asyncio.sleep(0.2)
 
-        # Should have received both files' content
-        assert len(content_received) >= 2, "Should receive content from both files"
+        # Should NOT have received content from wrong file
+        assert len(content_received) == 0, "Should ignore events from non-expected file"
+
+        # Now add content to expected file and verify it IS processed
+        transcript1.write_text(
+            '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Correct File"}]}}\n'
+        )
+
+        class MockEvent1:
+            is_directory = False
+            src_path = str(transcript1)
+
+        handler.on_modified(MockEvent1())
+        await asyncio.sleep(0.2)
+
+        # Should have received content from expected file
+        assert len(content_received) == 1, "Should receive content from expected file"
 
 
 if __name__ == '__main__':

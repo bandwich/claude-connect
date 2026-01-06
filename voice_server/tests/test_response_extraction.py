@@ -166,7 +166,7 @@ def test_state_resets_on_new_voice_input():
 
         # State should be cleared
         assert handler.processed_line_count == 0
-        assert handler.last_file_path is None
+        assert handler.expected_session_file is None
 
         # Add second conversation
         with open(temp_path, 'a') as f:

@@ -258,7 +258,22 @@ struct SessionView: View {
         }
 
         // Subscribe to real-time assistant responses
-        webSocketManager.onAssistantResponse = { response in
+        webSocketManager.onAssistantResponse = { [self] response in
+            // Filter: only accept messages for the current session
+            // For new sessions (id is empty), accept messages with no session_id
+            // For resumed sessions, the session_id must match
+            if session.isNewSession {
+                // New session: accept messages with nil sessionId
+                if response.sessionId != nil {
+                    return  // Message is for a different session
+                }
+            } else {
+                // Resumed session: sessionId must match
+                if response.sessionId != session.id {
+                    return  // Message is for a different session
+                }
+            }
+
             // Extract text from content blocks
             var textContent = ""
             for block in response.contentBlocks {
@@ -311,7 +326,7 @@ struct SessionView: View {
             }
         }
 
-        webSocketManager.resumeSession(sessionId: session.id)
+        webSocketManager.resumeSession(sessionId: session.id, folderName: project.folderName)
     }
 
     private func toggleRecording() {

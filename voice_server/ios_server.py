@@ -47,6 +47,9 @@ class TranscriptHandler(FileSystemEventHandler):
 
     Uses line-position tracking to stream ALL assistant content,
     regardless of whether voice input initiated the interaction.
+
+    Only processes events from the expected session file, ignoring
+    sub-agent transcripts (agent-*.jsonl) and other sessions.
     """
 
     def __init__(self, content_callback, audio_callback, loop, server):
@@ -56,10 +59,19 @@ class TranscriptHandler(FileSystemEventHandler):
         self.server = server
         self.last_modified = 0
         self.processed_line_count = 0
-        self.last_file_path = None
+        self.expected_session_file = None  # Only process events from this file
 
     def on_modified(self, event):
         if event.is_directory or not event.src_path.endswith('.jsonl'):
+            return
+
+        # Ignore sub-agent transcripts (they have their own sessions)
+        filename = os.path.basename(event.src_path)
+        if filename.startswith('agent-'):
+            return
+
+        # Only process events from the expected session file
+        if self.expected_session_file and event.src_path != self.expected_session_file:
             return
 
         current_time = time.time()
@@ -68,11 +80,6 @@ class TranscriptHandler(FileSystemEventHandler):
         self.last_modified = current_time
 
         try:
-            # Reset line tracking when switching files
-            if self.last_file_path != event.src_path:
-                self.processed_line_count = 0
-                self.last_file_path = event.src_path
-
             new_blocks = self.extract_new_assistant_content(event.src_path)
 
             if new_blocks:
@@ -145,10 +152,25 @@ class TranscriptHandler(FileSystemEventHandler):
 
         return all_blocks
 
+    def set_session_file(self, file_path: Optional[str]):
+        """Set the expected session file and initialize line count.
+
+        When switching sessions, we initialize the line count to the current
+        number of lines in the file, so only NEW content triggers callbacks.
+        """
+        self.expected_session_file = file_path
+        if file_path and os.path.exists(file_path):
+            with open(file_path, 'r') as f:
+                self.processed_line_count = sum(1 for _ in f)
+            print(f"[INFO] Watching session file: {file_path} (starting at line {self.processed_line_count})")
+        else:
+            self.processed_line_count = 0
+            print(f"[INFO] Watching session file: {file_path} (new file)")
+
     def reset_tracking_state(self):
-        """Reset tracking state (called when switching sessions)"""
+        """Reset tracking state (legacy - prefer set_session_file)"""
         self.processed_line_count = 0
-        self.last_file_path = None
+        self.expected_session_file = None
 
 class VoiceServer:
     """WebSocket server for iOS voice mode"""
@@ -167,6 +189,7 @@ class VoiceServer:
         self.permission_handler = PermissionHandler()
         self.projects_base_path = PROJECTS_BASE_PATH
         self.active_session_id = None  # Track which session is open in VSCode
+        self.active_folder_name = None  # Track which project folder is active
 
     def find_transcript_path(self):
         """Find the transcript file to watch.
@@ -187,6 +210,59 @@ class VoiceServer:
             return None
         files.sort(key=os.path.getmtime, reverse=True)
         return files[0]
+
+    def get_session_transcript_path(self, folder_name: str, session_id: str) -> Optional[str]:
+        """Get the transcript path for a specific session.
+
+        Args:
+            folder_name: The project folder name (e.g., "-Users-aaron-Desktop-max")
+            session_id: The session ID (filename without .jsonl)
+
+        Returns:
+            Full path to the transcript file, or None if not found
+        """
+        transcript_path = os.path.join(TRANSCRIPT_DIR, folder_name, f"{session_id}.jsonl")
+        if os.path.exists(transcript_path):
+            return transcript_path
+        return None
+
+    def switch_watched_session(self, folder_name: str, session_id: str) -> bool:
+        """Switch the file watcher to watch a different session's transcript.
+
+        Args:
+            folder_name: The project folder name
+            session_id: The session ID to watch
+
+        Returns:
+            True if switch was successful, False otherwise
+        """
+        new_path = self.get_session_transcript_path(folder_name, session_id)
+        if not new_path:
+            print(f"[WARN] Transcript not found for session {session_id}")
+            return False
+
+        new_dir = os.path.dirname(new_path)
+        old_dir = os.path.dirname(self.transcript_path) if self.transcript_path else None
+
+        # Update tracking state
+        self.transcript_path = new_path
+        self.active_folder_name = folder_name
+        self.active_session_id = session_id
+
+        # Set expected session file (initializes line count from existing content)
+        if self.transcript_handler:
+            self.transcript_handler.set_session_file(new_path)
+
+        # Only reschedule observer if directory changed
+        if old_dir != new_dir and self.observer and self.transcript_handler:
+            # Remove all existing watches
+            self.observer.unschedule_all()
+            # Add new watch for the session's directory
+            self.observer.schedule(self.transcript_handler, new_dir)
+            print(f"[INFO] Switched file watcher to: {new_dir}")
+
+        print(f"[INFO] Now watching session: {session_id}")
+        return True
 
     async def send_status(self, websocket, state, message):
         """Send status update to client"""
@@ -304,13 +380,14 @@ end tell
         """Send structured content to iOS clients"""
         print(f"[{time.strftime('%H:%M:%S')}] Sending structured content: {len(response.content_blocks)} blocks")
 
-        # Serialize using Pydantic
+        # Serialize using Pydantic and add session tracking
         message = response.model_dump()
+        message["session_id"] = self.active_session_id  # Include session for filtering
 
         for websocket in list(self.clients):
             try:
                 await websocket.send(json.dumps(message))
-                print(f"[{time.strftime('%H:%M:%S')}] Sent content to client")
+                print(f"[{time.strftime('%H:%M:%S')}] Sent content to client (session: {self.active_session_id})")
             except Exception as e:
                 print(f"Error sending content: {e}")
 
@@ -440,8 +517,10 @@ end tell
         """Handle resume_session request - runs 'claude --resume <id>'
 
         Ensures only one terminal is active by killing existing terminal first.
+        Also switches the transcript file watcher to the new session.
         """
         session_id = data.get("session_id", "")
+        folder_name = data.get("folder_name", "")
         success = False
 
         if self.vscode_controller.is_connected() and session_id:
@@ -457,6 +536,9 @@ end tell
                 )
                 if success:
                     self.active_session_id = session_id  # Track active session
+                    # Switch file watcher to the new session's transcript
+                    if folder_name:
+                        self.switch_watched_session(folder_name, session_id)
             except Exception as e:
                 print(f"Error resuming session: {e}")
 
@@ -639,6 +721,8 @@ end tell
                 self.loop,
                 self
             )
+            # Set expected session file (initializes line count from existing content)
+            self.transcript_handler.set_session_file(self.transcript_path)
             self.observer = Observer()
             self.observer.schedule(self.transcript_handler, os.path.dirname(self.transcript_path))
             self.observer.start()

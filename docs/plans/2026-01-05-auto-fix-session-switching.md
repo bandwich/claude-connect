@@ -72,6 +72,95 @@
 
 ---
 
+## Issues Found After First Fix Attempt (2026-01-05)
+
+Changes made in first attempt:
+- Added `switch_watched_session()` to server to update file watcher on session resume
+- Added `session_id` to assistant response messages
+- Added session filtering in iOS `onAssistantResponse` callback
+- Updated `resumeSession()` to include `folderName`
+
+### Issue 1: Phantom Messages Still Appearing
+
+**Symptom:** Opened app fresh, resumed a session, immediately two messages appeared:
+- "I'm Claude Code, Anthropic's official CLI file search specialist..."
+- "I understand. I'm ready to help you explore the codebase and design implementation plans..."
+
+User did NOT say anything to trigger these. Messages came in immediately on resume.
+
+**ACTUAL ROOT CAUSE (discovered 2026-01-06):**
+
+Those messages are from **sub-agent transcripts** (`agent-*.jsonl`). When Claude Code spawns Task/Explore agents, they write to separate transcript files in the same project directory (e.g., `agent-a2496e3.jsonl`).
+
+The file watcher was processing ANY `.jsonl` modification in the watched directory:
+```python
+def on_modified(self, event):
+    if event.is_directory or not event.src_path.endswith('.jsonl'):
+        return
+    # No filter! Processes agent-*.jsonl files too
+    new_blocks = self.extract_new_assistant_content(event.src_path)
+```
+
+**FIX IMPLEMENTED:**
+1. Added `expected_session_file` property to `TranscriptHandler`
+2. Filter out `agent-*.jsonl` files by filename prefix
+3. Only process events matching the expected session file
+4. New `set_session_file()` method initializes line count from existing content
+5. Called at startup and when switching sessions via `switch_watched_session()`
+
+### Issue 2: TTS Audio Overlapping
+
+**Symptom:** Both phantom messages tried to play TTS simultaneously, overlapping each other.
+
+**Root cause:** No queue system for audio playback. Multiple `handle_claude_response` calls can trigger `stream_audio` concurrently.
+
+**Fix needed:**
+- Implement audio queue in `AudioPlayer` (iOS side) or server side
+- Only start next audio after previous finishes
+- Consider: should new messages interrupt current playback, or queue?
+
+**Files involved:**
+- `ios-voice-app/ClaudeVoice/ClaudeVoice/Services/AudioPlayer.swift`
+- `voice_server/ios_server.py` - `handle_claude_response()`
+
+### Issue 3: Session Switching Still Delayed/Broken
+
+**Symptom:** Session switching actions are massively delayed or not working properly.
+
+**Possible causes:**
+- VSCode controller commands taking too long
+- Race conditions in async flow
+- `syncSession()` not being called, or being blocked by guards
+
+**Investigation needed:**
+- Add detailed logging to track flow from tap → resume request → VSCode action → response
+- Check if `syncSession()` is being called at all
+- Check timing of each step
+
+### Issue 4: Active Session Indicator (Checkmark) is Stale
+
+**Symptom:** Session shows checkmark indicating "active in VSCode" but:
+- No Claude session was actually open in VSCode
+- App was killed and reopened, lost track of actual state
+- Resuming the "already active" session did nothing because `isSessionSynced` returned true
+
+**Root cause:** `activeSessionId` is stored in app memory only. When app restarts:
+- Server doesn't know what's actually running in VSCode
+- App displays stale state
+- `isSessionSynced` check prevents sync because it thinks session is already active
+
+**Fix needed:**
+1. On app launch/reconnect, server should report actual VSCode state (or clear active session)
+2. Don't trust `activeSessionId` for blocking sync - always allow manual sync
+3. Consider: query VSCode for actual terminal state on connect?
+
+**Files involved:**
+- `ios-voice-app/ClaudeVoice/ClaudeVoice/Views/SessionView.swift` - `isSessionSynced`, `syncSession()`
+- `ios-voice-app/ClaudeVoice/ClaudeVoice/Services/WebSocketManager.swift` - `activeSessionId`
+- `voice_server/ios_server.py` - `active_session_id`, `send_vscode_status()`
+
+---
+
 ## Verification
 
 Run all project tests:

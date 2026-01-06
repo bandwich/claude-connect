@@ -121,10 +121,12 @@ struct AssistantResponseMessage: Codable {
     let type: String
     let contentBlocks: [ContentBlock]
     let timestamp: Double
+    let sessionId: String?  // Session this message belongs to (for filtering)
 
     enum CodingKeys: String, CodingKey {
         case type
         case contentBlocks = "content_blocks"
         case timestamp
+        case sessionId = "session_id"
     }
 }
