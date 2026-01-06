@@ -687,6 +687,10 @@ end tell
         self.clients.add(websocket)
         self.permission_handler.websocket_clients.add(websocket)
         print(f"Client connected. Total clients: {len(self.clients)}")
+
+        # Reset active session on new client connect to avoid stale indicator
+        self.active_session_id = None
+
         try:
             await self.send_status(websocket, "idle", "Connected")
             await self.send_vscode_status(websocket)  # Send VSCode status on connect

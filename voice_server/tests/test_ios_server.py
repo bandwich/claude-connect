@@ -409,6 +409,37 @@ class TestVoiceServer:
         # Client should be removed from set
         assert websocket not in server.clients
 
+    @pytest.mark.asyncio
+    async def test_active_session_cleared_on_client_connect(self):
+        """New client connection should clear active_session_id to avoid stale state"""
+        server = VoiceServer()
+
+        # Mock vscode_controller
+        server.vscode_controller = MagicMock()
+        server.vscode_controller.is_connected.return_value = True
+
+        # Simulate server had a previous active session
+        server.active_session_id = "old-session-123"
+
+        # Create mock websocket
+        mock_ws = AsyncMock()
+        mock_ws.send = AsyncMock()
+        mock_ws.__aiter__.return_value = []  # No messages, connection ends immediately
+
+        # Connect new client
+        await server.handle_client(mock_ws, "/")
+
+        # Find the vscode_status message that was sent
+        vscode_status_sent = None
+        for call in mock_ws.send.call_args_list:
+            msg = json.loads(call[0][0])
+            if msg.get("type") == "vscode_status":
+                vscode_status_sent = msg
+                break
+
+        assert vscode_status_sent is not None, "Should send vscode_status on connect"
+        assert vscode_status_sent["active_session_id"] is None, "Should clear active session on connect"
+
 
     # MARK: - NEW TESTS FOR BUG #2: iOS server couldn't find latest assistant message
 
