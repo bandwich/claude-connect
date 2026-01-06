@@ -200,10 +200,11 @@ class WebSocketManager: NSObject, ObservableObject {
         sendJSON(message)
     }
 
-    func resumeSession(sessionId: String) {
+    func resumeSession(sessionId: String, folderName: String) {
         let message: [String: Any] = [
             "type": "resume_session",
-            "session_id": sessionId
+            "session_id": sessionId,
+            "folder_name": folderName
         ]
         sendJSON(message)
     }

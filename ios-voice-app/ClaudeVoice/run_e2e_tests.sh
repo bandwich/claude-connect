@@ -24,14 +24,12 @@ LOG_FILE="/tmp/e2e_server.log"
 
 # All available E2E test suites
 ALL_SUITES=(
-    "E2EHappyPathTests"
     "E2EConnectionTests"
     "E2EErrorHandlingTests"
-    "E2EProjectsListTests"
-    "E2ESessionsListTests"
-    "E2ESessionViewTests"
-    "E2EVSCodeConnectionTests"
     "E2EPermissionTests"
+    "E2EFullConversationFlowTests"
+    "E2ENavigationFlowTests"
+    "E2EVSCodeFlowTests"
 )
 
 # Kill any existing server on port 8765

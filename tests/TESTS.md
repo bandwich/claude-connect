@@ -175,3 +175,50 @@ source .venv/bin/activate           # ensure venv active
 pip install -r voice_server/tests/requirements-test.txt
 rm -rf .pytest_cache                # clear cache
 ```
+
+---
+
+## Analyzing Test Failures
+
+### Log Files
+
+| Log File | Contents |
+|----------|----------|
+| `/tmp/e2e_test.log` | E2E test runner output (xcodebuild) |
+| `/tmp/e2e_server.log` | Python server logs during E2E tests |
+| `/tmp/websocket_debug.log` | iOS WebSocket debug logs |
+
+### Finding Failure Reasons
+
+```bash
+# Search for assertion failures in E2E test output
+grep -A10 -B5 "XCTAssert\|failed\|Failed" /tmp/e2e_test.log
+
+# Example output showing failure location and reason:
+# E2EErrorHandlingTests.swift:19: XCTAssertTrue failed - Should handle valid message
+```
+
+### Xcode Test Results (xcresult)
+
+Test results are saved to xcresult bundles. Path is printed at end of test run:
+
+```bash
+# List available test result bundles
+ls -la ~/Library/Developer/Xcode/DerivedData/ClaudeVoice-*/Logs/Test/
+
+# Extract test summary from xcresult (JSON format)
+xcrun xcresulttool get --path <path-to.xcresult> --format json | python3 -m json.tool | head -100
+
+# Example: extract from most recent result
+RESULT=$(ls -t ~/Library/Developer/Xcode/DerivedData/ClaudeVoice-*/Logs/Test/*.xcresult | head -1)
+xcrun xcresulttool get --path "$RESULT" --format json 2>/dev/null | python3 -m json.tool | head -50
+```
+
+### Common E2E Failure Patterns
+
+| Failure | Likely Cause |
+|---------|--------------|
+| `waitForVoiceState("Speaking")` timeout | TTS/audio pipeline issue, server not responding |
+| `waitForExistence` timeout | UI element not rendered, navigation issue |
+| `connection status` failures | Server not running, port conflict |
+| `no close frame received` in server log | Normal - test client disconnected |

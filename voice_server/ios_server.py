@@ -43,171 +43,134 @@ def extract_text_for_tts(content_blocks: list[ContentBlock]) -> str:
 
 
 class TranscriptHandler(FileSystemEventHandler):
-    """Monitors transcript file for new assistant messages"""
+    """Monitors transcript file for new assistant messages
+
+    Uses line-position tracking to stream ALL assistant content,
+    regardless of whether voice input initiated the interaction.
+
+    Only processes events from the expected session file, ignoring
+    sub-agent transcripts (agent-*.jsonl) and other sessions.
+    """
 
     def __init__(self, content_callback, audio_callback, loop, server):
-        self.content_callback = content_callback  # New: sends AssistantResponse
-        self.audio_callback = audio_callback       # Existing: sends text for TTS
+        self.content_callback = content_callback  # Sends AssistantResponse
+        self.audio_callback = audio_callback       # Sends text for TTS
         self.loop = loop
         self.server = server
-        self.last_message = None
         self.last_modified = 0
-        # Track what we've already sent
-        self.sent_blocks_by_message = {}  # {message_id: num_blocks_sent}
-        self.current_message_id = None
+        self.processed_line_count = 0
+        self.expected_session_file = None  # Only process events from this file
 
     def on_modified(self, event):
         if event.is_directory or not event.src_path.endswith('.jsonl'):
             return
 
+        # Ignore sub-agent transcripts (they have their own sessions)
+        filename = os.path.basename(event.src_path)
+        if filename.startswith('agent-'):
+            return
+
+        # Only process events from the expected session file
+        if self.expected_session_file and event.src_path != self.expected_session_file:
+            return
+
         current_time = time.time()
-        if current_time - self.last_modified < 0.05:  # Reduced from 0.5s to 50ms
+        if current_time - self.last_modified < 0.05:
             return
         self.last_modified = current_time
 
         try:
-            # Extract only NEW blocks since last check
-            if self.server.last_voice_input:
-                print(f"[DEBUG] File modified, extracting new blocks...")
-                new_blocks = self.extract_new_blocks(
-                    event.src_path,
-                    self.server.last_voice_input
+            new_blocks = self.extract_new_assistant_content(event.src_path)
+
+            if new_blocks:
+                response = AssistantResponse(
+                    content_blocks=new_blocks,
+                    timestamp=time.time(),
+                    is_incremental=True
                 )
-                print(f"[DEBUG] Extracted {len(new_blocks)} new blocks")
 
-                if new_blocks:
-                    # Create response with ONLY the new blocks
-                    response = AssistantResponse(
-                        content_blocks=new_blocks,
-                        timestamp=time.time(),
-                        is_incremental=True  # Signal that more blocks may arrive
-                    )
+                asyncio.run_coroutine_threadsafe(
+                    self.content_callback(response),
+                    self.loop
+                )
 
-                    # 1. Send structured content immediately
+                text = extract_text_for_tts(new_blocks)
+                if text:
                     asyncio.run_coroutine_threadsafe(
-                        self.content_callback(response),
+                        self.audio_callback(text),
                         self.loop
                     )
-
-                    # 2. Extract text for TTS
-                    text = extract_text_for_tts(new_blocks)
-                    print(f"[DEBUG] Extracted text for TTS: '{text}'")
-
-                    # 3. Send for audio generation
-                    if text:
-                        print(f"[DEBUG] Calling audio_callback with text")
-                        asyncio.run_coroutine_threadsafe(
-                            self.audio_callback(text),
-                            self.loop
-                        )
-                    else:
-                        print(f"[DEBUG] No text in this batch - non-text blocks only")
         except Exception as e:
             print(f"Error processing transcript: {e}")
             import traceback
             traceback.print_exc()
 
-    def extract_new_blocks(self, filepath, user_message) -> list[ContentBlock]:
-        """Extract only NEW blocks that haven't been sent yet
-
-        Returns:
-            List of new ContentBlock objects that haven't been sent
-        """
-        found_user_message = False
-        collecting_response = False
-        all_parsed_blocks = []
-        current_msg_id = None
-
-        print(f"[DEBUG] Looking for user message: '{user_message[:50]}...'")
+    def extract_new_assistant_content(self, filepath) -> list[ContentBlock]:
+        """Extract assistant content from lines not yet processed"""
+        all_blocks = []
 
         with open(filepath, 'r') as f:
-            for line in f:
-                try:
-                    entry = json.loads(line.strip())
-                    msg = entry.get('message', {})
-                    role = msg.get('role') or entry.get('role')
+            lines = f.readlines()
 
-                    # Check if this is a user message matching our voice input
-                    if role == 'user' and not found_user_message:
-                        content = msg.get('content', entry.get('content', ''))
-                        if isinstance(content, str):
-                            user_text = content
-                        elif isinstance(content, list):
-                            text_parts = [
-                                block.get('text', '')
-                                for block in content
-                                if isinstance(block, dict) and block.get('type') == 'text'
-                            ]
-                            user_text = ' '.join(text_parts)
-                        else:
-                            continue
+        # Reset if file was truncated/overwritten (fewer lines than we've processed)
+        if len(lines) < self.processed_line_count:
+            self.processed_line_count = 0
 
-                        # Check if this user message matches our voice input
-                        if user_text.strip() == user_message.strip():
-                            print(f"[DEBUG] Found matching user message!")
-                            found_user_message = True
-                            collecting_response = True
-                            continue
+        new_lines = lines[self.processed_line_count:]
 
-                    # Collect ALL consecutive assistant messages
-                    if collecting_response:
-                        if role == 'assistant':
-                            msg_id = msg.get('id', 'no-id')
-                            current_msg_id = msg_id
-                            content = msg.get('content', entry.get('content', ''))
+        for line in new_lines:
+            try:
+                entry = json.loads(line.strip())
+                msg = entry.get('message', {})
+                role = msg.get('role') or entry.get('role')
 
-                            if isinstance(content, str):
-                                # String content - create single text block
-                                result = content.strip()
-                                if result:
-                                    all_parsed_blocks.append(TextBlock(type="text", text=result))
-                            elif isinstance(content, list):
-                                # Parse structured content blocks
-                                for block in content:
-                                    if isinstance(block, dict):
-                                        block_type = block.get('type')
-                                        try:
-                                            if block_type == 'text':
-                                                all_parsed_blocks.append(TextBlock(**block))
-                                            elif block_type == 'thinking':
-                                                all_parsed_blocks.append(ThinkingBlock(**block))
-                                            elif block_type == 'tool_use':
-                                                all_parsed_blocks.append(ToolUseBlock(**block))
-                                        except Exception as e:
-                                            print(f"[DEBUG] Error parsing block: {e}")
-                                            continue
-                        elif role == 'user':
-                            # Hit another user message, stop collecting
-                            print(f"[DEBUG] Hit next user message, stopping collection")
-                            break
-                except:
-                    continue
+                if role == 'assistant':
+                    content = msg.get('content', entry.get('content', ''))
 
-        # Update tracking state
-        if current_msg_id:
-            self.current_message_id = current_msg_id
+                    if isinstance(content, str) and content.strip():
+                        all_blocks.append(TextBlock(type="text", text=content.strip()))
+                    elif isinstance(content, list):
+                        for block in content:
+                            if isinstance(block, dict):
+                                block_type = block.get('type')
+                                try:
+                                    if block_type == 'text':
+                                        all_blocks.append(TextBlock(**block))
+                                    elif block_type == 'thinking':
+                                        all_blocks.append(ThinkingBlock(**block))
+                                    elif block_type == 'tool_use':
+                                        all_blocks.append(ToolUseBlock(**block))
+                                except Exception:
+                                    continue
+            except json.JSONDecodeError:
+                continue
 
-        # Calculate how many blocks we've already sent for this message
-        already_sent = self.sent_blocks_by_message.get(self.current_message_id, 0)
+        self.processed_line_count = len(lines)
 
-        # Return only the NEW blocks
-        new_blocks = all_parsed_blocks[already_sent:]
+        if all_blocks:
+            print(f"[DEBUG] Extracted {len(all_blocks)} blocks from {len(new_lines)} new lines")
 
-        if new_blocks:
-            print(f"[DEBUG] Found {len(new_blocks)} new blocks (already sent {already_sent})")
-            # Update the count
-            self.sent_blocks_by_message[self.current_message_id] = already_sent + len(new_blocks)
+        return all_blocks
+
+    def set_session_file(self, file_path: Optional[str]):
+        """Set the expected session file and initialize line count.
+
+        When switching sessions, we initialize the line count to the current
+        number of lines in the file, so only NEW content triggers callbacks.
+        """
+        self.expected_session_file = file_path
+        if file_path and os.path.exists(file_path):
+            with open(file_path, 'r') as f:
+                self.processed_line_count = sum(1 for _ in f)
+            print(f"[INFO] Watching session file: {file_path} (starting at line {self.processed_line_count})")
         else:
-            print(f"[DEBUG] No new blocks (total: {len(all_parsed_blocks)}, sent: {already_sent})")
-
-        return new_blocks
+            self.processed_line_count = 0
+            print(f"[INFO] Watching session file: {file_path} (new file)")
 
     def reset_tracking_state(self):
-        """Reset tracking state for a new voice input conversation"""
-        print("[DEBUG] Resetting block tracking state for new conversation")
-        self.sent_blocks_by_message = {}
-        self.current_message_id = None
-        self.last_message = None
+        """Reset tracking state (legacy - prefer set_session_file)"""
+        self.processed_line_count = 0
+        self.expected_session_file = None
 
 class VoiceServer:
     """WebSocket server for iOS voice mode"""
@@ -226,6 +189,7 @@ class VoiceServer:
         self.permission_handler = PermissionHandler()
         self.projects_base_path = PROJECTS_BASE_PATH
         self.active_session_id = None  # Track which session is open in VSCode
+        self.active_folder_name = None  # Track which project folder is active
 
     def find_transcript_path(self):
         """Find the transcript file to watch.
@@ -246,6 +210,59 @@ class VoiceServer:
             return None
         files.sort(key=os.path.getmtime, reverse=True)
         return files[0]
+
+    def get_session_transcript_path(self, folder_name: str, session_id: str) -> Optional[str]:
+        """Get the transcript path for a specific session.
+
+        Args:
+            folder_name: The project folder name (e.g., "-Users-aaron-Desktop-max")
+            session_id: The session ID (filename without .jsonl)
+
+        Returns:
+            Full path to the transcript file, or None if not found
+        """
+        transcript_path = os.path.join(TRANSCRIPT_DIR, folder_name, f"{session_id}.jsonl")
+        if os.path.exists(transcript_path):
+            return transcript_path
+        return None
+
+    def switch_watched_session(self, folder_name: str, session_id: str) -> bool:
+        """Switch the file watcher to watch a different session's transcript.
+
+        Args:
+            folder_name: The project folder name
+            session_id: The session ID to watch
+
+        Returns:
+            True if switch was successful, False otherwise
+        """
+        new_path = self.get_session_transcript_path(folder_name, session_id)
+        if not new_path:
+            print(f"[WARN] Transcript not found for session {session_id}")
+            return False
+
+        new_dir = os.path.dirname(new_path)
+        old_dir = os.path.dirname(self.transcript_path) if self.transcript_path else None
+
+        # Update tracking state
+        self.transcript_path = new_path
+        self.active_folder_name = folder_name
+        self.active_session_id = session_id
+
+        # Set expected session file (initializes line count from existing content)
+        if self.transcript_handler:
+            self.transcript_handler.set_session_file(new_path)
+
+        # Only reschedule observer if directory changed
+        if old_dir != new_dir and self.observer and self.transcript_handler:
+            # Remove all existing watches
+            self.observer.unschedule_all()
+            # Add new watch for the session's directory
+            self.observer.schedule(self.transcript_handler, new_dir)
+            print(f"[INFO] Switched file watcher to: {new_dir}")
+
+        print(f"[INFO] Now watching session: {session_id}")
+        return True
 
     async def send_status(self, websocket, state, message):
         """Send status update to client"""
@@ -342,8 +359,9 @@ end tell
         if text:
             # CRITICAL: Set state FIRST, before any async calls that might fail
             # (e.g., test WebSocket may close immediately after sending)
-            if self.transcript_handler:
-                self.transcript_handler.reset_tracking_state()
+            # NOTE: Don't reset transcript tracking here - line-based tracking
+            # should persist across voice inputs. File-change detection handles
+            # resetting when switching to a different transcript file.
             self.waiting_for_response = True
             self.last_voice_input = text
 
@@ -362,13 +380,14 @@ end tell
         """Send structured content to iOS clients"""
         print(f"[{time.strftime('%H:%M:%S')}] Sending structured content: {len(response.content_blocks)} blocks")
 
-        # Serialize using Pydantic
+        # Serialize using Pydantic and add session tracking
         message = response.model_dump()
+        message["session_id"] = self.active_session_id  # Include session for filtering
 
         for websocket in list(self.clients):
             try:
                 await websocket.send(json.dumps(message))
-                print(f"[{time.strftime('%H:%M:%S')}] Sent content to client")
+                print(f"[{time.strftime('%H:%M:%S')}] Sent content to client (session: {self.active_session_id})")
             except Exception as e:
                 print(f"Error sending content: {e}")
 
@@ -498,8 +517,10 @@ end tell
         """Handle resume_session request - runs 'claude --resume <id>'
 
         Ensures only one terminal is active by killing existing terminal first.
+        Also switches the transcript file watcher to the new session.
         """
         session_id = data.get("session_id", "")
+        folder_name = data.get("folder_name", "")
         success = False
 
         if self.vscode_controller.is_connected() and session_id:
@@ -515,6 +536,9 @@ end tell
                 )
                 if success:
                     self.active_session_id = session_id  # Track active session
+                    # Switch file watcher to the new session's transcript
+                    if folder_name:
+                        self.switch_watched_session(folder_name, session_id)
             except Exception as e:
                 print(f"Error resuming session: {e}")
 
@@ -697,6 +721,8 @@ end tell
                 self.loop,
                 self
             )
+            # Set expected session file (initializes line count from existing content)
+            self.transcript_handler.set_session_file(self.transcript_path)
             self.observer = Observer()
             self.observer.schedule(self.transcript_handler, os.path.dirname(self.transcript_path))
             self.observer.start()
