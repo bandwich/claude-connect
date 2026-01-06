@@ -33,12 +33,12 @@ def test_extract_incremental_blocks():
         handler = TranscriptHandler(None, None, None, mock_server)
 
         # First extraction - should get thinking block
-        new_blocks = handler.extract_new_blocks(temp_path, "test input")
+        new_blocks = handler.extract_new_assistant_content(temp_path)
         assert len(new_blocks) == 1
         assert isinstance(new_blocks[0], ThinkingBlock)
 
-        # No file changes - should get nothing
-        new_blocks = handler.extract_new_blocks(temp_path, "test input")
+        # No file changes - should get nothing (line count already at end)
+        new_blocks = handler.extract_new_assistant_content(temp_path)
         assert len(new_blocks) == 0
 
         # Add text block to file
@@ -54,7 +54,7 @@ def test_extract_incremental_blocks():
             }) + "\n")
 
         # Second extraction - should only get new text block
-        new_blocks = handler.extract_new_blocks(temp_path, "test input")
+        new_blocks = handler.extract_new_assistant_content(temp_path)
         assert len(new_blocks) == 1
         assert isinstance(new_blocks[0], TextBlock)
         assert new_blocks[0].text == "Here's my answer"
@@ -157,16 +157,16 @@ def test_state_resets_on_new_voice_input():
         handler = TranscriptHandler(None, None, None, mock_server)
 
         # Extract blocks from first conversation
-        blocks = handler.extract_new_blocks(temp_path, "first question")
+        blocks = handler.extract_new_assistant_content(temp_path)
         assert len(blocks) == 1
-        assert handler.sent_blocks_by_message.get("msg_1") == 1
+        assert handler.processed_line_count == 2
 
         # Reset for new conversation
         handler.reset_tracking_state()
 
         # State should be cleared
-        assert handler.sent_blocks_by_message == {}
-        assert handler.current_message_id is None
+        assert handler.processed_line_count == 0
+        assert handler.last_file_path is None
 
         # Add second conversation
         with open(temp_path, 'a') as f:
@@ -181,10 +181,12 @@ def test_state_resets_on_new_voice_input():
                 }
             }) + "\n")
 
-        # Should extract blocks from new conversation
-        blocks = handler.extract_new_blocks(temp_path, "second question")
-        assert len(blocks) == 1
-        assert blocks[0].text == "second answer"
+        # After reset, should extract ALL blocks from beginning
+        blocks = handler.extract_new_assistant_content(temp_path)
+        # Should get both assistant messages (line 2 and line 4)
+        assert len(blocks) == 2
+        assert blocks[0].text == "first answer"
+        assert blocks[1].text == "second answer"
 
     finally:
         os.unlink(temp_path)

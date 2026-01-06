@@ -33,7 +33,8 @@ class TestTranscriptHandler:
         assert handler.audio_callback == callback
         assert handler.loop == loop
         assert handler.server == server
-        assert handler.last_message is None
+        assert handler.processed_line_count == 0
+        assert handler.last_file_path is None
         assert handler.last_modified == 0
 
     def test_on_modified_non_jsonl_files(self):
