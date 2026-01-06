@@ -279,8 +279,9 @@ end tell
         if text:
             # CRITICAL: Set state FIRST, before any async calls that might fail
             # (e.g., test WebSocket may close immediately after sending)
-            if self.transcript_handler:
-                self.transcript_handler.reset_tracking_state()
+            # NOTE: Don't reset transcript tracking here - line-based tracking
+            # should persist across voice inputs. File-change detection handles
+            # resetting when switching to a different transcript file.
             self.waiting_for_response = True
             self.last_voice_input = text
 
