@@ -397,5 +397,147 @@ class TestVoiceServer:
     # MARK: - NEW TESTS FOR BUG #2: iOS server couldn't find latest assistant message
 
 
+class TestTranscriptHandlerGlobalTracking:
+    """Tests for line-based tracking (not voice-input-gated)"""
+
+    @pytest.mark.asyncio
+    async def test_processes_content_without_voice_input(self, tmp_path):
+        """Transcript changes should be processed even without last_voice_input"""
+        from ios_server import TranscriptHandler, VoiceServer
+
+        server = VoiceServer()
+        server.last_voice_input = None  # The bug condition
+
+        content_received = []
+        async def mock_content_callback(response):
+            content_received.append(response)
+
+        async def mock_audio_callback(text):
+            pass
+
+        loop = asyncio.get_event_loop()
+        handler = TranscriptHandler(
+            mock_content_callback,
+            mock_audio_callback,
+            loop,
+            server
+        )
+
+        transcript = tmp_path / "test.jsonl"
+        transcript.write_text(
+            '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hello"}]}}\n'
+        )
+
+        class MockEvent:
+            is_directory = False
+            src_path = str(transcript)
+
+        handler.on_modified(MockEvent())
+        await asyncio.sleep(0.2)
+
+        assert len(content_received) > 0, "Should process content without voice input"
+
+    @pytest.mark.asyncio
+    async def test_tracks_line_position_across_calls(self, tmp_path):
+        """Handler should track processed lines and only send new content"""
+        from ios_server import TranscriptHandler, VoiceServer
+
+        server = VoiceServer()
+        server.last_voice_input = None
+
+        content_received = []
+        async def mock_content_callback(response):
+            content_received.append(response)
+
+        async def mock_audio_callback(text):
+            pass
+
+        loop = asyncio.get_event_loop()
+        handler = TranscriptHandler(
+            mock_content_callback,
+            mock_audio_callback,
+            loop,
+            server
+        )
+
+        transcript = tmp_path / "test.jsonl"
+        # First write
+        transcript.write_text(
+            '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"First message"}]}}\n'
+        )
+
+        class MockEvent:
+            is_directory = False
+            src_path = str(transcript)
+
+        handler.on_modified(MockEvent())
+        await asyncio.sleep(0.2)
+
+        first_count = len(content_received)
+        assert first_count > 0, "Should receive first message"
+
+        # Append second message
+        with open(transcript, 'a') as f:
+            f.write('{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Second message"}]}}\n')
+
+        handler.on_modified(MockEvent())
+        await asyncio.sleep(0.2)
+
+        # Should have received both messages but as separate calls
+        assert len(content_received) > first_count, "Should receive second message"
+
+    @pytest.mark.asyncio
+    async def test_resets_tracking_on_file_change(self, tmp_path):
+        """Handler should reset tracking when watching a different file"""
+        from ios_server import TranscriptHandler, VoiceServer
+
+        server = VoiceServer()
+        server.last_voice_input = None
+
+        content_received = []
+        async def mock_content_callback(response):
+            content_received.append(response)
+
+        async def mock_audio_callback(text):
+            pass
+
+        loop = asyncio.get_event_loop()
+        handler = TranscriptHandler(
+            mock_content_callback,
+            mock_audio_callback,
+            loop,
+            server
+        )
+
+        # First file
+        transcript1 = tmp_path / "session1.jsonl"
+        transcript1.write_text(
+            '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"File 1"}]}}\n'
+        )
+
+        class MockEvent1:
+            is_directory = False
+            src_path = str(transcript1)
+
+        handler.on_modified(MockEvent1())
+        await asyncio.sleep(0.2)
+
+        # Second file should reset tracking and process from beginning
+        transcript2 = tmp_path / "session2.jsonl"
+        transcript2.write_text(
+            '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"File 2"}]}}\n'
+        )
+
+        class MockEvent2:
+            is_directory = False
+            src_path = str(transcript2)
+
+        handler.on_modified(MockEvent2())
+        await asyncio.sleep(0.2)
+
+        # Should have received both files' content
+        assert len(content_received) >= 2, "Should receive content from both files"
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

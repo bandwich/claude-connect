@@ -43,171 +43,108 @@ def extract_text_for_tts(content_blocks: list[ContentBlock]) -> str:
 
 
 class TranscriptHandler(FileSystemEventHandler):
-    """Monitors transcript file for new assistant messages"""
+    """Monitors transcript file for new assistant messages
+
+    Uses line-position tracking to stream ALL assistant content,
+    regardless of whether voice input initiated the interaction.
+    """
 
     def __init__(self, content_callback, audio_callback, loop, server):
-        self.content_callback = content_callback  # New: sends AssistantResponse
-        self.audio_callback = audio_callback       # Existing: sends text for TTS
+        self.content_callback = content_callback  # Sends AssistantResponse
+        self.audio_callback = audio_callback       # Sends text for TTS
         self.loop = loop
         self.server = server
-        self.last_message = None
         self.last_modified = 0
-        # Track what we've already sent
-        self.sent_blocks_by_message = {}  # {message_id: num_blocks_sent}
-        self.current_message_id = None
+        self.processed_line_count = 0
+        self.last_file_path = None
 
     def on_modified(self, event):
         if event.is_directory or not event.src_path.endswith('.jsonl'):
             return
 
         current_time = time.time()
-        if current_time - self.last_modified < 0.05:  # Reduced from 0.5s to 50ms
+        if current_time - self.last_modified < 0.05:
             return
         self.last_modified = current_time
 
         try:
-            # Extract only NEW blocks since last check
-            if self.server.last_voice_input:
-                print(f"[DEBUG] File modified, extracting new blocks...")
-                new_blocks = self.extract_new_blocks(
-                    event.src_path,
-                    self.server.last_voice_input
+            # Reset line tracking when switching files
+            if self.last_file_path != event.src_path:
+                self.processed_line_count = 0
+                self.last_file_path = event.src_path
+
+            new_blocks = self.extract_new_assistant_content(event.src_path)
+
+            if new_blocks:
+                response = AssistantResponse(
+                    content_blocks=new_blocks,
+                    timestamp=time.time(),
+                    is_incremental=True
                 )
-                print(f"[DEBUG] Extracted {len(new_blocks)} new blocks")
 
-                if new_blocks:
-                    # Create response with ONLY the new blocks
-                    response = AssistantResponse(
-                        content_blocks=new_blocks,
-                        timestamp=time.time(),
-                        is_incremental=True  # Signal that more blocks may arrive
-                    )
+                asyncio.run_coroutine_threadsafe(
+                    self.content_callback(response),
+                    self.loop
+                )
 
-                    # 1. Send structured content immediately
+                text = extract_text_for_tts(new_blocks)
+                if text:
                     asyncio.run_coroutine_threadsafe(
-                        self.content_callback(response),
+                        self.audio_callback(text),
                         self.loop
                     )
-
-                    # 2. Extract text for TTS
-                    text = extract_text_for_tts(new_blocks)
-                    print(f"[DEBUG] Extracted text for TTS: '{text}'")
-
-                    # 3. Send for audio generation
-                    if text:
-                        print(f"[DEBUG] Calling audio_callback with text")
-                        asyncio.run_coroutine_threadsafe(
-                            self.audio_callback(text),
-                            self.loop
-                        )
-                    else:
-                        print(f"[DEBUG] No text in this batch - non-text blocks only")
         except Exception as e:
             print(f"Error processing transcript: {e}")
             import traceback
             traceback.print_exc()
 
-    def extract_new_blocks(self, filepath, user_message) -> list[ContentBlock]:
-        """Extract only NEW blocks that haven't been sent yet
-
-        Returns:
-            List of new ContentBlock objects that haven't been sent
-        """
-        found_user_message = False
-        collecting_response = False
-        all_parsed_blocks = []
-        current_msg_id = None
-
-        print(f"[DEBUG] Looking for user message: '{user_message[:50]}...'")
+    def extract_new_assistant_content(self, filepath) -> list[ContentBlock]:
+        """Extract assistant content from lines not yet processed"""
+        all_blocks = []
 
         with open(filepath, 'r') as f:
-            for line in f:
-                try:
-                    entry = json.loads(line.strip())
-                    msg = entry.get('message', {})
-                    role = msg.get('role') or entry.get('role')
+            lines = f.readlines()
 
-                    # Check if this is a user message matching our voice input
-                    if role == 'user' and not found_user_message:
-                        content = msg.get('content', entry.get('content', ''))
-                        if isinstance(content, str):
-                            user_text = content
-                        elif isinstance(content, list):
-                            text_parts = [
-                                block.get('text', '')
-                                for block in content
-                                if isinstance(block, dict) and block.get('type') == 'text'
-                            ]
-                            user_text = ' '.join(text_parts)
-                        else:
-                            continue
+        new_lines = lines[self.processed_line_count:]
 
-                        # Check if this user message matches our voice input
-                        if user_text.strip() == user_message.strip():
-                            print(f"[DEBUG] Found matching user message!")
-                            found_user_message = True
-                            collecting_response = True
-                            continue
+        for line in new_lines:
+            try:
+                entry = json.loads(line.strip())
+                msg = entry.get('message', {})
+                role = msg.get('role') or entry.get('role')
 
-                    # Collect ALL consecutive assistant messages
-                    if collecting_response:
-                        if role == 'assistant':
-                            msg_id = msg.get('id', 'no-id')
-                            current_msg_id = msg_id
-                            content = msg.get('content', entry.get('content', ''))
+                if role == 'assistant':
+                    content = msg.get('content', entry.get('content', ''))
 
-                            if isinstance(content, str):
-                                # String content - create single text block
-                                result = content.strip()
-                                if result:
-                                    all_parsed_blocks.append(TextBlock(type="text", text=result))
-                            elif isinstance(content, list):
-                                # Parse structured content blocks
-                                for block in content:
-                                    if isinstance(block, dict):
-                                        block_type = block.get('type')
-                                        try:
-                                            if block_type == 'text':
-                                                all_parsed_blocks.append(TextBlock(**block))
-                                            elif block_type == 'thinking':
-                                                all_parsed_blocks.append(ThinkingBlock(**block))
-                                            elif block_type == 'tool_use':
-                                                all_parsed_blocks.append(ToolUseBlock(**block))
-                                        except Exception as e:
-                                            print(f"[DEBUG] Error parsing block: {e}")
-                                            continue
-                        elif role == 'user':
-                            # Hit another user message, stop collecting
-                            print(f"[DEBUG] Hit next user message, stopping collection")
-                            break
-                except:
-                    continue
+                    if isinstance(content, str) and content.strip():
+                        all_blocks.append(TextBlock(type="text", text=content.strip()))
+                    elif isinstance(content, list):
+                        for block in content:
+                            if isinstance(block, dict):
+                                block_type = block.get('type')
+                                try:
+                                    if block_type == 'text':
+                                        all_blocks.append(TextBlock(**block))
+                                    elif block_type == 'thinking':
+                                        all_blocks.append(ThinkingBlock(**block))
+                                    elif block_type == 'tool_use':
+                                        all_blocks.append(ToolUseBlock(**block))
+                                except Exception:
+                                    continue
+            except json.JSONDecodeError:
+                continue
 
-        # Update tracking state
-        if current_msg_id:
-            self.current_message_id = current_msg_id
+        self.processed_line_count = len(lines)
 
-        # Calculate how many blocks we've already sent for this message
-        already_sent = self.sent_blocks_by_message.get(self.current_message_id, 0)
+        if all_blocks:
+            print(f"[DEBUG] Extracted {len(all_blocks)} blocks from {len(new_lines)} new lines")
 
-        # Return only the NEW blocks
-        new_blocks = all_parsed_blocks[already_sent:]
-
-        if new_blocks:
-            print(f"[DEBUG] Found {len(new_blocks)} new blocks (already sent {already_sent})")
-            # Update the count
-            self.sent_blocks_by_message[self.current_message_id] = already_sent + len(new_blocks)
-        else:
-            print(f"[DEBUG] No new blocks (total: {len(all_parsed_blocks)}, sent: {already_sent})")
-
-        return new_blocks
+        return all_blocks
 
     def reset_tracking_state(self):
-        """Reset tracking state for a new voice input conversation"""
-        print("[DEBUG] Resetting block tracking state for new conversation")
-        self.sent_blocks_by_message = {}
-        self.current_message_id = None
-        self.last_message = None
+        """Reset tracking state (called when switching sessions)"""
+        self.processed_line_count = 0
+        self.last_file_path = None
 
 class VoiceServer:
     """WebSocket server for iOS voice mode"""
