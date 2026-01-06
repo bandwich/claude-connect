@@ -94,12 +94,30 @@ xcrun devicectl device install app --device "$DEVICE" \
 lsof -ti :8765 | xargs kill -9
 
 # View logs
-tail -f /tmp/e2e_server.log
-tail -f /tmp/test_output.log
+tail -f /tmp/e2e_server.log       # Server logs during E2E tests
+tail -f /tmp/e2e_test.log         # E2E test runner output
+tail -f /tmp/websocket_debug.log  # iOS WebSocket debug logs
 
 # Simulator management
 xcrun simctl shutdown all
 xcrun simctl list
+```
+
+### Analyzing Test Failures
+
+```bash
+# Find E2E test failure reason (grep for assertion failures)
+grep -A10 "XCTAssert\|failed\|Failed" /tmp/e2e_test.log
+
+# View Xcode test results (xcresult bundle)
+# Path is printed at end of test run, e.g.:
+# ~/Library/Developer/Xcode/DerivedData/ClaudeVoice-*/Logs/Test/*.xcresult
+
+# List available test result bundles
+ls -la ~/Library/Developer/Xcode/DerivedData/ClaudeVoice-*/Logs/Test/
+
+# Extract test summary from xcresult
+xcrun xcresulttool get --path <path-to.xcresult> --format json | python3 -m json.tool | head -100
 ```
 
 ## Permission Hooks Configuration
