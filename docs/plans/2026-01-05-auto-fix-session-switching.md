@@ -33,6 +33,45 @@
 
 ---
 
+## Known Issues (Not Yet Fixed)
+
+### 1. Phantom Messages - Messages from wrong session appear
+
+**Symptom:** When opening some sessions, the app shows messages from Claude that don't exist in the actual session file.
+
+**Root Causes:**
+
+1. **Server watches only ONE directory** (set at startup in `find_transcript_path`)
+   - `self.observer.schedule(self.transcript_handler, os.path.dirname(self.transcript_path))`
+   - Doesn't update when user switches sessions/projects
+   - Messages from old session's transcript get broadcast to all clients
+
+2. **`onAssistantResponse` blindly appends messages** (`SessionView.swift:285`)
+   - Real-time messages from TranscriptHandler are appended without checking session
+   - No session ID in the response to verify it matches current session
+
+3. **Messages not cleared when navigating to new session**
+   - `setupView()` doesn't clear `messages` array before loading new history
+   - Old messages may persist if callbacks fire out of order
+
+**Files involved:**
+- `voice_server/ios_server.py` - TranscriptHandler, observer setup
+- `ios-voice-app/ClaudeVoice/ClaudeVoice/Views/SessionView.swift` - onAssistantResponse callback
+
+### 2. Sessions still don't properly resume in VSCode
+
+**Symptom:** Selecting a session doesn't always open it in VSCode.
+
+**Possible causes:**
+- `syncSession()` guard checks `webSocketManager.vscodeConnected` - may be false
+- `isSessionSynced` check may return true incorrectly preventing sync
+- Race condition between navigation and sync callbacks
+
+**Files involved:**
+- `ios-voice-app/ClaudeVoice/ClaudeVoice/Views/SessionView.swift` - syncSession(), isSessionSynced
+
+---
+
 ## Verification
 
 Run all project tests:
