@@ -12,8 +12,8 @@ struct ClaudeVoiceApp: App {
                 ProjectsListView(webSocketManager: webSocketManager)
             }
             .onAppear {
-                // Auto-connect if we have saved settings
-                if !serverIP.isEmpty {
+                // Auto-connect if we have saved settings and not already connected
+                if !serverIP.isEmpty && webSocketManager.connectionState == .disconnected {
                     webSocketManager.connect(host: serverIP, port: serverPort)
                 }
             }

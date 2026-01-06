@@ -15,7 +15,8 @@
       "Bash(xcodebuild test:*)",
       "Bash(python -m pytest:*)",
       "Bash(./run_tests.sh:*)",
-      "Bash(xcodebuild clean:*)"
+      "Bash(xcodebuild clean:*)",
+      "Bash(xargs:*)"
     ]
   }
 }
