@@ -105,6 +105,10 @@ class TranscriptHandler(FileSystemEventHandler):
         with open(filepath, 'r') as f:
             lines = f.readlines()
 
+        # Reset if file was truncated/overwritten (fewer lines than we've processed)
+        if len(lines) < self.processed_line_count:
+            self.processed_line_count = 0
+
         new_lines = lines[self.processed_line_count:]
 
         for line in new_lines:
