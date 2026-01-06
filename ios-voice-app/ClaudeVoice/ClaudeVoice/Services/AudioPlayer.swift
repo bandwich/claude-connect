@@ -14,6 +14,11 @@ class AudioPlayer: NSObject, ObservableObject {
 
     private var audioFormat: AVAudioFormat?
 
+    // Audio message queue
+    private var messageQueue: [[AudioChunkMessage]] = []
+    private var currentMessageChunks: [AudioChunkMessage] = []
+    private(set) var queuedMessageCount: Int = 0
+
     var onPlaybackStarted: (() -> Void)?
     var onPlaybackFinished: (() -> Void)?
 
@@ -65,6 +70,35 @@ class AudioPlayer: NSObject, ObservableObject {
     }
 
     func receiveAudioChunk(_ chunk: AudioChunkMessage) {
+        // New message starting (chunkIndex == 0)
+        if chunk.chunkIndex == 0 {
+            if isPlaying || !currentMessageChunks.isEmpty {
+                // Queue this message for later
+                currentMessageChunks.append(chunk)
+                return
+            }
+        }
+
+        // If we're collecting chunks for a queued message
+        if !currentMessageChunks.isEmpty && currentMessageChunks[0].chunkIndex == 0 {
+            currentMessageChunks.append(chunk)
+
+            // Check if message is complete
+            if currentMessageChunks.count == chunk.totalChunks {
+                messageQueue.append(currentMessageChunks)
+                currentMessageChunks = []
+                queuedMessageCount = messageQueue.count
+                print("AudioPlayer: Queued message, queue size: \(queuedMessageCount)")
+                logToFile("📥 Queued message, queue size: \(queuedMessageCount)")
+            }
+            return
+        }
+
+        // Process chunk normally
+        processChunk(chunk)
+    }
+
+    private func processChunk(_ chunk: AudioChunkMessage) {
         guard let chunkData = Data(base64Encoded: chunk.data) else {
             print("AudioPlayer: Failed to decode base64 audio data")
             logToFile("❌ AudioPlayer: Failed to decode base64")
@@ -233,6 +267,19 @@ class AudioPlayer: NSObject, ObservableObject {
         scheduledChunks = 0
         expectedChunks = 0
 
+        // Process next queued message if any
+        if !messageQueue.isEmpty {
+            let nextMessage = messageQueue.removeFirst()
+            queuedMessageCount = messageQueue.count
+            print("AudioPlayer: Processing queued message, \(queuedMessageCount) remaining")
+            logToFile("📤 Processing queued message, \(queuedMessageCount) remaining")
+
+            for chunk in nextMessage {
+                processChunk(chunk)
+            }
+            return
+        }
+
         print("AudioPlayer: Calling onPlaybackFinished callback")
         logToFile("🔇 AudioPlayer: onPlaybackFinished callback")
 
@@ -252,6 +299,9 @@ class AudioPlayer: NSObject, ObservableObject {
         receivedChunks = 0
         scheduledChunks = 0
         expectedChunks = 0
+        messageQueue.removeAll()
+        currentMessageChunks.removeAll()
+        queuedMessageCount = 0
 
         DispatchQueue.main.async {
             self.isPlaying = false

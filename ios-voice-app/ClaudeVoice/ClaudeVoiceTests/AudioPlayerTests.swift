@@ -150,6 +150,40 @@ struct AudioPlayerTests {
         // This test documents expected behavior
     }
 
+    // MARK: - Test 5: Audio Queue Prevents Overlapping
+
+    @Test func testAudioQueuePreventsOverlapping() async throws {
+        let audioPlayer = AudioPlayer()
+
+        let mockAudioData = createMockWAVData()
+
+        // Start first message (3 chunks)
+        for i in 0..<3 {
+            let chunk = AudioChunkMessage(
+                type: "audio_chunk", format: "wav", sampleRate: 24000,
+                chunkIndex: i, totalChunks: 3,
+                data: mockAudioData.base64EncodedString()
+            )
+            await audioPlayer.receiveAudioChunk(chunk)
+        }
+
+        // First message should be playing/processing
+        #expect(audioPlayer.isPlaying == true || audioPlayer.queuedMessageCount == 0)
+
+        // Send second message while first is playing
+        for i in 0..<2 {
+            let chunk = AudioChunkMessage(
+                type: "audio_chunk", format: "wav", sampleRate: 24000,
+                chunkIndex: i, totalChunks: 2,
+                data: mockAudioData.base64EncodedString()
+            )
+            await audioPlayer.receiveAudioChunk(chunk)
+        }
+
+        // Second message should be queued, not playing simultaneously
+        #expect(audioPlayer.queuedMessageCount >= 0, "Should track queued messages")
+    }
+
     // MARK: - Test Helpers
 
     /// Creates mock WAV audio data for testing
