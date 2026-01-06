@@ -10,7 +10,12 @@
       "Bash(done)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(./run_e2e_tests.sh:*)",
+      "Bash(xcodebuild test:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(./run_tests.sh:*)",
+      "Bash(xcodebuild clean:*)"
     ]
   }
 }
