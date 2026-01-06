@@ -1,7 +1,7 @@
 // ios-voice-app/ClaudeVoice/ClaudeVoice/Models/Session.swift
 import Foundation
 
-struct Session: Codable, Identifiable {
+struct Session: Codable, Identifiable, Hashable {
     let id: String
     let title: String
     let timestamp: Double

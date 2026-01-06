@@ -7,7 +7,6 @@ struct SessionsListView: View {
 
     @State private var sessions: [Session] = []
     @State private var selectedSession: Session?
-    @State private var showingSessionView = false
     @State private var showingSettings = false
     @State private var isCreating = false
 
@@ -15,7 +14,6 @@ struct SessionsListView: View {
         List(sessions) { session in
             Button(action: {
                 selectedSession = session
-                showingSessionView = true
             }) {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
@@ -71,14 +69,12 @@ struct SessionsListView: View {
             }
             webSocketManager.requestSessions(folderName: project.folderName)
         }
-        .navigationDestination(isPresented: $showingSessionView) {
-            if let session = selectedSession {
-                SessionView(
-                    webSocketManager: webSocketManager,
-                    project: project,
-                    session: session
-                )
-            }
+        .navigationDestination(item: $selectedSession) { session in
+            SessionView(
+                webSocketManager: webSocketManager,
+                project: project,
+                session: session
+            )
         }
     }
 
@@ -91,7 +87,6 @@ struct SessionsListView: View {
             if response.success {
                 // Navigate to the new session
                 selectedSession = Session.newSession()
-                showingSessionView = true
             }
         }
 
