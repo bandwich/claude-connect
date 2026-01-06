@@ -303,8 +303,7 @@ struct SessionView: View {
     }
 
     private func syncSession() {
-        // Skip if already synced to this session
-        guard !isSessionSynced else { return }
+        // Don't skip even if appears synced - server state may be stale
 
         // Check if VSCode is connected
         guard webSocketManager.vscodeConnected else {
