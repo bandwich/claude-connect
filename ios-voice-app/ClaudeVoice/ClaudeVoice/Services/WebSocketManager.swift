@@ -266,9 +266,7 @@ class WebSocketManager: NSObject, ObservableObject {
             case .failure(let error):
                 print("WebSocket receive error: \(error.localizedDescription)")
                 self.logToFile("❌ WebSocket receive error: \(error.localizedDescription)")
-                // Already on main thread
                 self.connectionState = .error(error.localizedDescription)
-                self.attemptReconnect()
             }
         }
     }
