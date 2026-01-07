@@ -29,7 +29,7 @@ ALL_SUITES=(
     "E2EPermissionTests"
     "E2EFullConversationFlowTests"
     "E2ENavigationFlowTests"
-    "E2EVSCodeFlowTests"
+    "E2ESessionFlowTests"
 )
 
 # Kill any existing server on port 8765

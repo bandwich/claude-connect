@@ -196,7 +196,7 @@ struct SessionView: View {
             }
             webSocketManager.requestSessionHistory(folderName: project.folderName, sessionId: session.id)
 
-            // Auto-resume session in VSCode (only for existing sessions)
+            // Auto-resume session in tmux (only for existing sessions)
             syncSession()
         }
         // New sessions are already running from the newSession call
@@ -317,7 +317,7 @@ struct SessionView: View {
         webSocketManager.onSessionActionResult = { response in
             isSyncing = false
             if response.success {
-                // Session synced - vscode_status broadcast will update activeSessionId
+                // Session synced - connection_status broadcast will update activeSessionId
                 print("Session synced successfully")
             } else {
                 syncError = response.error ?? "Failed to sync"

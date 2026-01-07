@@ -1,6 +1,6 @@
 # Claude Voice iOS App
 
-iOS - hands-free voice interaction with Claude Code via VSCode
+iOS - hands-free voice interaction with Claude Code via tmux
 
 ## Files Created
 
@@ -119,7 +119,7 @@ iPhone App                      Mac (Server)
 ├─ WebSocket Client ───────────►├─ Receives voice_input
 ├─ Audio Player    ◄────────────├─ Streams TTS audio chunks
 │                               │
-│                               ├─ Sends to VS Code (AppleScript)
+│                               ├─ Sends to tmux session
 │                               ├─ Claude Code responds
 │                               └─ Kokoro TTS generates audio
 ```
@@ -165,7 +165,7 @@ iPhone App                      Mac (Server)
 The WebSocket server (`ios_server.py`) handles:
 - Listens on `0.0.0.0:8765` for iOS connections
 - Receives voice input from iOS app
-- Sends text to VS Code via AppleScript (clipboard + paste)
+- Sends text to Claude Code via tmux
 - Monitors transcript file for Claude responses using watchdog
 - Generates TTS audio using Kokoro (voice: "af_heart")
 - Streams audio chunks to iOS as base64-encoded WAV
