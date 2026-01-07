@@ -1,0 +1,1310 @@
+# VSCode Removal Implementation Plan
+
+> **For Claude:** REQUIRED SUB-SKILL: Use execute-plan to implement this plan task-by-task.
+
+**Goal:** Replace VSCode terminal integration with tmux for headless Claude Code control.
+
+**Architecture:** Server will use subprocess calls to tmux instead of WebSocket connection to VSCode extension. All VSCode references in iOS/server renamed to generic "connected" terminology.
+
+**Tech Stack:** Python (tmux subprocess), Swift (iOS app), pytest, XCTest
+
+---
+
+## Task 1: Create TmuxController with Tests
+
+**Files:**
+- Create: `voice_server/tmux_controller.py`
+- Create: `voice_server/tests/test_tmux_controller.py`
+
+**Step 1: Write the failing test for is_available**
+
+```python
+# voice_server/tests/test_tmux_controller.py
+import pytest
+from unittest.mock import patch, MagicMock
+
+
+class TestTmuxControllerAvailability:
+    """Tests for TmuxController availability check"""
+
+    def test_is_available_returns_true_when_tmux_installed(self):
+        """Should return True when tmux command succeeds"""
+        from tmux_controller import TmuxController
+
+        controller = TmuxController()
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            assert controller.is_available() is True
+            mock_run.assert_called_once()
+
+    def test_is_available_returns_false_when_tmux_not_installed(self):
+        """Should return False when tmux command fails"""
+        from tmux_controller import TmuxController
+
+        controller = TmuxController()
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(returncode=1)
+            assert controller.is_available() is False
+```
+
+**Step 2: Run test to verify it fails**
+
+```bash
+cd voice_server/tests && ./run_tests.sh test_tmux_controller.py -v
+```
+
+Expected: FAIL with "ModuleNotFoundError: No module named 'tmux_controller'"
+
+**Step 3: Write minimal TmuxController implementation**
+
+```python
+# voice_server/tmux_controller.py
+"""Tmux-based Claude Code session control"""
+
+import subprocess
+from typing import Optional
+
+
+class TmuxController:
+    """Controls Claude Code sessions via tmux subprocess calls"""
+
+    SESSION_NAME = "claude_voice"
+
+    def is_available(self) -> bool:
+        """Check if tmux is installed and available"""
+        result = subprocess.run(
+            ["tmux", "-V"],
+            capture_output=True,
+            text=True
+        )
+        return result.returncode == 0
+```
+
+**Step 4: Run test to verify it passes**
+
+```bash
+cd voice_server/tests && ./run_tests.sh test_tmux_controller.py::TestTmuxControllerAvailability -v
+```
+
+Expected: PASS
+
+**Step 5: Write test for session_exists**
+
+Add to `test_tmux_controller.py`:
+
+```python
+class TestTmuxControllerSession:
+    """Tests for TmuxController session management"""
+
+    def test_session_exists_returns_true_when_session_running(self):
+        """Should return True when tmux session exists"""
+        from tmux_controller import TmuxController
+
+        controller = TmuxController()
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            assert controller.session_exists() is True
+            mock_run.assert_called_with(
+                ["tmux", "has-session", "-t", "claude_voice"],
+                capture_output=True,
+                text=True
+            )
+
+    def test_session_exists_returns_false_when_no_session(self):
+        """Should return False when tmux session doesn't exist"""
+        from tmux_controller import TmuxController
+
+        controller = TmuxController()
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(returncode=1)
+            assert controller.session_exists() is False
+```
+
+**Step 6: Run test to verify it fails**
+
+```bash
+cd voice_server/tests && ./run_tests.sh test_tmux_controller.py::TestTmuxControllerSession -v
+```
+
+Expected: FAIL
+
+**Step 7: Implement session_exists**
+
+Add to `tmux_controller.py`:
+
+```python
+    def session_exists(self) -> bool:
+        """Check if the claude_voice tmux session is running"""
+        result = subprocess.run(
+            ["tmux", "has-session", "-t", self.SESSION_NAME],
+            capture_output=True,
+            text=True
+        )
+        return result.returncode == 0
+```
+
+**Step 8: Run test to verify it passes**
+
+```bash
+cd voice_server/tests && ./run_tests.sh test_tmux_controller.py::TestTmuxControllerSession -v
+```
+
+Expected: PASS
+
+**Step 9: Write test for start_session**
+
+Add to `test_tmux_controller.py`:
+
+```python
+class TestTmuxControllerStartSession:
+    """Tests for starting tmux sessions"""
+
+    def test_start_session_creates_new_tmux_session(self):
+        """Should create tmux session running claude"""
+        from tmux_controller import TmuxController
+
+        controller = TmuxController()
+
+        with patch('subprocess.run') as mock_run:
+            # First call: has-session (doesn't exist)
+            # Second call: new-session
+            mock_run.side_effect = [
+                MagicMock(returncode=1),  # has-session fails
+                MagicMock(returncode=0),  # new-session succeeds
+            ]
+
+            result = controller.start_session()
+
+            assert result is True
+            assert mock_run.call_count == 2
+
+    def test_start_session_kills_existing_first(self):
+        """Should kill existing session before starting new one"""
+        from tmux_controller import TmuxController
+
+        controller = TmuxController()
+
+        with patch('subprocess.run') as mock_run:
+            # First call: has-session (exists)
+            # Second call: kill-session
+            # Third call: new-session
+            mock_run.side_effect = [
+                MagicMock(returncode=0),  # has-session succeeds
+                MagicMock(returncode=0),  # kill-session succeeds
+                MagicMock(returncode=0),  # new-session succeeds
+            ]
+
+            result = controller.start_session()
+
+            assert result is True
+            assert mock_run.call_count == 3
+
+    def test_start_session_with_resume_id(self):
+        """Should run claude --resume when resume_id provided"""
+        from tmux_controller import TmuxController
+
+        controller = TmuxController()
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.side_effect = [
+                MagicMock(returncode=1),  # has-session fails
+                MagicMock(returncode=0),  # new-session succeeds
+            ]
+
+            result = controller.start_session(resume_id="abc123")
+
+            assert result is True
+            # Verify the claude --resume command was used
+            new_session_call = mock_run.call_args_list[1]
+            assert "--resume" in str(new_session_call)
+            assert "abc123" in str(new_session_call)
+
+    def test_start_session_with_working_dir(self):
+        """Should set working directory when provided"""
+        from tmux_controller import TmuxController
+
+        controller = TmuxController()
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.side_effect = [
+                MagicMock(returncode=1),
+                MagicMock(returncode=0),
+            ]
+
+            result = controller.start_session(working_dir="/some/path")
+
+            assert result is True
+            new_session_call = mock_run.call_args_list[1]
+            assert "-c" in str(new_session_call)
+            assert "/some/path" in str(new_session_call)
+```
+
+**Step 10: Run test to verify it fails**
+
+```bash
+cd voice_server/tests && ./run_tests.sh test_tmux_controller.py::TestTmuxControllerStartSession -v
+```
+
+Expected: FAIL
+
+**Step 11: Implement start_session**
+
+Add to `tmux_controller.py`:
+
+```python
+    def start_session(self, working_dir: Optional[str] = None, resume_id: Optional[str] = None) -> bool:
+        """Start a new tmux session running Claude Code
+
+        Args:
+            working_dir: Directory to start the session in
+            resume_id: If set, runs 'claude --resume <id>'
+
+        Returns:
+            True if session started successfully
+        """
+        # Kill existing session first (one at a time)
+        if self.session_exists():
+            self.kill_session()
+
+        # Build the claude command
+        if resume_id:
+            cmd = f"claude --resume {resume_id}"
+        else:
+            cmd = "claude"
+
+        # Build tmux command
+        tmux_cmd = [
+            "tmux", "new-session",
+            "-d",  # Detached
+            "-s", self.SESSION_NAME,
+        ]
+
+        if working_dir:
+            tmux_cmd.extend(["-c", working_dir])
+
+        tmux_cmd.append(cmd)
+
+        result = subprocess.run(tmux_cmd, capture_output=True, text=True)
+        return result.returncode == 0
+```
+
+**Step 12: Run test to verify it passes**
+
+```bash
+cd voice_server/tests && ./run_tests.sh test_tmux_controller.py::TestTmuxControllerStartSession -v
+```
+
+Expected: PASS
+
+**Step 13: Write test for send_input**
+
+Add to `test_tmux_controller.py`:
+
+```python
+class TestTmuxControllerInput:
+    """Tests for sending input to tmux sessions"""
+
+    def test_send_input_sends_keys_to_session(self):
+        """Should send text + Enter to tmux session as separate calls"""
+        from tmux_controller import TmuxController
+
+        controller = TmuxController()
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+
+            result = controller.send_input("hello world")
+
+            assert result is True
+            assert mock_run.call_count == 2
+            # First call: send text
+            first_call = mock_run.call_args_list[0][0][0]
+            assert "send-keys" in first_call
+            assert "hello world" in first_call
+            # Second call: send Enter
+            second_call = mock_run.call_args_list[1][0][0]
+            assert "Enter" in second_call
+
+    def test_send_input_returns_false_on_failure(self):
+        """Should return False when send-keys fails"""
+        from tmux_controller import TmuxController
+
+        controller = TmuxController()
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(returncode=1)
+
+            result = controller.send_input("test")
+
+            assert result is False
+```
+
+**Step 14: Run test to verify it fails**
+
+```bash
+cd voice_server/tests && ./run_tests.sh test_tmux_controller.py::TestTmuxControllerInput -v
+```
+
+Expected: FAIL
+
+**Step 15: Implement send_input**
+
+Add to `tmux_controller.py`:
+
+```python
+    def send_input(self, text: str) -> bool:
+        """Send text input to the Claude session
+
+        Args:
+            text: Text to send (Enter key added automatically)
+
+        Returns:
+            True if sent successfully
+        """
+        # Send text and Enter as separate calls - combining them causes
+        # tmux to misinterpret Enter as a literal string
+        result1 = subprocess.run(
+            ["tmux", "send-keys", "-t", self.SESSION_NAME, text],
+            capture_output=True,
+            text=True
+        )
+        if result1.returncode != 0:
+            return False
+
+        result2 = subprocess.run(
+            ["tmux", "send-keys", "-t", self.SESSION_NAME, "Enter"],
+            capture_output=True,
+            text=True
+        )
+        return result2.returncode == 0
+```
+
+**Step 16: Run test to verify it passes**
+
+```bash
+cd voice_server/tests && ./run_tests.sh test_tmux_controller.py::TestTmuxControllerInput -v
+```
+
+Expected: PASS
+
+**Step 17: Write test for kill_session**
+
+Add to `test_tmux_controller.py`:
+
+```python
+class TestTmuxControllerKill:
+    """Tests for killing tmux sessions"""
+
+    def test_kill_session_kills_tmux_session(self):
+        """Should kill the claude_voice tmux session"""
+        from tmux_controller import TmuxController
+
+        controller = TmuxController()
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+
+            result = controller.kill_session()
+
+            assert result is True
+            mock_run.assert_called_with(
+                ["tmux", "kill-session", "-t", "claude_voice"],
+                capture_output=True,
+                text=True
+            )
+
+    def test_kill_session_returns_false_on_failure(self):
+        """Should return False when kill fails"""
+        from tmux_controller import TmuxController
+
+        controller = TmuxController()
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(returncode=1)
+
+            result = controller.kill_session()
+
+            assert result is False
+```
+
+**Step 18: Run test to verify it fails**
+
+```bash
+cd voice_server/tests && ./run_tests.sh test_tmux_controller.py::TestTmuxControllerKill -v
+```
+
+Expected: FAIL
+
+**Step 19: Implement kill_session**
+
+Add to `tmux_controller.py`:
+
+```python
+    def kill_session(self) -> bool:
+        """Kill the active Claude session
+
+        Returns:
+            True if killed successfully
+        """
+        result = subprocess.run(
+            ["tmux", "kill-session", "-t", self.SESSION_NAME],
+            capture_output=True,
+            text=True
+        )
+        return result.returncode == 0
+```
+
+**Step 20: Run all TmuxController tests**
+
+```bash
+cd voice_server/tests && ./run_tests.sh test_tmux_controller.py -v
+```
+
+Expected: All PASS
+
+**Step 21: Commit**
+
+```bash
+git add voice_server/tmux_controller.py voice_server/tests/test_tmux_controller.py
+git commit -m "feat: add TmuxController for headless Claude Code control"
+```
+
+---
+
+## Task 2: Update iOS Model - ConnectionStatus
+
+**Files:**
+- Modify: `ios-voice-app/ClaudeVoice/ClaudeVoice/Models/Session.swift:63-73`
+
+**Step 1: Rename VSCodeStatus to ConnectionStatus**
+
+Replace the VSCodeStatus struct:
+
+```swift
+struct ConnectionStatus: Codable {
+    let type: String
+    let connected: Bool
+    let activeSessionId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case connected
+        case activeSessionId = "active_session_id"
+    }
+}
+```
+
+**Step 2: Build to check for errors**
+
+```bash
+cd ios-voice-app/ClaudeVoice && xcodebuild build -scheme ClaudeVoice -destination 'platform=iOS Simulator,name=iPhone 16' 2>&1 | grep -E "error:|warning:"
+```
+
+Expected: Errors about VSCodeStatus not found (will fix in next tasks)
+
+**Step 3: Commit**
+
+```bash
+git add ios-voice-app/ClaudeVoice/ClaudeVoice/Models/Session.swift
+git commit -m "refactor: rename VSCodeStatus to ConnectionStatus"
+```
+
+---
+
+## Task 3: Update iOS WebSocketManager
+
+**Files:**
+- Modify: `ios-voice-app/ClaudeVoice/ClaudeVoice/Services/WebSocketManager.swift`
+
+**Step 1: Rename vscodeConnected property**
+
+Change line 13:
+
+```swift
+@Published var connected: Bool = false
+```
+
+**Step 2: Rename callback**
+
+Change line 25:
+
+```swift
+var onConnectionStatusReceived: ((ConnectionStatus) -> Void)?
+```
+
+**Step 3: Update handleMessage for string messages**
+
+Replace VSCodeStatus decoding (around line 333-339):
+
+```swift
+} else if let connectionStatus = try? JSONDecoder().decode(ConnectionStatus.self, from: data) {
+    logToFile("Decoded as ConnectionStatus: connected=\(connectionStatus.connected), session=\(connectionStatus.activeSessionId ?? "none")")
+    DispatchQueue.main.async {
+        self.connected = connectionStatus.connected
+        self.activeSessionId = connectionStatus.activeSessionId
+        self.onConnectionStatusReceived?(connectionStatus)
+    }
+}
+```
+
+**Step 4: Update handleMessage for binary messages**
+
+Replace VSCodeStatus decoding (around line 389-394):
+
+```swift
+} else if let connectionStatus = try? JSONDecoder().decode(ConnectionStatus.self, from: data) {
+    DispatchQueue.main.async {
+        self.connected = connectionStatus.connected
+        self.activeSessionId = connectionStatus.activeSessionId
+        self.onConnectionStatusReceived?(connectionStatus)
+    }
+}
+```
+
+**Step 5: Build to check progress**
+
+```bash
+cd ios-voice-app/ClaudeVoice && xcodebuild build -scheme ClaudeVoice -destination 'platform=iOS Simulator,name=iPhone 16' 2>&1 | grep -E "error:|warning:"
+```
+
+Expected: Errors in SessionView (will fix next)
+
+**Step 6: Commit**
+
+```bash
+git add ios-voice-app/ClaudeVoice/ClaudeVoice/Services/WebSocketManager.swift
+git commit -m "refactor: rename vscodeConnected to connected in WebSocketManager"
+```
+
+---
+
+## Task 4: Update iOS SessionView
+
+**Files:**
+- Modify: `ios-voice-app/ClaudeVoice/ClaudeVoice/Views/SessionView.swift`
+
+**Step 1: Update sync status text**
+
+Change line 66:
+
+```swift
+Text("Syncing...")
+```
+
+**Step 2: Update accessibility label**
+
+Change line 122:
+
+```swift
+.accessibilityLabel("Synced")
+```
+
+**Step 3: Update syncSession error message**
+
+Change line 310:
+
+```swift
+syncError = "Not connected"
+```
+
+**Step 4: Update isSessionSynced to use connected**
+
+Change line 184:
+
+```swift
+return webSocketManager.connected && webSocketManager.activeSessionId == nil
+```
+
+**Step 5: Update syncSession guard**
+
+Change line 309:
+
+```swift
+guard webSocketManager.connected else {
+```
+
+**Step 6: Build to verify**
+
+```bash
+cd ios-voice-app/ClaudeVoice && xcodebuild build -scheme ClaudeVoice -destination 'platform=iOS Simulator,name=iPhone 16' 2>&1 | grep -E "error:|warning:"
+```
+
+Expected: No errors
+
+**Step 7: Commit**
+
+```bash
+git add ios-voice-app/ClaudeVoice/ClaudeVoice/Views/SessionView.swift
+git commit -m "refactor: update SessionView for generic connection status"
+```
+
+---
+
+## Task 5: Update iOS SessionsListView
+
+**Files:**
+- Modify: `ios-voice-app/ClaudeVoice/ClaudeVoice/Views/SessionsListView.swift`
+
+**Step 1: Find and update VSCode references**
+
+Search for "VSCode" and update accessibility labels:
+
+Change "Active in VSCode" to "Active session":
+
+```swift
+.accessibilityLabel("Active session")
+```
+
+**Step 2: Update vscodeConnected references**
+
+Change any `vscodeConnected` to `connected`.
+
+**Step 3: Build to verify**
+
+```bash
+cd ios-voice-app/ClaudeVoice && xcodebuild build -scheme ClaudeVoice -destination 'platform=iOS Simulator,name=iPhone 16' 2>&1 | grep -E "error:|warning:"
+```
+
+Expected: No errors
+
+**Step 4: Commit**
+
+```bash
+git add ios-voice-app/ClaudeVoice/ClaudeVoice/Views/SessionsListView.swift
+git commit -m "refactor: update SessionsListView for generic connection status"
+```
+
+---
+
+## Task 6: Update Server - Replace VSCodeController with TmuxController
+
+**Files:**
+- Modify: `voice_server/ios_server.py`
+
+**Step 1: Update imports**
+
+Change line 26:
+
+```python
+from tmux_controller import TmuxController
+```
+
+**Step 2: Update VoiceServer.__init__**
+
+Change line 188:
+
+```python
+self.tmux = TmuxController()
+```
+
+**Step 3: Remove send_to_vs_code_applescript method**
+
+Delete lines 293-307 (the entire `send_to_vs_code_applescript` method).
+
+**Step 4: Replace send_to_vs_code with send_to_terminal**
+
+Replace the `send_to_vs_code` method:
+
+```python
+async def send_to_terminal(self, text: str):
+    """Send text to Claude Code terminal via tmux"""
+    self.tmux.send_input(text)
+```
+
+**Step 5: Update handle_voice_input**
+
+Change line 374 to use new method:
+
+```python
+await self.send_to_terminal(text)
+```
+
+Also update print statements on lines 368 and 375:
+
+```python
+print(f"[{time.strftime('%H:%M:%S')}] Sending to terminal...")
+```
+
+```python
+print(f"[{time.strftime('%H:%M:%S')}] Sent to terminal successfully")
+```
+
+**Step 6: Rename send_vscode_status to send_connection_status**
+
+Rename method and update JSON:
+
+```python
+async def send_connection_status(self, websocket):
+    """Send connection status to a single client"""
+    response = {
+        "type": "connection_status",
+        "connected": self.tmux.session_exists(),
+        "active_session_id": self.active_session_id
+    }
+    await websocket.send(json.dumps(response))
+```
+
+**Step 7: Rename broadcast_vscode_status to broadcast_connection_status**
+
+```python
+async def broadcast_connection_status(self):
+    """Broadcast connection status to all connected clients"""
+    for websocket in list(self.clients):
+        try:
+            await self.send_connection_status(websocket)
+        except Exception as e:
+            print(f"Error broadcasting status: {e}")
+```
+
+**Step 8: Update handle_close_session**
+
+```python
+async def handle_close_session(self, websocket):
+    """Handle close_session request - kills the active tmux session"""
+    success = self.tmux.kill_session()
+    if success:
+        self.active_session_id = None
+
+    response = {
+        "type": "session_closed",
+        "success": success
+    }
+    await websocket.send(json.dumps(response))
+
+    if success:
+        await self.broadcast_connection_status()
+```
+
+**Step 9: Update handle_new_session**
+
+```python
+async def handle_new_session(self, websocket, data):
+    """Handle new_session request - starts claude in tmux"""
+    project_path = data.get("project_path", "")
+    success = self.tmux.start_session(working_dir=project_path if project_path else None)
+
+    if success:
+        self.active_session_id = None  # New session has no ID yet
+        await asyncio.sleep(2.0)  # Wait for Claude to initialize
+
+    response = {
+        "type": "session_created",
+        "success": success
+    }
+    await websocket.send(json.dumps(response))
+
+    if success:
+        await self.broadcast_connection_status()
+```
+
+**Step 10: Update handle_resume_session**
+
+```python
+async def handle_resume_session(self, websocket, data):
+    """Handle resume_session request - runs 'claude --resume <id>' in tmux"""
+    session_id = data.get("session_id", "")
+    folder_name = data.get("folder_name", "")
+    success = False
+
+    if session_id:
+        success = self.tmux.start_session(resume_id=session_id)
+
+        if success:
+            self.active_session_id = session_id
+            await asyncio.sleep(2.0)  # Wait for Claude to initialize
+            if folder_name:
+                self.switch_watched_session(folder_name, session_id)
+
+    response = {
+        "type": "session_resumed",
+        "success": success,
+        "session_id": session_id
+    }
+    await websocket.send(json.dumps(response))
+
+    if success:
+        await self.broadcast_connection_status()
+```
+
+**Step 11: Update handle_add_project**
+
+```python
+async def handle_add_project(self, websocket, data):
+    """Handle add_project request - creates directory and starts Claude"""
+    name = data.get("name", "").strip()
+    success = False
+    project_path = ""
+
+    if not name:
+        response = {
+            "type": "project_created",
+            "success": False,
+            "error": "Project name is required"
+        }
+        await websocket.send(json.dumps(response))
+        return
+
+    safe_name = "".join(c for c in name if c.isalnum() or c in "-_.")
+    project_path = os.path.join(self.projects_base_path, safe_name)
+
+    try:
+        os.makedirs(project_path, exist_ok=True)
+        success = self.tmux.start_session(working_dir=project_path)
+
+        if success:
+            await asyncio.sleep(2.0)  # Wait for Claude to initialize
+            # Send Enter to accept any prompts
+            self.tmux.send_input("")
+
+    except Exception as e:
+        print(f"Error creating project: {e}")
+
+    response = {
+        "type": "project_created",
+        "success": success,
+        "path": project_path,
+        "name": safe_name
+    }
+    await websocket.send(json.dumps(response))
+```
+
+**Step 12: Update inject_terminal_response**
+
+```python
+async def inject_terminal_response(self, decision, data):
+    """Inject permission response into terminal after timeout"""
+    if decision == "allow":
+        text = data.get('input', 'y')
+    else:
+        text = 'n'
+
+    self.tmux.send_input(text)
+    print(f"Injected late response: {text}")
+```
+
+**Step 13: Update handle_client**
+
+Change line 696:
+
+```python
+await self.send_connection_status(websocket)
+```
+
+**Step 14: Update start method**
+
+Remove VSCode connection logic. Replace lines 712-717:
+
+```python
+# Check tmux availability
+if not self.tmux.is_available():
+    print("WARNING: tmux not installed. Install with: brew install tmux")
+else:
+    print("tmux available for session management")
+```
+
+**Step 15: Run server tests**
+
+```bash
+cd voice_server/tests && ./run_tests.sh test_ios_server.py -v
+```
+
+Expected: Some failures (tests still reference VSCode)
+
+**Step 16: Commit**
+
+```bash
+git add voice_server/ios_server.py
+git commit -m "refactor: replace VSCodeController with TmuxController"
+```
+
+---
+
+## Task 7: Update Server Tests
+
+**Files:**
+- Modify: `voice_server/tests/test_ios_server.py`
+- Modify: `voice_server/tests/test_message_handlers.py`
+- Modify: `voice_server/tests/test_message_formats.py`
+- Modify: `voice_server/tests/test_state_validation.py`
+- Delete: `voice_server/tests/test_vscode_controller.py`
+
+**Step 1: Update test_message_formats.py**
+
+Replace `test_vscode_status_message_format`:
+
+```python
+def test_connection_status_message_format(self):
+    """Verify connection_status message has required fields"""
+    message = {
+        "type": "connection_status",
+        "connected": True,
+        "active_session_id": "abc123"
+    }
+    assert message["type"] == "connection_status"
+    assert isinstance(message["connected"], bool)
+```
+
+**Step 2: Update test_state_validation.py**
+
+Replace `vscode_controller` with `tmux`:
+
+```python
+server.tmux = MagicMock()
+server.tmux.session_exists.return_value = False
+```
+
+**Step 3: Update test_message_handlers.py**
+
+Replace all `vscode_controller` references with `tmux` and update method names:
+
+- `vscode_controller.is_connected()` -> `tmux.session_exists()`
+- `vscode_controller.send_sequence(text)` -> `tmux.send_input(text)`
+- `vscode_controller.kill_terminal()` -> `tmux.kill_session()`
+- `vscode_controller.new_terminal()` -> (remove, absorbed into start_session)
+- `vscode_controller.open_folder()` -> (remove, absorbed into start_session)
+
+Update class name `TestVoiceInputWithVSCode` -> `TestVoiceInputWithTmux`
+
+Update class name `TestVSCodeStatusBroadcast` -> `TestConnectionStatusBroadcast`
+
+Update message type checks: `"vscode_status"` -> `"connection_status"`
+Update field checks: `"vscode_connected"` -> `"connected"`
+
+**Step 4: Update test_ios_server.py**
+
+Replace VSCode references:
+
+```python
+server.tmux = MagicMock()
+server.tmux.session_exists.return_value = True
+```
+
+Update message type: `"vscode_status"` -> `"connection_status"`
+
+**Step 5: Delete test_vscode_controller.py**
+
+```bash
+rm voice_server/tests/test_vscode_controller.py
+```
+
+**Step 6: Run all server tests**
+
+```bash
+cd voice_server/tests && ./run_tests.sh -v
+```
+
+Expected: All PASS
+
+**Step 7: Commit**
+
+```bash
+git add voice_server/tests/
+git rm voice_server/tests/test_vscode_controller.py
+git commit -m "refactor: update server tests for tmux-based controller"
+```
+
+---
+
+## Task 8: Update iOS Unit Tests
+
+**Files:**
+- Modify: `ios-voice-app/ClaudeVoice/ClaudeVoiceTests/ClaudeVoiceTests.swift`
+- Modify: `ios-voice-app/ClaudeVoice/ClaudeVoiceTests/WebSocketManagerTests.swift`
+
+**Step 1: Update ClaudeVoiceTests.swift**
+
+Rename test suite and update tests:
+
+```swift
+@Suite("ConnectionStatus Model Tests")
+struct ConnectionStatusModelTests {
+
+    @Test func testConnectionStatusDecoding() throws {
+        let json = """
+        {
+            "type": "connection_status",
+            "connected": true,
+            "active_session_id": "abc123"
+        }
+        """.data(using: .utf8)!
+
+        let status = try JSONDecoder().decode(ConnectionStatus.self, from: json)
+
+        #expect(status.type == "connection_status")
+        #expect(status.connected == true)
+        #expect(status.activeSessionId == "abc123")
+    }
+
+    @Test func testConnectionStatusDecodingWithNullSession() throws {
+        let json = """
+        {
+            "type": "connection_status",
+            "connected": true,
+            "active_session_id": null
+        }
+        """.data(using: .utf8)!
+
+        let status = try JSONDecoder().decode(ConnectionStatus.self, from: json)
+
+        #expect(status.connected == true)
+        #expect(status.activeSessionId == nil)
+    }
+
+    @Test func testConnectionStatusDecodingDisconnected() throws {
+        let json = """
+        {
+            "type": "connection_status",
+            "connected": false,
+            "active_session_id": null
+        }
+        """.data(using: .utf8)!
+
+        let status = try JSONDecoder().decode(ConnectionStatus.self, from: json)
+
+        #expect(status.connected == false)
+    }
+}
+```
+
+**Step 2: Update WebSocketManagerTests.swift**
+
+Rename section and update property names:
+
+```swift
+// MARK: - Connection Status Tests
+
+@Test func testConnectedPublishedProperty() throws {
+    let manager = WebSocketManager()
+
+    #expect(manager.connected == false)
+
+    manager.$connected
+        .sink { _ in }
+        .cancel()
+
+    manager.connected = true
+    #expect(manager.connected == true)
+
+    manager.connected = false
+    #expect(manager.connected == false)
+}
+
+@Test func testOnConnectionStatusReceivedCallback() throws {
+    let manager = WebSocketManager()
+    var receivedStatus: ConnectionStatus?
+
+    manager.onConnectionStatusReceived = { status in
+        receivedStatus = status
+    }
+
+    #expect(manager.onConnectionStatusReceived != nil)
+
+    let mockStatus = ConnectionStatus(
+        type: "connection_status",
+        connected: true,
+        activeSessionId: "test-session"
+    )
+
+    manager.onConnectionStatusReceived?(mockStatus)
+
+    #expect(receivedStatus?.connected == true)
+    #expect(receivedStatus?.activeSessionId == "test-session")
+}
+
+@Test func testConnectionStatusUpdatesProperties() throws {
+    let manager = WebSocketManager()
+
+    let status = ConnectionStatus(
+        type: "connection_status",
+        connected: true,
+        activeSessionId: "session-xyz"
+    )
+
+    manager.connected = status.connected
+    manager.activeSessionId = status.activeSessionId
+
+    #expect(manager.connected == true)
+    #expect(manager.activeSessionId == "session-xyz")
+}
+
+@Test func testConnectionStatusClearsOnDisconnect() throws {
+    let manager = WebSocketManager()
+
+    manager.connected = true
+    manager.activeSessionId = "test"
+
+    #expect(manager.connected == true)
+
+    manager.connected = false
+    manager.activeSessionId = nil
+
+    #expect(manager.connected == false)
+    #expect(manager.activeSessionId == nil)
+}
+```
+
+**Step 3: Run iOS unit tests**
+
+```bash
+cd ios-voice-app/ClaudeVoice && xcodebuild test -scheme ClaudeVoice -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:ClaudeVoiceTests 2>&1 | tail -20
+```
+
+Expected: All tests pass
+
+**Step 4: Commit**
+
+```bash
+git add ios-voice-app/ClaudeVoice/ClaudeVoiceTests/
+git commit -m "refactor: update iOS unit tests for ConnectionStatus"
+```
+
+---
+
+## Task 9: Update E2E Tests
+
+**Files:**
+- Rename: `ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/E2EVSCodeFlowTests.swift` -> `E2ESessionFlowTests.swift`
+
+**Step 1: Rename file**
+
+```bash
+cd ios-voice-app/ClaudeVoice/ClaudeVoiceUITests
+git mv E2EVSCodeFlowTests.swift E2ESessionFlowTests.swift
+```
+
+**Step 2: Update class name and comments**
+
+```swift
+//
+//  E2ESessionFlowTests.swift
+//  ClaudeVoiceUITests
+//
+//  Comprehensive session sync test covering all sync scenarios
+//
+
+import XCTest
+
+final class E2ESessionFlowTests: E2ETestBase {
+
+    /// Complete session sync flow test
+    /// Tests: Connect status -> Session sync -> Active indicators -> New session -> Switch sessions
+    func test_complete_session_sync_flow() throws {
+        // ... (update comments to remove VSCode references)
+    }
+}
+```
+
+**Step 3: Update accessibility label references**
+
+Change:
+
+```swift
+let syncedIndicator = app.images["Synced"]
+```
+
+```swift
+let activeIndicator = app.images["Active session"]
+```
+
+**Step 4: Update print statements**
+
+Remove "VSCode" from debug output:
+
+```swift
+print("Phase 1: Connection status")
+print("Phase 2: Session sync")
+// etc.
+```
+
+**Step 5: Commit**
+
+```bash
+git add ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/
+git commit -m "refactor: rename E2E tests to remove VSCode references"
+```
+
+---
+
+## Task 10: Clean Up and Documentation
+
+**Files:**
+- Delete: `voice_server/vscode_controller.py`
+- Modify: `CLAUDE.md`
+- Modify: `README.md`
+
+**Step 1: Delete vscode_controller.py**
+
+```bash
+git rm voice_server/vscode_controller.py
+```
+
+**Step 2: Update CLAUDE.md architecture diagram**
+
+Replace the architecture section:
+
+```markdown
+## Architecture
+
+```
+iPhone App                         Mac Server
+├─ Speech Recognition              ├─ WebSocket Server (port 8765)
+├─ WebSocket Client ──────────────>├─ Receives voice input
+├─ Audio Player <──────────────────├─ Streams TTS audio (Kokoro)
+├─ Session/Project Browser         ├─ tmux session management
+└─ Message History Display         └─ Transcript file watching
+```
+```
+
+**Step 3: Update CLAUDE.md commands**
+
+Update any VSCode references in debugging section if present.
+
+**Step 4: Update README.md**
+
+Search for "VSCode" and update or remove references.
+
+**Step 5: Final build verification**
+
+```bash
+# Server tests
+cd voice_server/tests && ./run_tests.sh -v
+
+# iOS unit tests
+cd ios-voice-app/ClaudeVoice && xcodebuild test -scheme ClaudeVoice -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:ClaudeVoiceTests 2>&1 | tail -20
+
+# iOS build
+cd ios-voice-app/ClaudeVoice && xcodebuild build -scheme ClaudeVoice -destination 'platform=iOS Simulator,name=iPhone 16' 2>&1 | grep -E "error:|warning:"
+```
+
+Expected: All pass, no errors
+
+**Step 6: Commit**
+
+```bash
+git add CLAUDE.md README.md
+git rm voice_server/vscode_controller.py
+git commit -m "docs: update documentation for tmux-based architecture"
+```
+
+---
+
+## Summary
+
+| Task | Description | Files Changed |
+|------|-------------|---------------|
+| 1 | Create TmuxController | +2 files |
+| 2 | Update iOS Model | 1 file |
+| 3 | Update iOS WebSocketManager | 1 file |
+| 4 | Update iOS SessionView | 1 file |
+| 5 | Update iOS SessionsListView | 1 file |
+| 6 | Update Server | 1 file |
+| 7 | Update Server Tests | 4 files, -1 file |
+| 8 | Update iOS Tests | 2 files |
+| 9 | Update E2E Tests | 1 file (renamed) |
+| 10 | Clean Up | 3 files, -1 file |
+
+**Total:** ~15 files modified, 2 created, 2 deleted
