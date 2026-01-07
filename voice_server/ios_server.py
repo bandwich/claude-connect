@@ -23,7 +23,7 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from content_models import TextBlock, ThinkingBlock, ToolUseBlock, ContentBlock, AssistantResponse
 from session_manager import SessionManager
-from vscode_controller import VSCodeController
+from tmux_controller import TmuxController
 from permission_handler import PermissionHandler
 from http_server import start_http_server
 
@@ -185,10 +185,10 @@ class VoiceServer:
         self.last_voice_input = None  # Track the last voice input text
         self.last_content_blocks = []  # New: store for future reference
         self.session_manager = SessionManager()
-        self.vscode_controller = VSCodeController()
+        self.tmux = TmuxController()
         self.permission_handler = PermissionHandler()
         self.projects_base_path = PROJECTS_BASE_PATH
-        self.active_session_id = None  # Track which session is open in VSCode
+        self.active_session_id = None  # Track which session is active in tmux
         self.active_folder_name = None  # Track which project folder is active
 
     def find_transcript_path(self):
@@ -273,52 +273,26 @@ class VoiceServer:
             "timestamp": time.time()
         }))
 
-    async def send_vscode_status(self, websocket):
-        """Send VSCode status to a single client"""
+    async def send_connection_status(self, websocket):
+        """Send connection status to a single client"""
         response = {
-            "type": "vscode_status",
-            "vscode_connected": self.vscode_controller.is_connected(),
+            "type": "connection_status",
+            "connected": self.tmux.session_exists(),
             "active_session_id": self.active_session_id
         }
         await websocket.send(json.dumps(response))
 
-    async def broadcast_vscode_status(self):
-        """Broadcast VSCode status to all connected clients"""
+    async def broadcast_connection_status(self):
+        """Broadcast connection status to all connected clients"""
         for websocket in list(self.clients):
             try:
-                await self.send_vscode_status(websocket)
+                await self.send_connection_status(websocket)
             except Exception as e:
                 print(f"Error broadcasting status: {e}")
 
-    async def send_to_vs_code_applescript(self, text):
-        """Send text to VS Code via AppleScript (fallback)"""
-        subprocess.run(['pbcopy'], input=text.encode('utf-8'))
-        applescript = '''
-tell application "Visual Studio Code"
-    activate
-end tell
-delay 0.3
-tell application "System Events"
-    keystroke "v" using {command down}
-    delay 0.2
-    keystroke return
-end tell
-'''
-        subprocess.run(['osascript', '-e', applescript])
-
-    async def send_to_vs_code(self, text):
-        """Send text to VS Code terminal
-
-        Tries VSCodeController first, falls back to AppleScript if not connected.
-        """
-        if self.vscode_controller.is_connected():
-            success = await self.vscode_controller.send_sequence(text)
-            if success:
-                applescript = 'tell application "System Events" to keystroke return'
-                subprocess.run(['osascript', '-e', applescript])
-                return
-
-        await self.send_to_vs_code_applescript(text)
+    async def send_to_terminal(self, text: str):
+        """Send text to Claude Code terminal via tmux"""
+        self.tmux.send_input(text)
 
     async def stream_audio(self, websocket, text):
         """Generate TTS and stream audio to client"""
@@ -365,14 +339,14 @@ end tell
             self.waiting_for_response = True
             self.last_voice_input = text
 
-            print(f"[{time.strftime('%H:%M:%S')}] Sending to VS Code...")
+            print(f"[{time.strftime('%H:%M:%S')}] Sending to terminal...")
             try:
                 await self.send_status(websocket, "processing", "Sending to Claude...")
             except Exception:
                 pass  # WebSocket may have closed, that's OK
 
-            await self.send_to_vs_code(text)
-            print(f"[{time.strftime('%H:%M:%S')}] Sent to VS Code successfully")
+            await self.send_to_terminal(text)
+            print(f"[{time.strftime('%H:%M:%S')}] Sent to terminal successfully")
         else:
             print("Empty text received, ignoring")
 
@@ -460,16 +434,10 @@ end tell
         await websocket.send(json.dumps(response))
 
     async def handle_close_session(self, websocket):
-        """Handle close_session request - kills the active terminal"""
-        success = False
-
-        if self.vscode_controller.is_connected():
-            try:
-                await self.vscode_controller.kill_terminal()
-                success = True
-                self.active_session_id = None  # Clear active session
-            except Exception as e:
-                print(f"Error closing session: {e}")
+        """Handle close_session request - kills the active tmux session"""
+        success = self.tmux.kill_session()
+        if success:
+            self.active_session_id = None
 
         response = {
             "type": "session_closed",
@@ -477,31 +445,17 @@ end tell
         }
         await websocket.send(json.dumps(response))
 
-        # Broadcast status to all clients
         if success:
-            await self.broadcast_vscode_status()
+            await self.broadcast_connection_status()
 
     async def handle_new_session(self, websocket, data):
-        """Handle new_session request - opens terminal and starts claude
-
-        Ensures only one terminal is active by killing existing terminal first.
-        """
+        """Handle new_session request - starts claude in tmux"""
         project_path = data.get("project_path", "")
-        success = False
+        success = self.tmux.start_session(working_dir=project_path if project_path else None)
 
-        if self.vscode_controller.is_connected():
-            try:
-                # Kill existing terminal first to ensure only one terminal
-                await self.vscode_controller.kill_terminal()
-                await asyncio.sleep(0.3)
-
-                await self.vscode_controller.new_terminal()
-                await asyncio.sleep(0.5)
-                success = await self.vscode_controller.send_sequence("claude\n")
-                if success:
-                    self.active_session_id = None  # New session has no ID yet
-            except Exception as e:
-                print(f"Error creating new session: {e}")
+        if success:
+            self.active_session_id = None  # New session has no ID yet
+            await asyncio.sleep(2.0)  # Wait for Claude to initialize
 
         response = {
             "type": "session_created",
@@ -509,38 +463,23 @@ end tell
         }
         await websocket.send(json.dumps(response))
 
-        # Broadcast status to all clients
         if success:
-            await self.broadcast_vscode_status()
+            await self.broadcast_connection_status()
 
     async def handle_resume_session(self, websocket, data):
-        """Handle resume_session request - runs 'claude --resume <id>'
-
-        Ensures only one terminal is active by killing existing terminal first.
-        Also switches the transcript file watcher to the new session.
-        """
+        """Handle resume_session request - runs 'claude --resume <id>' in tmux"""
         session_id = data.get("session_id", "")
         folder_name = data.get("folder_name", "")
         success = False
 
-        if self.vscode_controller.is_connected() and session_id:
-            try:
-                # Kill existing terminal first to ensure only one terminal
-                await self.vscode_controller.kill_terminal()
-                await asyncio.sleep(0.3)
+        if session_id:
+            success = self.tmux.start_session(resume_id=session_id)
 
-                await self.vscode_controller.new_terminal()
-                await asyncio.sleep(0.5)
-                success = await self.vscode_controller.send_sequence(
-                    f"claude --resume {session_id}\n"
-                )
-                if success:
-                    self.active_session_id = session_id  # Track active session
-                    # Switch file watcher to the new session's transcript
-                    if folder_name:
-                        self.switch_watched_session(folder_name, session_id)
-            except Exception as e:
-                print(f"Error resuming session: {e}")
+            if success:
+                self.active_session_id = session_id
+                await asyncio.sleep(2.0)  # Wait for Claude to initialize
+                if folder_name:
+                    self.switch_watched_session(folder_name, session_id)
 
         response = {
             "type": "session_resumed",
@@ -549,15 +488,11 @@ end tell
         }
         await websocket.send(json.dumps(response))
 
-        # Broadcast status to all clients
         if success:
-            await self.broadcast_vscode_status()
+            await self.broadcast_connection_status()
 
     async def handle_add_project(self, websocket, data):
-        """Handle add_project request - creates directory and opens in VS Code
-
-        Gracefully closes current project by killing terminal before opening new folder.
-        """
+        """Handle add_project request - creates directory and starts Claude"""
         name = data.get("name", "").strip()
         success = False
         project_path = ""
@@ -576,21 +511,12 @@ end tell
 
         try:
             os.makedirs(project_path, exist_ok=True)
+            success = self.tmux.start_session(working_dir=project_path)
 
-            if self.vscode_controller.is_connected():
-                # Kill existing terminal first for graceful close
-                await self.vscode_controller.kill_terminal()
-                await asyncio.sleep(0.3)
-
-                await self.vscode_controller.open_folder(project_path)
-                await asyncio.sleep(3.0)
-                await self.vscode_controller.new_terminal()
-                await asyncio.sleep(0.5)
-                await self.vscode_controller.send_sequence("claude\n")
-                await asyncio.sleep(2.0)
-                success = await self.vscode_controller.send_sequence("\r")
-            else:
-                success = True
+            if success:
+                await asyncio.sleep(2.0)  # Wait for Claude to initialize
+                # Send Enter to accept any prompts
+                self.tmux.send_input("")
 
         except Exception as e:
             print(f"Error creating project: {e}")
@@ -632,7 +558,7 @@ end tell
         else:
             text = 'n'
 
-        await self.send_to_vs_code(text)
+        self.tmux.send_input(text)
         print(f"Injected late response: {text}")
 
     async def handle_message(self, websocket, message):
@@ -693,7 +619,7 @@ end tell
 
         try:
             await self.send_status(websocket, "idle", "Connected")
-            await self.send_vscode_status(websocket)  # Send VSCode status on connect
+            await self.send_connection_status(websocket)
             async for message in websocket:
                 print(f"Received message: {message[:100]}...")
                 await self.handle_message(websocket, message)
@@ -709,12 +635,11 @@ end tell
         # Get the running event loop
         self.loop = asyncio.get_running_loop()
 
-        # Try to connect to VSCode extension
-        connected = await self.vscode_controller.connect()
-        if connected:
-            print("✅ Connected to VSCode extension")
+        # Check tmux availability
+        if not self.tmux.is_available():
+            print("WARNING: tmux not installed. Install with: brew install tmux")
         else:
-            print("⚠️ VSCode extension not available, using AppleScript fallback")
+            print("tmux available for session management")
 
         self.transcript_path = self.find_transcript_path()
 
