@@ -30,15 +30,15 @@ class TestServerToiOSMessageFormats:
         assert message["state"] in ["idle", "processing", "speaking"]
         assert "message" in message
 
-    def test_vscode_status_message_format(self):
-        """Verify vscode_status message has required fields"""
+    def test_connection_status_message_format(self):
+        """Verify connection_status message has required fields"""
         message = {
-            "type": "vscode_status",
-            "vscode_connected": True,
+            "type": "connection_status",
+            "connected": True,
             "active_session_id": "session-123"
         }
-        assert message["type"] == "vscode_status"
-        assert isinstance(message["vscode_connected"], bool)
+        assert message["type"] == "connection_status"
+        assert isinstance(message["connected"], bool)
         # active_session_id can be None or string
 
     def test_audio_chunk_message_format(self):
