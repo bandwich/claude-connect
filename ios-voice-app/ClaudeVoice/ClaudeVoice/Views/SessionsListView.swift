@@ -34,11 +34,11 @@ struct SessionsListView: View {
                         }
                     }
 
-                    // Show active indicator if this session is open in VSCode
+                    // Show active indicator if this session is active
                     if webSocketManager.activeSessionId == session.id {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundColor(.green)
-                            .accessibilityLabel("Active in VSCode")
+                            .accessibilityLabel("Active session")
                     }
                 }
                 .padding(.vertical, 4)
