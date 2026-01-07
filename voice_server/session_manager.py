@@ -71,6 +71,20 @@ class SessionManager:
         """Encode project path to folder name format"""
         return project_path.replace("/", "-")
 
+    def decode_folder_name(self, folder_name: str) -> str:
+        """Decode folder name back to project path.
+
+        Args:
+            folder_name: Encoded folder name (e.g., "-Users-aaron-Desktop-max")
+
+        Returns:
+            Decoded path (e.g., "/Users/aaron/Desktop/max")
+        """
+        decoded = folder_name.replace("-", "/")
+        if not decoded.startswith("/"):
+            decoded = "/" + decoded
+        return decoded
+
     def list_sessions(self, folder_name: str, limit: int = 10) -> list[Session]:
         """List sessions for a project, sorted by most recent first
 

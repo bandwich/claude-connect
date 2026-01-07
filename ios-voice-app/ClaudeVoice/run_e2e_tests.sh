@@ -32,12 +32,14 @@ ALL_SUITES=(
     "E2ESessionFlowTests"
 )
 
-# Kill any existing server on port 8765
-if lsof -i :8765 > /dev/null 2>&1; then
-    echo "⚠️  Killing existing server on port 8765..."
-    lsof -ti :8765 | xargs kill -9 2>/dev/null || true
-    sleep 1
-fi
+# Kill any existing servers on ports 8765 (WebSocket) and 8766 (HTTP)
+for port in 8765 8766; do
+    if lsof -i :$port > /dev/null 2>&1; then
+        echo "⚠️  Killing existing server on port $port..."
+        lsof -ti :$port | xargs kill -9 2>/dev/null || true
+    fi
+done
+sleep 1
 
 # Ensure transcript directory exists and create transcript file
 # Server needs a transcript file to exist BEFORE it starts so it can watch it
@@ -61,6 +63,20 @@ SERVER_PID=$!
 
 echo "   Server PID: $SERVER_PID"
 echo "   Logs: $LOG_FILE"
+
+# Cleanup function - kills server and removes temp files
+cleanup() {
+    echo ""
+    echo "🧹 Cleaning up..."
+    kill $SERVER_PID 2>/dev/null || true
+    # Also kill by port in case PID tracking failed
+    lsof -ti :8765 | xargs kill -9 2>/dev/null || true
+    lsof -ti :8766 | xargs kill -9 2>/dev/null || true
+    rm -rf "$TRANSCRIPT_DIR"
+}
+
+# Ensure cleanup runs on exit, interrupt, or error
+trap cleanup EXIT
 
 # Wait for server to be ready
 echo "⏳ Waiting for server startup..."
@@ -101,11 +117,7 @@ xcodebuild test \
 
 TEST_EXIT_CODE=$?
 
-# Cleanup
-echo ""
-echo "🧹 Cleaning up..."
-kill $SERVER_PID 2>/dev/null || true
-rm -rf "$TRANSCRIPT_DIR"
+# Cleanup happens via trap EXIT
 
 if [ $TEST_EXIT_CODE -eq 0 ]; then
     if [ -n "$SPECIFIC_SUITE" ]; then

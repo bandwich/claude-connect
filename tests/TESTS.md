@@ -88,23 +88,24 @@ cd ios-voice-app/ClaudeVoice && ./run_e2e_tests.sh E2EPermissionTests
 
 The E2E runner (`run_e2e_tests.sh`):
 1. Starts the real `ios_server.py`
-2. Creates a test transcript file
-3. Runs E2E test suites (all or specified)
-4. Cleans up server and files
+2. Runs E2E test suites (all or specified)
+3. Cleans up server
+
+**CRITICAL: If the test passes, it MUST work on a real device.**
+
+Tests that mock core functionality (subprocess calls, file operations) can pass while the real system is broken. E2E tests must use:
+- Real tmux sessions (with test-specific session names)
+- Real file watching with real file modifications
+- Real WebSocket connections
 
 **Test suites:**
-- `E2EHappyPathTests` - Complete voice conversation flows
 - `E2EConnectionTests` - Server connection and reconnection
 - `E2EErrorHandlingTests` - Malformed messages, server errors
-- `E2EProjectsListTests` - Projects list loading and display
-- `E2ESessionsListTests` - Session navigation and counts
-- `E2ESessionViewTests` - Message history and voice controls
-- `E2EVSCodeConnectionTests` - VSCode integration flows
-- `E2EPermissionTests` - Permission prompt UI (bash, edit, question, task)
+- `E2ESessionFlowTests` - Session sync and management
+- `E2EPermissionTests` - Permission prompt UI
 
 **Support utilities:** `tests/e2e_support/`
 - `server_manager.py` - Server lifecycle management
-- `transcript_injector.py` - Mock message injection
 
 ---
 

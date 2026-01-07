@@ -25,7 +25,7 @@ from content_models import TextBlock, ThinkingBlock, ToolUseBlock, ContentBlock,
 from session_manager import SessionManager
 from tmux_controller import TmuxController
 from permission_handler import PermissionHandler
-from http_server import start_http_server, set_tmux_controller
+from http_server import start_http_server, set_tmux_controller, set_voice_server
 
 # Configuration
 PORT = 8765
@@ -190,6 +190,7 @@ class VoiceServer:
         self.session_manager = SessionManager()
         self.tmux = TmuxController()
         set_tmux_controller(self.tmux)  # Enable HTTP endpoints to access tmux
+        set_voice_server(self)  # Enable HTTP endpoints to access server state
         self.permission_handler = PermissionHandler()
         self.projects_base_path = PROJECTS_BASE_PATH
         self.active_session_id = None  # Track which session is active in tmux
@@ -296,7 +297,9 @@ class VoiceServer:
 
     async def send_to_terminal(self, text: str):
         """Send text to Claude Code terminal via tmux"""
-        self.tmux.send_input(text)
+        print(f"[DEBUG] send_to_terminal: session_exists={self.tmux.session_exists()}")
+        result = self.tmux.send_input(text)
+        print(f"[DEBUG] send_input returned: {result}")
 
     async def stream_audio(self, websocket, text):
         """Generate TTS and stream audio to client"""
@@ -455,7 +458,9 @@ class VoiceServer:
     async def handle_new_session(self, websocket, data):
         """Handle new_session request - starts claude in tmux"""
         project_path = data.get("project_path", "")
+        print(f"[DEBUG] handle_new_session: project_path={project_path}")
         success = self.tmux.start_session(working_dir=project_path if project_path else None)
+        print(f"[DEBUG] start_session returned: {success}, session_exists: {self.tmux.session_exists()}")
 
         if success:
             self.active_session_id = None  # New session has no ID yet
@@ -477,13 +482,23 @@ class VoiceServer:
         success = False
 
         if session_id:
-            success = self.tmux.start_session(resume_id=session_id)
+            # Decode folder_name to get the project directory
+            # Claude Code's --resume flag must be run from the project directory
+            working_dir = None
+            if folder_name:
+                working_dir = self.session_manager.decode_folder_name(folder_name)
+                print(f"[DEBUG] handle_resume_session: folder_name={folder_name} -> working_dir={working_dir}")
+
+            success = self.tmux.start_session(working_dir=working_dir, resume_id=session_id)
+            print(f"[DEBUG] start_session(resume_id={session_id}) returned: {success}, session_exists: {self.tmux.session_exists()}")
 
             if success:
                 self.active_session_id = session_id
                 await asyncio.sleep(2.0)  # Wait for Claude to initialize
                 if folder_name:
                     self.switch_watched_session(folder_name, session_id)
+            else:
+                print(f"[ERROR] Failed to start tmux session for resume_id={session_id}")
 
         response = {
             "type": "session_resumed",

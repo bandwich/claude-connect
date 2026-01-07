@@ -305,9 +305,9 @@ struct SessionView: View {
     private func syncSession() {
         // Don't skip even if appears synced - server state may be stale
 
-        // Check if connected
-        guard webSocketManager.connected else {
-            syncError = "Not connected"
+        // Check if WebSocket is connected (not tmux session status)
+        guard case .connected = webSocketManager.connectionState else {
+            syncError = "Not connected to server"
             return
         }
 

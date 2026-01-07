@@ -91,6 +91,19 @@ tests/
 
 ## Writing New Tests
 
+### Testing Philosophy: NO MOCKS for Core Functionality
+
+**CRITICAL**: Tests must verify real behavior, not mock implementations.
+
+- **DO NOT** mock `subprocess.run` for tmux commands - call real tmux
+- **DO NOT** mock file operations for transcript watching - use real files
+- **DO NOT** inject fake responses - test real data flow
+- **DO** use real tmux sessions (with test-specific session names)
+- **DO** use real file watchers with real file modifications
+- **DO** clean up test resources (kill sessions, delete files)
+
+If a test passes but the feature doesn't work on a real device, the test is worthless.
+
 ### Using Fixtures
 
 ```python
@@ -111,15 +124,17 @@ async def test_async_function():
     assert result is not None
 ```
 
-### Mocking External Dependencies
+### When Mocking IS Acceptable
 
-```python
-@patch('module.external_function')
-def test_with_mock(mock_func):
-    """Test with mocked dependencies"""
-    mock_func.return_value = "mocked value"
-    # Your test code
-```
+Only mock external services that:
+- Cost money (API calls to Claude)
+- Are non-deterministic (network latency)
+- Are unavailable in test environment
+
+Never mock:
+- Local subprocess calls (tmux, file operations)
+- File system operations
+- Internal module interactions
 
 ## CI/CD Integration
 

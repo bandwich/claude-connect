@@ -7,14 +7,21 @@ from permission_handler import PermissionHandler
 
 HTTP_PORT = 8766
 
-# Reference to tmux controller, set by VoiceServer
+# References to server components, set by VoiceServer
 _tmux_controller = None
+_voice_server = None
 
 
 def set_tmux_controller(controller):
     """Set the tmux controller reference for status endpoints"""
     global _tmux_controller
     _tmux_controller = controller
+
+
+def set_voice_server(server):
+    """Set the voice server reference for transcript endpoints"""
+    global _voice_server
+    _voice_server = server
 
 
 def create_http_app(permission_handler: PermissionHandler) -> web.Application:
@@ -117,12 +124,46 @@ def create_http_app(permission_handler: PermissionHandler) -> web.Application:
 
         return web.json_response({"content": content})
 
+    async def handle_set_transcript(request: web.Request) -> web.Response:
+        """Set the transcript file path"""
+        if _voice_server is None:
+            return web.json_response({"error": "voice server not set"}, status=500)
+
+        try:
+            payload = await request.json()
+        except json.JSONDecodeError:
+            return web.json_response({"error": "Invalid JSON"}, status=400)
+
+        path = payload.get("path", "")
+        if not path:
+            return web.json_response({"error": "path required"}, status=400)
+
+        # Update the server's transcript path and file watcher
+        _voice_server.transcript_path = path
+        if hasattr(_voice_server, 'handler') and _voice_server.handler:
+            _voice_server.handler.expected_session_file = path
+            _voice_server.handler.processed_line_count = 0
+
+        return web.json_response({"status": "ok", "path": path})
+
+    async def handle_get_transcript(request: web.Request) -> web.Response:
+        """Get the current transcript file path - for E2E tests"""
+        if _voice_server is None:
+            return web.json_response({"error": "voice server not set"}, status=500)
+
+        return web.json_response({
+            "path": _voice_server.transcript_path,
+            "active_session_id": _voice_server.active_session_id
+        })
+
     app = web.Application()
     app.router.add_post("/permission", handle_permission)
     app.router.add_post("/permission_resolved", handle_permission_resolved)
     app.router.add_get("/health", handle_health)
     app.router.add_get("/tmux_status", handle_tmux_status)
     app.router.add_get("/capture_pane", handle_capture_pane)
+    app.router.add_post("/set_transcript", handle_set_transcript)
+    app.router.add_get("/transcript", handle_get_transcript)
 
     return app
 

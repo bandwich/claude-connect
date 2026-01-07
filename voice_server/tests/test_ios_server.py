@@ -405,23 +405,23 @@ class TestVoiceServer:
         assert websocket not in server.clients
 
     @pytest.mark.asyncio
-    async def test_active_session_cleared_on_client_connect(self):
-        """New client connection should clear active_session_id to avoid stale state"""
+    async def test_active_session_preserved_on_client_reconnect(self):
+        """Client reconnection should preserve active_session_id so app receives current state"""
         server = VoiceServer()
 
         # Mock tmux controller
         server.tmux = MagicMock()
         server.tmux.session_exists.return_value = True
 
-        # Simulate server had a previous active session
-        server.active_session_id = "old-session-123"
+        # Simulate server has an active session
+        server.active_session_id = "active-session-123"
 
-        # Create mock websocket
+        # Create mock websocket (simulates reconnecting client)
         mock_ws = AsyncMock()
         mock_ws.send = AsyncMock()
         mock_ws.__aiter__.return_value = []  # No messages, connection ends immediately
 
-        # Connect new client
+        # Connect client
         await server.handle_client(mock_ws, "/")
 
         # Find the connection_status message that was sent
@@ -433,11 +433,8 @@ class TestVoiceServer:
                 break
 
         assert connection_status_sent is not None, "Should send connection_status on connect"
-        assert connection_status_sent["active_session_id"] is None, "Should clear active session on connect"
-
-
-    # MARK: - NEW TESTS FOR BUG #2: iOS server couldn't find latest assistant message
-
+        assert connection_status_sent["active_session_id"] == "active-session-123", \
+            "Should preserve active session across reconnects"
 
 class TestTranscriptHandlerGlobalTracking:
     """Tests for line-based tracking (not voice-input-gated)"""

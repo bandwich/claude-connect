@@ -16,7 +16,8 @@
       "Bash(python -m pytest:*)",
       "Bash(./run_tests.sh:*)",
       "Bash(xcodebuild clean:*)",
-      "Bash(xargs:*)"
+      "Bash(xargs:*)",
+      "Bash(tmux kill-session:*)"
     ]
   }
 }

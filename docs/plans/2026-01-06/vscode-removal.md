@@ -1385,6 +1385,131 @@ git commit -m "fix: update remaining VSCode references to tmux"
 
 ---
 
+## Task 12: Fix E2E Tests to Test Real Behavior
+
+**CRITICAL: If the test passes, it MUST work on a real device.**
+
+The current E2E tests use mock injection (`injectAssistantResponse`, `transcript_injector.py`) which means tests can pass while real functionality is broken.
+
+**Files:**
+- Rewrite: `ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/E2ETestBase.swift`
+- Rewrite: `ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/E2ESessionFlowTests.swift`
+- Delete: `tests/e2e_support/transcript_injector.py`
+
+**Step 1: Remove mock injection from E2ETestBase**
+
+Delete these methods:
+- `injectAssistantResponse`
+- `injectUserMessage`
+- `simulateConversationTurn`
+
+These inject fake data into transcript files, bypassing the real flow.
+
+**Step 2: Add real tmux verification to E2ETestBase**
+
+Add method to verify tmux session exists:
+```swift
+func verifyTmuxSessionRunning() -> Bool {
+    // Call server endpoint or check via shell
+}
+```
+
+**Step 3: Rewrite E2ESessionFlowTests to test real flow**
+
+Test should:
+1. Connect to real server
+2. Resume session (server starts real tmux with `claude --resume`)
+3. Verify tmux session exists
+4. Send voice input
+5. Verify input arrives in tmux (via server endpoint that captures pane)
+6. Write to transcript file (simulating Claude's response - this is OK)
+7. Verify file watcher triggers TTS
+8. Verify audio streams back to client
+
+**Step 4: Delete transcript_injector.py**
+
+```bash
+rm tests/e2e_support/transcript_injector.py
+```
+
+This file encouraged mock injection instead of real testing.
+
+**Step 5: Run E2E tests**
+
+```bash
+cd ios-voice-app/ClaudeVoice && ./run_e2e_tests.sh
+```
+
+**Step 6: Commit**
+
+```bash
+git add -A
+git commit -m "fix: rewrite E2E tests to test real behavior"
+```
+
+---
+
+## Task 13: Fix E2E Test Voice Input Issue
+
+**Status:** COMPLETED
+
+**Problem:** Voice input sent via `tmux send-keys` doesn't appear in Claude Code pane even though `send_input()` returns `True`.
+
+**Root Causes Found:**
+1. `send_input()` was sending text and Enter as separate subprocess calls - must use `&&` to chain them in a single shell command
+2. E2E test fixtures used invalid encoded folder names (`-e2e_test_project1`) that decoded to non-existent paths (`/e2e_test_project1`)
+
+**Fixes Applied:**
+1. Changed `tmux_controller.py:send_input()` to use single shell command with `&&`:
+   ```python
+   cmd = f"tmux send-keys -t {self.SESSION_NAME} '{escaped_text}' && tmux send-keys -t {self.SESSION_NAME} Enter"
+   result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+   ```
+
+2. Fixed E2E test fixtures to use valid encoded paths:
+   - Folder name: `-tmp-e2e_test_project1` (decodes to `/tmp/e2e_test_project1`)
+   - Test now creates actual directories at `/tmp/e2e_test_project1` and `/tmp/e2e_test_project2`
+
+**Files Changed:**
+- `voice_server/tmux_controller.py` - Fixed send_input to chain commands
+- `ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/E2ETestBase.swift` - Fixed test fixture paths
+
+---
+
+## Task 14: Fix Resume Session Flow (BLOCKING)
+
+**Status:** NOT STARTED
+
+**Problem:** Real device testing shows `resume_session` doesn't work. Voice input fails with `session_exists=False`:
+
+```
+Received message: {"type":"resume_session","session_id":"129bf9bb-...
+[INFO] Watching session file: ...129bf9bb-101a-41da-a772-5f01cec65bbe.jsonl (starting at line 216)
+[INFO] Now watching session: 129bf9bb-101a-41da-a772-5f01cec65bbe
+Received message: {"type":"voice_input","text":"..."...
+[DEBUG] send_to_terminal: session_exists=False
+[DEBUG] send_input returned: False
+```
+
+**Root Cause:** The `resume_session` handler updates the file watcher but the tmux session either:
+1. Failed to start silently
+2. Started but died before voice input arrived
+3. The `start_session(resume_id=...)` flow has a bug
+
+**E2E Test Gap:** The E2E test only tests `new_session`, not `resume_session`. This is a critical oversight - resuming existing sessions is the primary real-world use case.
+
+**Fix Required:**
+1. Debug why `start_session(resume_id=...)` isn't creating a persistent tmux session
+2. Add E2E test coverage for `resume_session` flow
+3. Add error handling/logging when resume fails
+
+**Files:**
+- `voice_server/ios_server.py` - handle_resume_session
+- `voice_server/tmux_controller.py` - start_session with resume_id
+- `ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/E2EFullConversationFlowTests.swift` - needs resume test
+
+---
+
 ## Summary
 
 | Task | Description | Files Changed |
@@ -1400,5 +1525,7 @@ git commit -m "fix: update remaining VSCode references to tmux"
 | 9 | Update E2E Tests | 1 file (renamed) |
 | 10 | Clean Up | 3 files, -1 file |
 | 11 | Fix Remaining VSCode References | 3 files |
+| 12 | Fix E2E Tests to Test Real Behavior | 3 files |
+| 13 | **Fix E2E Test Timing Issue** | 1 file |
 
-**Total:** ~18 files modified, 2 created, 2 deleted
+**Total:** ~18 files modified, 2 created, 3 deleted

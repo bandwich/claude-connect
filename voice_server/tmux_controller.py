@@ -1,5 +1,6 @@
 """Tmux-based Claude Code session control"""
 
+import os
 import subprocess
 from typing import Optional
 
@@ -84,34 +85,26 @@ class TmuxController:
         Returns:
             True if sent successfully
         """
-        # Send text and Enter as separate calls - combining them causes
-        # tmux to misinterpret Enter as a literal string
-        result1 = subprocess.run(
-            ["tmux", "send-keys", "-t", self.SESSION_NAME, text],
-            capture_output=True,
-            text=True
-        )
-        if result1.returncode != 0:
-            return False
+        # Must send text and Enter as a single shell command for it to work
+        # Escape single quotes in text for shell safety
+        escaped_text = text.replace("'", "'\"'\"'")
+        cmd = f"tmux send-keys -t {self.SESSION_NAME} '{escaped_text}' && tmux send-keys -t {self.SESSION_NAME} Enter"
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        return result.returncode == 0
 
-        result2 = subprocess.run(
-            ["tmux", "send-keys", "-t", self.SESSION_NAME, "Enter"],
-            capture_output=True,
-            text=True
-        )
-        return result2.returncode == 0
-
-    def capture_pane(self) -> Optional[str]:
+    def capture_pane(self, include_history: bool = True) -> Optional[str]:
         """Capture the current pane content
+
+        Args:
+            include_history: If True, capture scrollback buffer too
 
         Returns:
             Pane content as string, or None if session doesn't exist
         """
-        result = subprocess.run(
-            ["tmux", "capture-pane", "-t", self.SESSION_NAME, "-p"],
-            capture_output=True,
-            text=True
-        )
+        cmd = ["tmux", "capture-pane", "-t", self.SESSION_NAME, "-p"]
+        if include_history:
+            cmd.extend(["-S", "-"])  # Capture from start of scrollback
+        result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
             return None
         return result.stdout

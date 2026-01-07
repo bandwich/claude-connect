@@ -24,23 +24,20 @@ final class E2EFullConversationFlowTests: E2ETestBase {
     ///
     /// This single test catches integration issues that isolated tests miss.
     func test_complete_conversation_flow_with_all_message_types() throws {
+        // Start Claude session (navigateToTestSession verifies tmux is running)
         navigateToTestSession()
 
-        // Verify starting state
         XCTAssertTrue(waitForVoiceState("Idle", timeout: 5), "Should start in Idle")
 
         // ============================================================
-        // PHASE 1: Basic voice input → text response (REAL FLOW)
+        // PHASE 1: Basic voice input → text response
         // ============================================================
         print("📍 PHASE 1: Basic conversation turn")
 
-        // Send voice input via WebSocket (goes to tmux)
-        sendVoiceInput("Hello Claude, I need help with my project")
+        let testInput1 = "Hello Claude I need help with my project"
+        sendVoiceInput(testInput1)
+        XCTAssertTrue(verifyInputInTmux(testInput1, timeout: 10), "Phase 1: Voice input must appear in tmux pane")
 
-        // Wait for input to be processed
-        sleep(1)
-
-        // Inject assistant response (simulates Claude writing to transcript)
         injectAssistantResponse("Hi! I'd be happy to help. What would you like to work on?")
 
         XCTAssertTrue(waitForVoiceState("Speaking", timeout: 10), "Phase 1: Should speak response")

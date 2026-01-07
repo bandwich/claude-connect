@@ -34,9 +34,12 @@ class E2ETestBase: XCTestCase {
     }()
 
     /// Test fixture paths for sync-sessions E2E tests
+    /// Folder names encode actual paths: -tmp-e2e_test_project1 decodes to /tmp/e2e_test_project1
     let testProjectsDir = "/Users/aaron/.claude/projects"
-    let testProject1Path = "/Users/aaron/.claude/projects/-e2e_test_project1"
-    let testProject2Path = "/Users/aaron/.claude/projects/-e2e_test_project2"
+    let testProject1Path = "/Users/aaron/.claude/projects/-tmp-e2e_test_project1"
+    let testProject2Path = "/Users/aaron/.claude/projects/-tmp-e2e_test_project2"
+    let testProject1ActualPath = "/tmp/e2e_test_project1"
+    let testProject2ActualPath = "/tmp/e2e_test_project2"
 
     var app: XCUIApplication! {
         return Self.app
@@ -271,7 +274,7 @@ class E2ETestBase: XCTestCase {
 
     /// Inject assistant response to transcript file.
     /// This simulates Claude's output for testing the file watcher -> TTS -> audio streaming flow.
-    /// Note: This is acceptable for E2E tests since we can't run real Claude, but we can verify
+    /// Note: This is acceptable for E2E tests since we can't run Claude, but we can verify
     /// the rest of the pipeline (file watching, TTS, audio streaming) works correctly.
     func injectAssistantResponse(_ text: String) {
         guard let transcriptPath = transcriptPath else {
@@ -358,6 +361,52 @@ class E2ETestBase: XCTestCase {
             usleep(500000) // Check every 500ms
         }
         return false
+    }
+
+    /// Wait for Claude Code to be ready to accept input
+    /// Polls tmux pane looking for Claude's prompt indicator (❯ or the input box)
+    /// Returns true when ready, false on timeout
+    func waitForClaudeReady(timeout: TimeInterval = 15.0) -> Bool {
+        let startTime = Date()
+        // Claude Code shows these indicators when ready for input:
+        // - "❯" prompt character
+        // - "╭─" box drawing (input area border)
+        let readyIndicators = ["❯", "╭─", "│ >"]
+
+        print("⏳ Waiting for Claude Code to be ready...")
+
+        while Date().timeIntervalSince(startTime) < timeout {
+            if let content = captureTmuxPane() {
+                for indicator in readyIndicators {
+                    if content.contains(indicator) {
+                        let elapsed = Date().timeIntervalSince(startTime)
+                        print("✓ Claude ready after \(String(format: "%.1f", elapsed))s (found '\(indicator)')")
+                        return true
+                    }
+                }
+            }
+            usleep(500000) // Check every 500ms
+        }
+
+        print("✗ Claude not ready after \(timeout)s timeout")
+        return false
+    }
+
+    /// Tell the server which transcript file to watch
+    func setServerTranscriptPath(_ path: String) {
+        let httpPort = testServerPort + 1
+        let url = URL(string: "http://\(testServerHost):\(httpPort)/set_transcript")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["path": path])
+
+        let semaphore = DispatchSemaphore(value: 0)
+        URLSession.shared.dataTask(with: request) { _, _, _ in
+            semaphore.signal()
+        }.resume()
+
+        _ = semaphore.wait(timeout: .now() + 5)
     }
 
     // MARK: - Permission Request Helpers
@@ -498,11 +547,20 @@ class E2ETestBase: XCTestCase {
 
     // MARK: - Navigation Helpers
 
+    /// Navigate to a test project and start a Claude session
     func navigateToTestSession() {
-        let projectText = app.staticTexts["e2e_test_project"]
+        // Tell server to watch our test transcript file BEFORE starting session
+        // This ensures the file watcher is ready when Claude starts
+        if let path = transcriptPath {
+            setServerTranscriptPath(path)
+        }
+
+        // Navigate to the test project (UI shows decoded name, not folder name)
+        let projectText = app.staticTexts["e2e_test_project1"]
         if projectText.waitForExistence(timeout: 5) {
             projectText.tap()
         } else {
+            // Fall back to first project if test project not found
             let firstProject = app.cells.firstMatch
             if firstProject.waitForExistence(timeout: 5) {
                 firstProject.tap()
@@ -511,17 +569,27 @@ class E2ETestBase: XCTestCase {
 
         sleep(1)  // Wait for sessions list to load
 
-        let testSession = app.staticTexts["E2E Test Session"]
-        if testSession.waitForExistence(timeout: 5) {
-            testSession.tap()
+        // Tap "New Session" button to start fresh Claude (not resume fake session)
+        let newSessionButton = app.buttons["New Session"]
+        if newSessionButton.waitForExistence(timeout: 5) {
+            newSessionButton.tap()
         } else {
-            let firstSession = app.cells.firstMatch
-            if firstSession.waitForExistence(timeout: 5) {
-                firstSession.tap()
-            }
+            XCTFail("New Session button not found - cannot start Claude")
         }
 
-        sleep(2)  // Wait for session view to load
+        // Verify tmux session started
+        XCTAssertTrue(verifyTmuxSessionRunning(), "Tmux session should be running after new session")
+
+        // Wait for Claude Code to fully initialize and be ready for input
+        // This replaces the fixed 5s sleep with a proper ready check
+        XCTAssertTrue(waitForClaudeReady(timeout: 15.0), "Claude Code should be ready to accept input")
+    }
+
+    /// Verify tmux is running and ready for input
+    /// Call this AFTER navigateToTestSession() to ensure real backend is ready
+    func verifyTmuxReadyForInput() {
+        XCTAssertTrue(verifyTmuxSessionRunning(), "Tmux session must be running before sending input")
+        print("✓ Verified: tmux session is running and ready")
     }
 
     // MARK: - Test Fixtures for Sync-Sessions
@@ -529,6 +597,11 @@ class E2ETestBase: XCTestCase {
     func createTestFixtures() {
         let fileManager = FileManager.default
 
+        // Create actual project directories (where Claude will run)
+        try? fileManager.createDirectory(atPath: testProject1ActualPath, withIntermediateDirectories: true)
+        try? fileManager.createDirectory(atPath: testProject2ActualPath, withIntermediateDirectories: true)
+
+        // Create session data in .claude/projects/ (encoded folder names)
         try? fileManager.createDirectory(atPath: testProject1Path, withIntermediateDirectories: true)
 
         let session1 = """
@@ -556,6 +629,8 @@ class E2ETestBase: XCTestCase {
         let fileManager = FileManager.default
         try? fileManager.removeItem(atPath: testProject1Path)
         try? fileManager.removeItem(atPath: testProject2Path)
+        try? fileManager.removeItem(atPath: testProject1ActualPath)
+        try? fileManager.removeItem(atPath: testProject2ActualPath)
     }
 }
 
