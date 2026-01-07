@@ -125,7 +125,21 @@ class E2ETestBase: XCTestCase {
             settingsButton.tap()
         }
 
+        // Wait for Settings sheet to fully load (especially on first launch)
+        sleep(1)
+
+        // First, ensure Connection section is expanded (may be collapsed on first launch)
         let serverIPField = app.textFields["Server IP Address"]
+        if !serverIPField.waitForExistence(timeout: 2) {
+            // Section might be collapsed - try to expand it
+            let connectionHeader = app.staticTexts["Connection"]
+            if connectionHeader.waitForExistence(timeout: 2) {
+                connectionHeader.tap()
+                sleep(1)  // Wait for section to expand
+            }
+        }
+
+        // Now look for server IP field with longer timeout
         if serverIPField.waitForExistence(timeout: 5) {
             serverIPField.tap()
 
@@ -138,14 +152,6 @@ class E2ETestBase: XCTestCase {
         }
 
         let connectButton = app.buttons["Connect"]
-        if !connectButton.exists {
-            let connectionHeader = app.staticTexts["Connection"]
-            if connectionHeader.exists {
-                connectionHeader.tap()
-                sleep(1)  // Wait for section to expand
-            }
-        }
-
         if connectButton.waitForExistence(timeout: 5) {
             connectButton.tap()
         }

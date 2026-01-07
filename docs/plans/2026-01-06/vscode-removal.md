@@ -1292,6 +1292,99 @@ git commit -m "docs: update documentation for tmux-based architecture"
 
 ---
 
+## Task 11: Fix Remaining VSCode References
+
+**Files:**
+- Modify: `ios-voice-app/README.md`
+- Modify: `ios-voice-app/ClaudeVoice/run_e2e_tests.sh`
+- Modify: `ios-voice-app/ClaudeVoice/ClaudeVoice/Views/SessionView.swift`
+
+**Analysis:**
+
+| File | Line | Issue | Severity |
+|------|------|-------|----------|
+| `ios-voice-app/README.md` | 3, 122, 168 | Describes old VSCode/AppleScript architecture | Medium |
+| `run_e2e_tests.sh` | 32 | `E2EVSCodeFlowTests` in ALL_SUITES - **will break test runner** | **High** |
+| `SessionView.swift` | 199 | Comment: "Auto-resume session in VSCode" | Low |
+| `SessionView.swift` | 320 | Comment: "vscode_status broadcast" | Low |
+
+**Step 1: Fix run_e2e_tests.sh (CRITICAL)**
+
+Change line 32 from:
+```bash
+    "E2EVSCodeFlowTests"
+```
+to:
+```bash
+    "E2ESessionFlowTests"
+```
+
+**Step 2: Update SessionView.swift comments**
+
+Line 199 - change:
+```swift
+// Auto-resume session in VSCode (only for existing sessions)
+```
+to:
+```swift
+// Auto-resume session in tmux (only for existing sessions)
+```
+
+Line 320 - change:
+```swift
+// Session synced - vscode_status broadcast will update activeSessionId
+```
+to:
+```swift
+// Session synced - connection_status broadcast will update activeSessionId
+```
+
+**Step 3: Update ios-voice-app/README.md**
+
+Line 3 - change:
+```markdown
+iOS - hands-free voice interaction with Claude Code via VSCode
+```
+to:
+```markdown
+iOS - hands-free voice interaction with Claude Code via tmux
+```
+
+Line 122 - change:
+```
+├─ Sends to VS Code (AppleScript)
+```
+to:
+```
+├─ Sends to tmux session
+```
+
+Line 168 - change:
+```markdown
+- Sends text to VS Code via AppleScript (clipboard + paste)
+```
+to:
+```markdown
+- Sends text to Claude Code via tmux
+```
+
+**Step 4: Run iOS unit tests to verify**
+
+```bash
+cd ios-voice-app/ClaudeVoice && xcodebuild test -scheme ClaudeVoice -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:ClaudeVoiceTests 2>&1 | tail -5
+```
+
+Expected: TEST SUCCEEDED
+
+**Step 5: Commit**
+
+```bash
+git add ios-voice-app/README.md ios-voice-app/ClaudeVoice/run_e2e_tests.sh ios-voice-app/ClaudeVoice/ClaudeVoice/Views/SessionView.swift
+git commit -m "fix: update remaining VSCode references to tmux"
+```
+
+---
+
 ## Summary
 
 | Task | Description | Files Changed |
@@ -1306,5 +1399,6 @@ git commit -m "docs: update documentation for tmux-based architecture"
 | 8 | Update iOS Tests | 2 files |
 | 9 | Update E2E Tests | 1 file (renamed) |
 | 10 | Clean Up | 3 files, -1 file |
+| 11 | Fix Remaining VSCode References | 3 files |
 
-**Total:** ~15 files modified, 2 created, 2 deleted
+**Total:** ~18 files modified, 2 created, 2 deleted
