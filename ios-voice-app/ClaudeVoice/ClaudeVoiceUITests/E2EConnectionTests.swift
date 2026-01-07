@@ -73,7 +73,10 @@ final class E2EConnectionTests: E2ETestBase {
         navigateToTestSession()
         XCTAssertTrue(waitForVoiceState("Idle", timeout: 5), "Should be in idle state")
 
-        simulateConversationTurn(userInput: "Test", assistantResponse: "Test after reconnect")
+        // Send voice input and inject response (real flow)
+        sendVoiceInput("Test")
+        sleep(1)
+        injectAssistantResponse("Test after reconnect")
         XCTAssertTrue(waitForVoiceState("Speaking", timeout: 10), "Should work after reconnect")
     }
 }

@@ -2,7 +2,8 @@
 //  E2ESessionFlowTests.swift
 //  ClaudeVoiceUITests
 //
-//  Comprehensive session sync test covering all sync scenarios
+//  Comprehensive session sync test covering all sync scenarios.
+//  IMPORTANT: These tests verify REAL behavior - tmux sessions must actually start.
 //
 
 import XCTest
@@ -10,7 +11,7 @@ import XCTest
 final class E2ESessionFlowTests: E2ETestBase {
 
     /// Complete session sync flow test
-    /// Tests: Connect status -> Session sync -> Active indicators -> New session -> Switch sessions
+    /// Tests: Connect status -> Session sync -> Tmux verification -> Active indicators -> New session -> Switch sessions
     func test_complete_session_sync_flow() throws {
         // ============================================================
         // PHASE 1: Connection Status on Connect
@@ -35,6 +36,12 @@ final class E2ESessionFlowTests: E2ETestBase {
         // Should show synced indicator
         let syncedIndicator = app.images["Synced"]
         XCTAssertTrue(syncedIndicator.waitForExistence(timeout: 10), "Should show synced indicator")
+
+        // CRITICAL: Verify tmux session is actually running on server
+        // This ensures the sync actually started a real tmux session, not just updated UI
+        sleep(2)  // Wait for tmux to start
+        XCTAssertTrue(verifyTmuxSessionRunning(), "Tmux session should be running after sync")
+        print("✓ Verified: tmux session is running")
 
         // Talk button should be enabled when synced
         let talkButton = app.buttons["Tap to Talk"]
@@ -66,6 +73,11 @@ final class E2ESessionFlowTests: E2ETestBase {
         // Should sync to new session
         XCTAssertTrue(syncedIndicator.waitForExistence(timeout: 10), "Should sync new session")
 
+        // Verify tmux session is still running (session switch)
+        sleep(2)
+        XCTAssertTrue(verifyTmuxSessionRunning(), "Tmux session should still be running after switch")
+        print("✓ Verified: tmux session running after session switch")
+
         // Go back - only session2 should have active indicator
         app.navigationBars.buttons.firstMatch.tap()
 
@@ -84,10 +96,15 @@ final class E2ESessionFlowTests: E2ETestBase {
         // New session should sync
         XCTAssertTrue(syncedIndicator.waitForExistence(timeout: 10), "New session should show synced")
 
+        // Verify tmux session is running for new session
+        sleep(2)
+        XCTAssertTrue(verifyTmuxSessionRunning(), "Tmux session should be running for new session")
+        print("✓ Verified: tmux session running for new session")
+
         // Talk button should be enabled
         XCTAssertTrue(talkButton.waitForExistence(timeout: 5))
         XCTAssertTrue(talkButton.isEnabled, "Talk button should be enabled for new session")
 
-        print("Complete session sync flow test passed!")
+        print("✅ Complete session sync flow test passed!")
     }
 }

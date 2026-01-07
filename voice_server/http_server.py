@@ -1,11 +1,20 @@
 # voice_server/http_server.py
-"""HTTP server for Claude Code permission hooks"""
+"""HTTP server for Claude Code permission hooks and E2E test support"""
 
 import json
 from aiohttp import web
 from permission_handler import PermissionHandler
 
 HTTP_PORT = 8766
+
+# Reference to tmux controller, set by VoiceServer
+_tmux_controller = None
+
+
+def set_tmux_controller(controller):
+    """Set the tmux controller reference for status endpoints"""
+    global _tmux_controller
+    _tmux_controller = controller
 
 
 def create_http_app(permission_handler: PermissionHandler) -> web.Application:
@@ -87,10 +96,33 @@ def create_http_app(permission_handler: PermissionHandler) -> web.Application:
         """Health check endpoint"""
         return web.json_response({"status": "ok"})
 
+    async def handle_tmux_status(request: web.Request) -> web.Response:
+        """Check tmux session status - for E2E tests"""
+        if _tmux_controller is None:
+            return web.json_response({"error": "tmux controller not set"}, status=500)
+
+        return web.json_response({
+            "available": _tmux_controller.is_available(),
+            "session_exists": _tmux_controller.session_exists()
+        })
+
+    async def handle_capture_pane(request: web.Request) -> web.Response:
+        """Capture tmux pane content - for E2E tests to verify input arrived"""
+        if _tmux_controller is None:
+            return web.json_response({"error": "tmux controller not set"}, status=500)
+
+        content = _tmux_controller.capture_pane()
+        if content is None:
+            return web.json_response({"error": "no session"}, status=404)
+
+        return web.json_response({"content": content})
+
     app = web.Application()
     app.router.add_post("/permission", handle_permission)
     app.router.add_post("/permission_resolved", handle_permission_resolved)
     app.router.add_get("/health", handle_health)
+    app.router.add_get("/tmux_status", handle_tmux_status)
+    app.router.add_get("/capture_pane", handle_capture_pane)
 
     return app
 

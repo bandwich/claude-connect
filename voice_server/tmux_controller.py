@@ -100,3 +100,18 @@ class TmuxController:
             text=True
         )
         return result2.returncode == 0
+
+    def capture_pane(self) -> Optional[str]:
+        """Capture the current pane content
+
+        Returns:
+            Pane content as string, or None if session doesn't exist
+        """
+        result = subprocess.run(
+            ["tmux", "capture-pane", "-t", self.SESSION_NAME, "-p"],
+            capture_output=True,
+            text=True
+        )
+        if result.returncode != 0:
+            return None
+        return result.stdout

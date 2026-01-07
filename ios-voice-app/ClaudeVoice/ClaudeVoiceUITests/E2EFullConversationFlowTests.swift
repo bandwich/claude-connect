@@ -5,6 +5,11 @@
 //  Comprehensive E2E test simulating a realistic multi-turn conversation
 //  with all message types: voice input, text responses, permissions, questions
 //
+//  IMPORTANT: These tests use REAL flows where possible:
+//  - Voice input goes through WebSocket -> tmux (verifiable)
+//  - Assistant responses are injected to transcript (simulating Claude's output)
+//  - TTS and audio streaming are real
+//
 
 import XCTest
 
@@ -12,7 +17,7 @@ final class E2EFullConversationFlowTests: E2ETestBase {
 
     /// Comprehensive test simulating a realistic development conversation
     /// Tests the FULL flow in sequence:
-    /// 1. Voice input → text response (with TTS)
+    /// 1. Voice input → tmux → text response (with TTS)
     /// 2. Voice input → permission request → approve → continued response
     /// 3. Voice input → question prompt → answer → continued response
     /// 4. Voice input → multiple permissions in sequence
@@ -25,14 +30,18 @@ final class E2EFullConversationFlowTests: E2ETestBase {
         XCTAssertTrue(waitForVoiceState("Idle", timeout: 5), "Should start in Idle")
 
         // ============================================================
-        // PHASE 1: Basic voice input → text response
+        // PHASE 1: Basic voice input → text response (REAL FLOW)
         // ============================================================
         print("📍 PHASE 1: Basic conversation turn")
 
-        simulateConversationTurn(
-            userInput: "Hello Claude, I need help with my project",
-            assistantResponse: "Hi! I'd be happy to help. What would you like to work on?"
-        )
+        // Send voice input via WebSocket (goes to tmux)
+        sendVoiceInput("Hello Claude, I need help with my project")
+
+        // Wait for input to be processed
+        sleep(1)
+
+        // Inject assistant response (simulates Claude writing to transcript)
+        injectAssistantResponse("Hi! I'd be happy to help. What would you like to work on?")
 
         XCTAssertTrue(waitForVoiceState("Speaking", timeout: 10), "Phase 1: Should speak response")
         XCTAssertTrue(waitForVoiceState("Idle", timeout: 15), "Phase 1: Should return to Idle")
@@ -45,7 +54,6 @@ final class E2EFullConversationFlowTests: E2ETestBase {
         print("📍 PHASE 2: Permission flow (Bash)")
 
         sendVoiceInput("Please install the dependencies")
-        injectUserMessage("Please install the dependencies")
 
         sleep(1)
 
@@ -78,7 +86,6 @@ final class E2EFullConversationFlowTests: E2ETestBase {
         print("📍 PHASE 3: Edit permission flow")
 
         sendVoiceInput("Add a new utility function")
-        injectUserMessage("Add a new utility function")
 
         sleep(1)
 
@@ -110,7 +117,6 @@ final class E2EFullConversationFlowTests: E2ETestBase {
         print("📍 PHASE 4: Question flow")
 
         sendVoiceInput("Set up the database")
-        injectUserMessage("Set up the database")
 
         sleep(1)
 
@@ -145,7 +151,6 @@ final class E2EFullConversationFlowTests: E2ETestBase {
         print("📍 PHASE 5: Sequential permissions")
 
         sendVoiceInput("Create the schema and seed the database")
-        injectUserMessage("Create the schema and seed the database")
 
         sleep(1)
 

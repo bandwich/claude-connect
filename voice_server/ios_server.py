@@ -25,7 +25,7 @@ from content_models import TextBlock, ThinkingBlock, ToolUseBlock, ContentBlock,
 from session_manager import SessionManager
 from tmux_controller import TmuxController
 from permission_handler import PermissionHandler
-from http_server import start_http_server
+from http_server import start_http_server, set_tmux_controller
 
 # Configuration
 PORT = 8765
@@ -71,8 +71,11 @@ class TranscriptHandler(FileSystemEventHandler):
             return
 
         # Only process events from the expected session file
-        if self.expected_session_file and event.src_path != self.expected_session_file:
-            return
+        # Use realpath to normalize paths - watchdog may report resolved paths
+        # while expected_session_file uses unresolved paths (e.g., /tmp vs /private/tmp on macOS)
+        if self.expected_session_file:
+            if os.path.realpath(event.src_path) != os.path.realpath(self.expected_session_file):
+                return
 
         current_time = time.time()
         if current_time - self.last_modified < 0.05:
@@ -186,6 +189,7 @@ class VoiceServer:
         self.last_content_blocks = []  # New: store for future reference
         self.session_manager = SessionManager()
         self.tmux = TmuxController()
+        set_tmux_controller(self.tmux)  # Enable HTTP endpoints to access tmux
         self.permission_handler = PermissionHandler()
         self.projects_base_path = PROJECTS_BASE_PATH
         self.active_session_id = None  # Track which session is active in tmux
@@ -614,8 +618,8 @@ class VoiceServer:
         self.permission_handler.websocket_clients.add(websocket)
         print(f"Client connected. Total clients: {len(self.clients)}")
 
-        # Reset active session on new client connect to avoid stale indicator
-        self.active_session_id = None
+        # Preserve active_session_id across reconnects - app receives current state
+        # via send_connection_status below
 
         try:
             await self.send_status(websocket, "idle", "Connected")

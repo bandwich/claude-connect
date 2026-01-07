@@ -269,6 +269,10 @@ class E2ETestBase: XCTestCase {
         sleep(1)  // Wait for server to receive WebSocket message
     }
 
+    /// Inject assistant response to transcript file.
+    /// This simulates Claude's output for testing the file watcher -> TTS -> audio streaming flow.
+    /// Note: This is acceptable for E2E tests since we can't run real Claude, but we can verify
+    /// the rest of the pipeline (file watching, TTS, audio streaming) works correctly.
     func injectAssistantResponse(_ text: String) {
         guard let transcriptPath = transcriptPath else {
             XCTFail("No transcript path")
@@ -302,58 +306,58 @@ class E2ETestBase: XCTestCase {
         usleep(100000) // 100ms
     }
 
-    func injectUserMessage(_ text: String) {
-        guard let transcriptPath = transcriptPath else {
-            XCTFail("No transcript path")
-            return
-        }
+    // MARK: - Tmux Verification Methods
 
-        let entry: [String: Any] = [
-            "role": "user",
-            "content": text,
-            "timestamp": Date().timeIntervalSince1970
-        ]
+    /// Verify tmux session is running on the server
+    func verifyTmuxSessionRunning() -> Bool {
+        let httpPort = testServerPort + 1
+        let url = URL(string: "http://\(testServerHost):\(httpPort)/tmux_status")!
+        let semaphore = DispatchSemaphore(value: 0)
+        var sessionExists = false
 
-        do {
-            let jsonData = try JSONSerialization.data(withJSONObject: entry)
-            guard let jsonString = String(data: jsonData, encoding: .utf8) else {
-                XCTFail("Failed to encode JSON")
-                return
+        URLSession.shared.dataTask(with: url) { data, _, _ in
+            if let data = data,
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let exists = json["session_exists"] as? Bool {
+                sessionExists = exists
             }
+            semaphore.signal()
+        }.resume()
 
-            let lineData = (jsonString + "\n").data(using: .utf8)!
-            let fileURL = URL(fileURLWithPath: transcriptPath)
-            let handle = try FileHandle(forWritingTo: fileURL)
-            try handle.seekToEnd()
-            try handle.write(contentsOf: lineData)
-            try handle.close()
-        } catch {
-            XCTFail("Failed to inject user message: \(error)")
-        }
-
-        // Brief delay for file system sync
-        usleep(100000) // 100ms
+        _ = semaphore.wait(timeout: .now() + 5)
+        return sessionExists
     }
 
-    func simulateConversationTurn(userInput: String, assistantResponse: String) {
-        print("📝 Simulating conversation turn: '\(userInput)' -> '\(assistantResponse)'")
+    /// Capture tmux pane content to verify input arrived
+    func captureTmuxPane() -> String? {
+        let httpPort = testServerPort + 1
+        let url = URL(string: "http://\(testServerHost):\(httpPort)/capture_pane")!
+        let semaphore = DispatchSemaphore(value: 0)
+        var content: String?
 
-        // Send voice input via WebSocket
-        sendVoiceInput(userInput)
+        URLSession.shared.dataTask(with: url) { data, _, _ in
+            if let data = data,
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let paneContent = json["content"] as? String {
+                content = paneContent
+            }
+            semaphore.signal()
+        }.resume()
 
-        // Wait for server to process WebSocket message
-        usleep(500000) // 500ms
+        _ = semaphore.wait(timeout: .now() + 5)
+        return content
+    }
 
-        // Inject user message to transcript
-        injectUserMessage(userInput)
-
-        // Wait for file watcher to detect
-        usleep(200000) // 200ms
-
-        // Inject assistant response
-        injectAssistantResponse(assistantResponse)
-
-        // Don't wait here - let the test's waitForVoiceState do the waiting
+    /// Verify that text appears in tmux pane (voice input arrived)
+    func verifyInputInTmux(_ text: String, timeout: TimeInterval = 5.0) -> Bool {
+        let startTime = Date()
+        while Date().timeIntervalSince(startTime) < timeout {
+            if let content = captureTmuxPane(), content.contains(text) {
+                return true
+            }
+            usleep(500000) // Check every 500ms
+        }
+        return false
     }
 
     // MARK: - Permission Request Helpers
