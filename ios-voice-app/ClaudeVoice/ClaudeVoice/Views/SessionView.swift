@@ -63,7 +63,7 @@ struct SessionView: View {
                     HStack(spacing: 8) {
                         ProgressView()
                             .scaleEffect(0.8)
-                        Text("Syncing with VSCode...")
+                        Text("Syncing...")
                     }
                     .font(.caption)
                     .foregroundColor(.secondary)
@@ -119,7 +119,7 @@ struct SessionView: View {
                     } else if isSessionSynced {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundColor(.green)
-                            .accessibilityLabel("Synced with VSCode")
+                            .accessibilityLabel("Synced")
                     } else if syncError != nil {
                         Image(systemName: "exclamationmark.circle.fill")
                             .foregroundColor(.red)
@@ -179,9 +179,9 @@ struct SessionView: View {
 
     private var isSessionSynced: Bool {
         if session.isNewSession {
-            // New session is synced when VSCode is connected and no specific session is active
+            // New session is synced when connected and no specific session is active
             // (meaning the new claude session we just started is running)
-            return webSocketManager.vscodeConnected && webSocketManager.activeSessionId == nil
+            return webSocketManager.connected && webSocketManager.activeSessionId == nil
         } else {
             // Resumed session is synced when activeSessionId matches
             return webSocketManager.activeSessionId == session.id
@@ -305,9 +305,9 @@ struct SessionView: View {
     private func syncSession() {
         // Don't skip even if appears synced - server state may be stale
 
-        // Check if VSCode is connected
-        guard webSocketManager.vscodeConnected else {
-            syncError = "VSCode not connected"
+        // Check if connected
+        guard webSocketManager.connected else {
+            syncError = "Not connected"
             return
         }
 
