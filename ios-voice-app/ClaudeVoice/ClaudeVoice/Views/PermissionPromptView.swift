@@ -76,7 +76,7 @@ struct PermissionPromptView: View {
             if let command = request.toolInput?.command {
                 ScrollView(.horizontal, showsIndicators: false) {
                     Text(command)
-                        .font(.system(.body, design: .monospaced))
+                        .font(.system(.subheadline, design: .monospaced))
                         .padding()
                         .background(Color(.systemGray6))
                         .cornerRadius(8)
@@ -126,7 +126,7 @@ struct PermissionPromptView: View {
                 }
             } else {
                 // Text input
-                TextField("Enter your response...", text: $textInput)
+                TextField("Type something", text: $textInput)
                     .textFieldStyle(.roundedBorder)
                     .padding()
             }
