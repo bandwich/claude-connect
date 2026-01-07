@@ -1,22 +1,21 @@
 //
-//  E2EVSCodeFlowTests.swift
+//  E2ESessionFlowTests.swift
 //  ClaudeVoiceUITests
 //
-//  Comprehensive VSCode sync test covering all sync scenarios
-//  Replaces: E2EVSCodeConnectionTests (5 separate tests)
+//  Comprehensive session sync test covering all sync scenarios
 //
 
 import XCTest
 
-final class E2EVSCodeFlowTests: E2ETestBase {
+final class E2ESessionFlowTests: E2ETestBase {
 
-    /// Complete VSCode sync flow test
-    /// Tests: Connect status → Session sync → Active indicators → New session → Switch sessions
-    func test_complete_vscode_sync_flow() throws {
+    /// Complete session sync flow test
+    /// Tests: Connect status -> Session sync -> Active indicators -> New session -> Switch sessions
+    func test_complete_session_sync_flow() throws {
         // ============================================================
-        // PHASE 1: VSCode Status on Connect
+        // PHASE 1: Connection Status on Connect
         // ============================================================
-        print("📍 PHASE 1: VSCode connection status")
+        print("Phase 1: Connection status")
 
         // After connection (setUp), should be able to see projects
         let project1 = app.staticTexts["e2e_test_project1"]
@@ -25,7 +24,7 @@ final class E2EVSCodeFlowTests: E2ETestBase {
         // ============================================================
         // PHASE 2: Session Sync Flow
         // ============================================================
-        print("📍 PHASE 2: Session sync")
+        print("Phase 2: Session sync")
 
         project1.tap()
 
@@ -34,7 +33,7 @@ final class E2EVSCodeFlowTests: E2ETestBase {
         session1.tap()
 
         // Should show synced indicator
-        let syncedIndicator = app.images["Synced with VSCode"]
+        let syncedIndicator = app.images["Synced"]
         XCTAssertTrue(syncedIndicator.waitForExistence(timeout: 10), "Should show synced indicator")
 
         // Talk button should be enabled when synced
@@ -45,19 +44,19 @@ final class E2EVSCodeFlowTests: E2ETestBase {
         // ============================================================
         // PHASE 3: Active Session Indicator in List
         // ============================================================
-        print("📍 PHASE 3: Active session indicator")
+        print("Phase 3: Active session indicator")
 
         // Go back to sessions list
         app.navigationBars.buttons.firstMatch.tap()
 
         // The session should show active indicator
-        let activeIndicator = app.images["Active in VSCode"]
+        let activeIndicator = app.images["Active session"]
         XCTAssertTrue(activeIndicator.waitForExistence(timeout: 5), "Should show active indicator")
 
         // ============================================================
         // PHASE 4: Switch Sessions
         // ============================================================
-        print("📍 PHASE 4: Switch sessions")
+        print("Phase 4: Switch sessions")
 
         // Tap second session
         let session2 = app.staticTexts["How do I write a Swift function?"]
@@ -70,13 +69,13 @@ final class E2EVSCodeFlowTests: E2ETestBase {
         // Go back - only session2 should have active indicator
         app.navigationBars.buttons.firstMatch.tap()
 
-        let activeIndicators = app.images.matching(NSPredicate(format: "label == %@", "Active in VSCode"))
+        let activeIndicators = app.images.matching(NSPredicate(format: "label == %@", "Active session"))
         XCTAssertEqual(activeIndicators.count, 1, "Only one session should show active indicator")
 
         // ============================================================
         // PHASE 5: New Session Flow
         // ============================================================
-        print("📍 PHASE 5: New session")
+        print("Phase 5: New session")
 
         let newButton = app.buttons["New Session"]
         XCTAssertTrue(newButton.waitForExistence(timeout: 5))
@@ -89,6 +88,6 @@ final class E2EVSCodeFlowTests: E2ETestBase {
         XCTAssertTrue(talkButton.waitForExistence(timeout: 5))
         XCTAssertTrue(talkButton.isEnabled, "Talk button should be enabled for new session")
 
-        print("✅ Complete VSCode sync flow test passed!")
+        print("Complete session sync flow test passed!")
     }
 }
