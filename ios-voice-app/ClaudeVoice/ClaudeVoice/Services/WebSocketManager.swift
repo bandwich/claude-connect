@@ -11,7 +11,7 @@ class WebSocketManager: NSObject, ObservableObject {
         }
     }
 
-    @Published var vscodeConnected: Bool = false
+    @Published var connected: Bool = false
     @Published var activeSessionId: String? = nil
     @Published var outputState: ClaudeOutputState = .idle
 
@@ -22,7 +22,7 @@ class WebSocketManager: NSObject, ObservableObject {
     var onSessionsReceived: (([Session]) -> Void)?
     var onSessionHistoryReceived: (([SessionHistoryMessage]) -> Void)?
     var onSessionActionResult: ((SessionActionResponse) -> Void)?
-    var onVSCodeStatusReceived: ((VSCodeStatus) -> Void)?
+    var onConnectionStatusReceived: ((ConnectionStatus) -> Void)?
     var onPermissionRequest: ((PermissionRequest) -> Void)?
     var onPermissionResolved: ((PermissionResolved) -> Void)?
     @Published var pendingPermission: PermissionRequest? = nil
@@ -330,12 +330,12 @@ class WebSocketManager: NSObject, ObservableObject {
                 DispatchQueue.main.async {
                     self.onSessionActionResult?(actionResponse)
                 }
-            } else if let vscodeStatus = try? JSONDecoder().decode(VSCodeStatus.self, from: data) {
-                logToFile("✅ Decoded as VSCodeStatus: connected=\(vscodeStatus.vscodeConnected), session=\(vscodeStatus.activeSessionId ?? "none")")
+            } else if let connectionStatus = try? JSONDecoder().decode(ConnectionStatus.self, from: data) {
+                logToFile("Decoded as ConnectionStatus: connected=\(connectionStatus.connected), session=\(connectionStatus.activeSessionId ?? "none")")
                 DispatchQueue.main.async {
-                    self.vscodeConnected = vscodeStatus.vscodeConnected
-                    self.activeSessionId = vscodeStatus.activeSessionId
-                    self.onVSCodeStatusReceived?(vscodeStatus)
+                    self.connected = connectionStatus.connected
+                    self.activeSessionId = connectionStatus.activeSessionId
+                    self.onConnectionStatusReceived?(connectionStatus)
                 }
             } else if let permissionRequest = try? JSONDecoder().decode(PermissionRequest.self, from: data) {
                 logToFile("✅ Decoded as PermissionRequest: \(permissionRequest.requestId)")
@@ -386,11 +386,11 @@ class WebSocketManager: NSObject, ObservableObject {
                 DispatchQueue.main.async {
                     self.onSessionActionResult?(actionResponse)
                 }
-            } else if let vscodeStatus = try? JSONDecoder().decode(VSCodeStatus.self, from: data) {
+            } else if let connectionStatus = try? JSONDecoder().decode(ConnectionStatus.self, from: data) {
                 DispatchQueue.main.async {
-                    self.vscodeConnected = vscodeStatus.vscodeConnected
-                    self.activeSessionId = vscodeStatus.activeSessionId
-                    self.onVSCodeStatusReceived?(vscodeStatus)
+                    self.connected = connectionStatus.connected
+                    self.activeSessionId = connectionStatus.activeSessionId
+                    self.onConnectionStatusReceived?(connectionStatus)
                 }
             } else if let permissionRequest = try? JSONDecoder().decode(PermissionRequest.self, from: data) {
                 DispatchQueue.main.async {
