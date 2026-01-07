@@ -300,74 +300,52 @@ struct SessionModelTests {
     }
 }
 
-@Suite("VSCodeStatus Model Tests")
-struct VSCodeStatusModelTests {
+@Suite("ConnectionStatus Model Tests")
+struct ConnectionStatusModelTests {
 
-    @Test func testVSCodeStatusDecoding() throws {
+    @Test func testConnectionStatusDecoding() throws {
         let json = """
         {
-            "type": "vscode_status",
-            "vscode_connected": true,
-            "active_session_id": "abc123-def456"
+            "type": "connection_status",
+            "connected": true,
+            "active_session_id": "abc123"
         }
-        """
+        """.data(using: .utf8)!
 
-        let data = json.data(using: .utf8)!
-        let status = try JSONDecoder().decode(VSCodeStatus.self, from: data)
+        let status = try JSONDecoder().decode(ConnectionStatus.self, from: json)
 
-        #expect(status.type == "vscode_status")
-        #expect(status.vscodeConnected == true)
-        #expect(status.activeSessionId == "abc123-def456")
+        #expect(status.type == "connection_status")
+        #expect(status.connected == true)
+        #expect(status.activeSessionId == "abc123")
     }
 
-    @Test func testVSCodeStatusDecodingWithNullSession() throws {
+    @Test func testConnectionStatusDecodingWithNullSession() throws {
         let json = """
         {
-            "type": "vscode_status",
-            "vscode_connected": true,
+            "type": "connection_status",
+            "connected": true,
             "active_session_id": null
         }
-        """
+        """.data(using: .utf8)!
 
-        let data = json.data(using: .utf8)!
-        let status = try JSONDecoder().decode(VSCodeStatus.self, from: data)
+        let status = try JSONDecoder().decode(ConnectionStatus.self, from: json)
 
-        #expect(status.vscodeConnected == true)
+        #expect(status.connected == true)
         #expect(status.activeSessionId == nil)
     }
 
-    @Test func testVSCodeStatusDecodingDisconnected() throws {
+    @Test func testConnectionStatusDecodingDisconnected() throws {
         let json = """
         {
-            "type": "vscode_status",
-            "vscode_connected": false,
+            "type": "connection_status",
+            "connected": false,
             "active_session_id": null
         }
-        """
+        """.data(using: .utf8)!
 
-        let data = json.data(using: .utf8)!
-        let status = try JSONDecoder().decode(VSCodeStatus.self, from: data)
+        let status = try JSONDecoder().decode(ConnectionStatus.self, from: json)
 
-        #expect(status.vscodeConnected == false)
-        #expect(status.activeSessionId == nil)
-    }
-
-    @Test func testVSCodeStatusSnakeCaseMapping() throws {
-        // Verify snake_case keys map to camelCase properties
-        let json = """
-        {
-            "type": "vscode_status",
-            "vscode_connected": true,
-            "active_session_id": "test-session"
-        }
-        """
-
-        let data = json.data(using: .utf8)!
-        let status = try JSONDecoder().decode(VSCodeStatus.self, from: data)
-
-        // These properties use CodingKeys to map from snake_case
-        #expect(status.vscodeConnected == true)
-        #expect(status.activeSessionId == "test-session")
+        #expect(status.connected == false)
     }
 }
 
