@@ -9,7 +9,7 @@ iPhone App                         Mac Server
 ├─ Speech Recognition              ├─ WebSocket Server (port 8765)
 ├─ WebSocket Client ──────────────►├─ Receives voice input
 ├─ Audio Player ◄──────────────────├─ Streams TTS audio (Kokoro)
-├─ Session/Project Browser         ├─ VSCode integration (AppleScript)
+├─ Session/Project Browser         ├─ tmux session management
 └─ Message History Display         └─ Transcript file watching
 ```
 
@@ -25,7 +25,7 @@ voice_server/                  # Python server
 ├─ ios_server.py              # Main WebSocket server
 ├─ session_manager.py         # Claude Code session management
 ├─ tts_utils.py               # Kokoro TTS integration
-├─ vscode_controller.py       # AppleScript automation
+├─ tmux_controller.py         # Tmux session control
 └─ tests/                     # pytest test suite
 
 tests/e2e_support/            # E2E test utilities
@@ -172,4 +172,4 @@ The app displays Claude Code projects and sessions, allowing users to:
 - Browse projects (from `~/.claude/projects/`)
 - View sessions per project
 - See message history for each session
-- Open/resume sessions in VSCode
+- Open/resume sessions in tmux
