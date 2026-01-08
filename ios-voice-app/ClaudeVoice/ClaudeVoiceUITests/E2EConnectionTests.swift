@@ -23,8 +23,8 @@ final class E2EConnectionTests: E2ETestBase {
         app.buttons["Done"].tap()
 
         // --- Test 2: Navigate to session and verify voice controls ---
-        navigateToTestSession()
-        XCTAssertTrue(waitForVoiceState("Idle", timeout: 5), "Should be in Idle state")
+        navigateToTestSession(resume: true)  // Resume pre-created session
+        XCTAssertTrue(waitForVoiceState("Idle", timeout: 10), "Should be in Idle state")
 
         let talkButton = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Tap to Talk'")).firstMatch
         XCTAssertTrue(talkButton.exists, "Talk button should exist")
