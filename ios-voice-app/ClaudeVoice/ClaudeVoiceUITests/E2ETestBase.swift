@@ -243,21 +243,29 @@ class E2ETestBase: XCTestCase {
         let startTime = Date()
 
         // First, wait for state to change from Idle (response cycle started)
+        // We detect this by outputStatus appearing (shows "Thinking...", "Speaking...", etc.)
         var sawNonIdle = false
         while Date().timeIntervalSince(startTime) < timeout {
-            let voiceState = app.staticTexts["voiceState"]
             let outputStatus = app.staticTexts["outputStatus"]
 
             // Check if we're in a non-idle state (processing, speaking, etc.)
             if outputStatus.exists {
                 // outputStatus shown means outputState has statusText (thinking, speaking, etc.)
                 sawNonIdle = true
-                print("✓ Response cycle started (outputStatus: \(outputStatus.label))")
+                print("✓ Response cycle started (outputStatus visible)")
                 break
-            } else if voiceState.exists && voiceState.label != "Idle" {
-                sawNonIdle = true
-                print("✓ Response cycle started (voiceState: \(voiceState.label))")
-                break
+            }
+
+            // Also check if voiceState shows something other than Idle
+            // Use waitForExistence briefly to avoid race conditions
+            let voiceState = app.staticTexts["voiceState"]
+            if voiceState.waitForExistence(timeout: 0.1) {
+                let label = voiceState.label
+                if label != "Idle" {
+                    sawNonIdle = true
+                    print("✓ Response cycle started (voiceState: \(label))")
+                    break
+                }
             }
 
             usleep(250000)
@@ -268,21 +276,41 @@ class E2ETestBase: XCTestCase {
             return false
         }
 
-        // Now wait for state to return to Idle (cycle complete)
+        // Now wait for cycle to complete
+        // Cycle is complete when voiceState shows "Idle" (outputStatus gone)
+        var lastStatus = ""
         while Date().timeIntervalSince(startTime) < timeout {
+            let outputStatus = app.staticTexts["outputStatus"]
             let voiceState = app.staticTexts["voiceState"]
 
-            // voiceState shows "Idle" when outputState.statusText is nil (idle)
-            if voiceState.exists && voiceState.label == "Idle" {
-                let elapsed = Date().timeIntervalSince(startTime)
-                print("✓ Response cycle complete after \(String(format: "%.1f", elapsed))s")
-                return true
+            // Primary check: voiceState shows Idle (means outputStatus is gone)
+            if voiceState.waitForExistence(timeout: 0.1) {
+                let label = voiceState.label
+                if label == "Idle" {
+                    let elapsed = Date().timeIntervalSince(startTime)
+                    print("✓ Response cycle complete after \(String(format: "%.1f", elapsed))s")
+                    return true
+                }
+            }
+
+            // Debug: track what outputStatus shows
+            if outputStatus.exists {
+                let status = outputStatus.label
+                if status != lastStatus {
+                    print("  outputStatus: \(status)")
+                    lastStatus = status
+                }
             }
 
             usleep(250000)
         }
 
+        // Debug info on timeout
+        let outputStatus = app.staticTexts["outputStatus"]
+        let voiceState = app.staticTexts["voiceState"]
         print("✗ Response cycle did not complete within \(timeout)s")
+        print("  outputStatus exists: \(outputStatus.exists), label: \(outputStatus.exists ? outputStatus.label : "n/a")")
+        print("  voiceState exists: \(voiceState.exists), label: \(voiceState.exists ? voiceState.label : "n/a")")
         return false
     }
 
@@ -501,8 +529,39 @@ class E2ETestBase: XCTestCase {
 
     // MARK: - Navigation Helpers
 
+    /// Navigate back to Projects list from any screen
+    func navigateToProjectsList() {
+        // Try to navigate back to projects list by repeatedly tapping back buttons
+        for _ in 0..<5 {
+            // Check if we're already on Projects list
+            if app.navigationBars["Projects"].exists {
+                return
+            }
+
+            // Try to dismiss any sheets first
+            let doneButton = app.buttons["Done"]
+            if doneButton.exists {
+                doneButton.tap()
+                sleep(1)
+                continue
+            }
+
+            // Try back button
+            let backButton = app.navigationBars.buttons.element(boundBy: 0)
+            if backButton.exists && backButton.isEnabled {
+                backButton.tap()
+                sleep(1)
+            } else {
+                break
+            }
+        }
+    }
+
     /// Navigate to test project and start/resume a Claude session
     func navigateToTestSession(resume: Bool = false) {
+        // First, ensure we're at the projects list
+        navigateToProjectsList()
+
         // Find and tap test project
         let projectText = app.staticTexts[testProjectName]
         XCTAssertTrue(projectText.waitForExistence(timeout: 5), "Test project '\(testProjectName)' should exist")

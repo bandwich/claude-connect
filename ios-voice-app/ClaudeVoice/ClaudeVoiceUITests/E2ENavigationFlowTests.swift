@@ -11,6 +11,9 @@ final class E2ENavigationFlowTests: E2ETestBase {
 
     /// Complete navigation flow test
     func test_navigation_flow() throws {
+        // Ensure we start from projects list
+        navigateToProjectsList()
+
         // PHASE 1: Projects list
         print("📍 PHASE 1: Projects list")
 

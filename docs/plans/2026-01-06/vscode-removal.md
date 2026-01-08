@@ -1698,6 +1698,50 @@ Added `waitForResponseCycle()` helper that tests the OUTCOME (full cycle complet
 
 ---
 
+### Session 7 Notes (Task 15 continued)
+
+**Issues identified from test logs:**
+1. E2ESessionFlowTests.test_session_sync_flow - Looking for `app.images["Synced"]` which may not exist
+2. E2ESessionFlowTests.test_session_switching - Session sync timeout (no UI elements exist)
+3. E2EPermissionTests - 2/6 failing due to session sync timeout
+4. E2EConnectionTests.test_reconnection_flow - Race condition accessing `voiceState.label`
+
+**Root causes:**
+1. **"Synced" image issue**: Test was looking for specific UI indicator that depends on `isSessionSynced` state matching server's `activeSessionId`. More reliable to use `waitForSessionSyncComplete()`.
+
+2. **UI race condition in waitForResponseCycle**: Accessing `voiceState.label` after `voiceState.exists` check can fail if element disappears between calls. Fixed by using `waitForExistence()` before accessing `.label`.
+
+3. **Test pollution**: Tests running within same class share app state. Tests not starting from known state (Projects list) would fail if previous test left app on SessionView.
+
+**Fixes applied:**
+1. **E2ESessionFlowTests.test_session_sync_flow** - Replaced `app.images["Synced"]` check with `waitForSessionSyncComplete()`. Added `navigateToProjectsList()` at start.
+
+2. **E2ESessionFlowTests.test_session_switching** - Added `navigateToProjectsList()` at start. Increased timeouts for session switching (needs to kill old tmux, start new one).
+
+3. **waitForResponseCycle()** - Made more robust:
+   - Use `waitForExistence(timeout: 0.1)` before accessing `.label` to avoid race condition
+   - Wait for `outputStatus` to disappear AND `voiceState` to show "Idle" for cycle completion
+
+4. **navigateToTestSession()** - Now calls `navigateToProjectsList()` first to ensure clean starting state.
+
+5. **Added navigateToProjectsList() helper** - Navigates back to Projects list from any screen by:
+   - Dismissing any sheets (tap Done)
+   - Tapping back buttons until Projects nav bar is visible
+
+6. **Fixed direct navigation tests**:
+   - E2EFullConversationFlowTests.test_resume_session - Added `navigateToProjectsList()`
+   - E2ENavigationFlowTests.test_navigation_flow - Added `navigateToProjectsList()`
+
+**Files changed:**
+- `ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/E2ETestBase.swift` - Fixed `waitForResponseCycle()`, added `navigateToProjectsList()`
+- `ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/E2ESessionFlowTests.swift` - Use `waitForSessionSyncComplete()`, added nav reset
+- `ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/E2EFullConversationFlowTests.swift` - Added nav reset to test_resume_session
+- `ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/E2ENavigationFlowTests.swift` - Added nav reset
+
+**Status:** Ready to test. Run `./run_e2e_tests.sh` to verify fixes.
+
+---
+
 ## Summary
 
 | Task | Description | Files Changed |

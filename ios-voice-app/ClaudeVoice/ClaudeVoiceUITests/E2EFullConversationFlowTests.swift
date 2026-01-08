@@ -63,6 +63,9 @@ final class E2EFullConversationFlowTests: E2ETestBase {
 
     /// Resume existing session
     func test_resume_session() throws {
+        // Ensure we start from projects list
+        navigateToProjectsList()
+
         let project = app.staticTexts[testProjectName]
         XCTAssertTrue(project.waitForExistence(timeout: 5), "Project should exist")
         project.tap()
