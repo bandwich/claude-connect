@@ -466,6 +466,16 @@ class VoiceServer:
             self.active_session_id = None  # New session has no ID yet
             await asyncio.sleep(2.0)  # Wait for Claude to initialize
 
+            # Find and watch the new session's transcript
+            if project_path:
+                folder_name = self.session_manager.encode_path_to_folder(project_path)
+                print(f"[DEBUG] Encoded folder name: {folder_name}")
+                session_id = self.session_manager.find_newest_session(folder_name)
+                if session_id:
+                    print(f"[DEBUG] Found new session: {session_id}")
+                    self.active_session_id = session_id
+                    self.switch_watched_session(folder_name, session_id)
+
         response = {
             "type": "session_created",
             "success": success
@@ -482,12 +492,11 @@ class VoiceServer:
         success = False
 
         if session_id:
-            # Decode folder_name to get the project directory
-            # Claude Code's --resume flag must be run from the project directory
+            # Get the actual cwd from the session file
             working_dir = None
-            if folder_name:
-                working_dir = self.session_manager.decode_folder_name(folder_name)
-                print(f"[DEBUG] handle_resume_session: folder_name={folder_name} -> working_dir={working_dir}")
+            if folder_name and session_id:
+                working_dir = self.session_manager.get_session_cwd(folder_name, session_id)
+                print(f"[DEBUG] handle_resume_session: get_session_cwd -> {working_dir}")
 
             success = self.tmux.start_session(working_dir=working_dir, resume_id=session_id)
             print(f"[DEBUG] start_session(resume_id={session_id}) returned: {success}, session_exists: {self.tmux.session_exists()}")

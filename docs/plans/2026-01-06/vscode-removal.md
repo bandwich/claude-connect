@@ -1602,6 +1602,102 @@ Tests wait 30s for `Speaking` state but real Claude response + TTS takes longer.
 
 ---
 
+### Session 4 Notes (Task 15 continued)
+
+**What was done:**
+1. Fixed folder name decoding bug - added `get_session_cwd()` to read actual cwd from session file
+2. Added `os.makedirs(working_dir, exist_ok=True)` in `start_session()` to create dirs if missing
+3. Updated E2E test runner (`run_e2e_tests.sh`) to dynamically create Claude session at test start
+4. Session config written to `/tmp/e2e_test_config.json` for tests to read
+5. Updated `E2ETestBase.swift` to read config from JSON file
+6. Documented E2E test flow in `tests/TESTS.md`
+
+**Key discoveries:**
+- Claude Code encodes both `/` AND `_` as `-` in folder names
+  - Path `/private/tmp/e2e_test_project` → folder `-private-tmp-e2e-test-project`
+  - This makes decoding ambiguous; must read cwd from session file
+- `/tmp` resolves to `/private/tmp` on macOS
+- xcodebuild doesn't pass build settings as environment variables to test process
+  - Solution: write JSON config file that tests can read
+
+**Current failures:**
+E2EConnectionTests fails because:
+1. Server initially watches wrong file (agent file instead of main session)
+2. Tests try to create new session with wrong path (`/e2e_test_project` instead of `/tmp/e2e_test_project`)
+
+**Files changed this session:**
+- `voice_server/session_manager.py` - Added `get_session_cwd()`
+- `voice_server/tmux_controller.py` - Added `os.makedirs()` for working_dir
+- `voice_server/ios_server.py` - Use `get_session_cwd()` instead of `decode_folder_name()`
+- `ios-voice-app/ClaudeVoice/run_e2e_tests.sh` - Create session dynamically, write config
+- `ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/E2ETestBase.swift` - Read config from JSON
+- `tests/TESTS.md` - Document E2E test flow
+
+**Next steps:**
+1. Fix test config loading - tests not reading `/tmp/e2e_test_config.json`
+2. Verify E2EConnectionTests can find the dynamically created project
+
+---
+
+### Session 5 Notes (Task 15 continued)
+
+**What was done:**
+1. Added `encode_path_to_folder()` and `find_newest_session()` to `session_manager.py`
+2. Updated `handle_new_session` in `ios_server.py` to switch file watcher to new session's transcript
+3. Changed E2EConnectionTests line 73 to use `resume: true`
+
+**Root cause identified:**
+- `handle_new_session` was NOT switching the file watcher to the new session's transcript
+- `handle_resume_session` DID switch the watcher (line 498) - that's why resume worked
+- When creating a NEW session, server kept watching the OLD transcript file
+
+**Remaining issue - `verifyInputInTmux` fails:**
+- Voice input is sent successfully (`send_input` returns True)
+- But `/capture_pane` doesn't find the text in tmux pane
+- Suspicious: "Claude ready after 0.0s" - Claude takes time to start, shouldn't be instant
+- Likely cause: tmux pane has stale content, or Claude isn't actually running yet
+
+**Files changed this session:**
+- `voice_server/session_manager.py` - Added `encode_path_to_folder()`, `find_newest_session()`
+- `voice_server/ios_server.py` - Updated `handle_new_session` to switch watcher
+- `ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/E2EConnectionTests.swift` - Line 73 use `resume: true`
+
+**Next session must:**
+1. Debug why `verifyInputInTmux` fails - is Claude actually running in tmux?
+2. Check if `waitForClaudeReady` is actually waiting for Claude to start
+3. Consider adding a real wait after `start_session` before sending input
+
+---
+
+### Session 6 Notes (Task 15 continued)
+
+**Root cause found and fixed:**
+The UI state issue was that when outputState is `.speaking`, the UI shows `outputStatus` with "Speaking..." instead of `voiceState` with "Speaking". Tests were checking the wrong element.
+
+**Solution:**
+Added `waitForResponseCycle()` helper that tests the OUTCOME (full cycle completes) rather than intermediate states. This is more robust than checking for "Speaking" state because:
+1. It checks for ANY non-idle state to start (outputStatus exists, or voiceState != Idle)
+2. Then waits for voiceState to return to "Idle" (cycle complete)
+3. Doesn't care about intermediate state names
+
+**Test results:**
+- E2EConnectionTests: PASS (when run individually)
+- E2EFullConversationFlowTests: Updated to use waitForResponseCycle
+- E2EErrorHandlingTests: Updated to use waitForResponseCycle
+
+**Remaining issues (unrelated to waitForResponseCycle fix):**
+- E2ESessionFlowTests looking for "Synced" image that may not exist
+- E2EPermissionTests have different issues
+- Some test pollution when running all tests together
+
+**Files changed this session:**
+- `ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/E2ETestBase.swift` - Added `waitForResponseCycle()` helper
+- `ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/E2EConnectionTests.swift` - Use waitForResponseCycle
+- `ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/E2EFullConversationFlowTests.swift` - Use waitForResponseCycle
+- `ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/E2EErrorHandlingTests.swift` - Use waitForResponseCycle
+
+---
+
 ## Summary
 
 | Task | Description | Files Changed |

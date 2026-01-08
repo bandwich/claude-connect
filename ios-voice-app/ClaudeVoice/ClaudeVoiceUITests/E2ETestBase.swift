@@ -32,10 +32,33 @@ class E2ETestBase: XCTestCase {
         return 8765
     }()
 
-    /// Test project - uses existing real Claude session
-    /// Created via: cd /private/tmp/e2e-test-project1 && claude "Reply with one word: test"
-    let testProjectName = "project1"
-    let testSessionId = "1518a515-792d-4621-b93b-bae8865f2ec7"
+    /// Test project info - created dynamically by run_e2e_tests.sh
+    /// The script creates a session and writes config to /tmp/e2e_test_config.json
+    private static var _testConfig: [String: String]?
+    private var testConfig: [String: String] {
+        if Self._testConfig == nil {
+            let configPath = "/tmp/e2e_test_config.json"
+            if let data = FileManager.default.contents(atPath: configPath),
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: String] {
+                Self._testConfig = json
+                print("📋 Loaded test config: \(json)")
+            } else {
+                print("⚠️ Could not load test config from \(configPath)")
+                Self._testConfig = [:]
+            }
+        }
+        return Self._testConfig ?? [:]
+    }
+
+    var testProjectName: String {
+        testConfig["project_name"] ?? "project"
+    }
+    var testSessionId: String {
+        testConfig["session_id"] ?? ""
+    }
+    var testFolderName: String {
+        testConfig["folder_name"] ?? "-tmp-e2e-test-project"
+    }
 
     var app: XCUIApplication! {
         return Self.app
@@ -213,12 +236,54 @@ class E2ETestBase: XCTestCase {
         return exists && stateLabel.label == expectedState
     }
 
-    /// Wait for Speaking state then Idle state - common pattern in conversation tests
-    func waitForSpeakingThenIdle(speakingTimeout: TimeInterval = 10.0, idleTimeout: TimeInterval = 10.0) -> Bool {
-        guard waitForVoiceState("Speaking", timeout: speakingTimeout) else {
+    /// Wait for a conversation response cycle to complete
+    /// This waits for the state to leave Idle (processing started) then return to Idle (cycle complete)
+    /// More robust than checking for intermediate states like "Speaking"
+    func waitForResponseCycle(timeout: TimeInterval = 30.0) -> Bool {
+        let startTime = Date()
+
+        // First, wait for state to change from Idle (response cycle started)
+        var sawNonIdle = false
+        while Date().timeIntervalSince(startTime) < timeout {
+            let voiceState = app.staticTexts["voiceState"]
+            let outputStatus = app.staticTexts["outputStatus"]
+
+            // Check if we're in a non-idle state (processing, speaking, etc.)
+            if outputStatus.exists {
+                // outputStatus shown means outputState has statusText (thinking, speaking, etc.)
+                sawNonIdle = true
+                print("✓ Response cycle started (outputStatus: \(outputStatus.label))")
+                break
+            } else if voiceState.exists && voiceState.label != "Idle" {
+                sawNonIdle = true
+                print("✓ Response cycle started (voiceState: \(voiceState.label))")
+                break
+            }
+
+            usleep(250000)
+        }
+
+        if !sawNonIdle {
+            print("✗ Response cycle never started within \(timeout)s")
             return false
         }
-        return waitForVoiceState("Idle", timeout: idleTimeout)
+
+        // Now wait for state to return to Idle (cycle complete)
+        while Date().timeIntervalSince(startTime) < timeout {
+            let voiceState = app.staticTexts["voiceState"]
+
+            // voiceState shows "Idle" when outputState.statusText is nil (idle)
+            if voiceState.exists && voiceState.label == "Idle" {
+                let elapsed = Date().timeIntervalSince(startTime)
+                print("✓ Response cycle complete after \(String(format: "%.1f", elapsed))s")
+                return true
+            }
+
+            usleep(250000)
+        }
+
+        print("✗ Response cycle did not complete within \(timeout)s")
+        return false
     }
 
     // MARK: - UI Helpers

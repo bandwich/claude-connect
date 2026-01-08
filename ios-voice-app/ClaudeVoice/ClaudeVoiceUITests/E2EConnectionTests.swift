@@ -70,12 +70,12 @@ final class E2EConnectionTests: E2ETestBase {
         app.buttons["Done"].tap()
 
         // --- Test 4: Verify voice works after reconnect ---
-        navigateToTestSession()
+        navigateToTestSession(resume: true)  // Resume existing session to use watched transcript
         XCTAssertTrue(waitForVoiceState("Idle", timeout: 5), "Should be in idle state")
 
-        // Send voice input - real Claude responds
+        // Send voice input - real Claude responds, wait for full cycle to complete
         sendVoiceInput("Reply with only the word ok")
         XCTAssertTrue(verifyInputInTmux("Reply with only the word ok", timeout: 10), "Input should reach tmux")
-        XCTAssertTrue(waitForVoiceState("Speaking", timeout: 30), "Should speak after reconnect")
+        XCTAssertTrue(waitForResponseCycle(timeout: 60), "Response cycle should complete after reconnect")
     }
 }

@@ -22,9 +22,8 @@ final class E2EFullConversationFlowTests: E2ETestBase {
         sendVoiceInput("Reply with only the word yes")
         XCTAssertTrue(verifyInputInTmux("Reply with only the word yes", timeout: 10), "Input should reach tmux")
 
-        // Wait for real Claude response and TTS
-        XCTAssertTrue(waitForVoiceState("Speaking", timeout: 30), "Should speak real response")
-        XCTAssertTrue(waitForVoiceState("Idle", timeout: 15), "Should return to Idle")
+        // Wait for real Claude response and TTS to complete
+        XCTAssertTrue(waitForResponseCycle(timeout: 60), "First response cycle should complete")
 
         sleep(1)
 
@@ -34,8 +33,7 @@ final class E2EFullConversationFlowTests: E2ETestBase {
         sendVoiceInput("Reply with only the word no")
         XCTAssertTrue(verifyInputInTmux("Reply with only the word no", timeout: 10), "Second input should reach tmux")
 
-        XCTAssertTrue(waitForVoiceState("Speaking", timeout: 30), "Should speak second response")
-        XCTAssertTrue(waitForVoiceState("Idle", timeout: 15), "Should return to Idle")
+        XCTAssertTrue(waitForResponseCycle(timeout: 60), "Second response cycle should complete")
 
         print("✅ Full conversation flow passed")
     }

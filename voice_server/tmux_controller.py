@@ -55,6 +55,10 @@ class TmuxController:
         if self.session_exists():
             self.kill_session()
 
+        # Ensure working directory exists (e.g., /tmp may be cleared on reboot)
+        if working_dir:
+            os.makedirs(working_dir, exist_ok=True)
+
         # Build the claude command
         if resume_id:
             cmd = f"claude --resume {resume_id}"

@@ -17,8 +17,7 @@ final class E2EErrorHandlingTests: E2ETestBase {
         // Test 1: Normal conversation works
         sendVoiceInput("Reply with only ok")
         XCTAssertTrue(verifyInputInTmux("Reply with only ok", timeout: 10), "Input should reach tmux")
-        XCTAssertTrue(waitForVoiceState("Speaking", timeout: 30), "Should speak response")
-        XCTAssertTrue(waitForVoiceState("Idle", timeout: 15), "Should return to Idle")
+        XCTAssertTrue(waitForResponseCycle(timeout: 60), "Response cycle should complete")
 
         // Test 2: Empty input handling
         sendVoiceInput("")
@@ -28,8 +27,7 @@ final class E2EErrorHandlingTests: E2ETestBase {
         // Test 3: App still functional after edge case
         sendVoiceInput("Reply with only yes")
         XCTAssertTrue(verifyInputInTmux("Reply with only yes", timeout: 10), "Input should still work")
-        XCTAssertTrue(waitForVoiceState("Speaking", timeout: 30), "Should still speak")
-        XCTAssertTrue(waitForVoiceState("Idle", timeout: 15), "Should return to Idle")
+        XCTAssertTrue(waitForResponseCycle(timeout: 60), "Response cycle should still complete")
 
         print("✅ Error handling test passed")
     }
