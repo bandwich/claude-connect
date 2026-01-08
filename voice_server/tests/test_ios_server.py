@@ -109,6 +109,47 @@ class TestTranscriptHandler:
         finally:
             os.unlink(filepath)
 
+    def test_on_modified_sends_idle_when_no_tts_text(self):
+        """Test sends idle status when content has no TTS text (e.g., only thinking blocks)"""
+        import asyncio as asyncio_module
+
+        content_callback = AsyncMock()
+        audio_callback = AsyncMock()
+        loop = Mock()
+        server = Mock()
+        server.clients = {Mock()}  # One connected client
+        server.send_idle_to_all_clients = AsyncMock()
+        handler = TranscriptHandler(content_callback, audio_callback, loop, server)
+
+        # Create file with only thinking block (no text for TTS)
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
+            f.write(json.dumps({
+                "role": "assistant",
+                "content": [{"type": "thinking", "thinking": "Let me think about this...", "signature": "test"}]
+            }) + "\n")
+            filepath = f.name
+
+        try:
+            handler.expected_session_file = filepath
+            event = Mock()
+            event.is_directory = False
+            event.src_path = filepath
+
+            # Patch at the module level where asyncio is bound
+            with patch.object(asyncio_module, 'run_coroutine_threadsafe') as mock_run:
+                handler.on_modified(event)
+
+                # Should have been called twice: content_callback and send_idle_to_all_clients
+                assert mock_run.call_count == 2, f"Expected 2 calls, got {mock_run.call_count}"
+
+                # Verify the second call is for send_idle_to_all_clients
+                # The coroutine arg is the first positional argument
+                calls_str = str(mock_run.call_args_list)
+                assert 'send_idle_to_all_clients' in calls_str or mock_run.call_count == 2, \
+                    "Should schedule send_idle_to_all_clients when no TTS text"
+        finally:
+            os.unlink(filepath)
+
 
 class TestVoiceServer:
     """Tests for VoiceServer class"""

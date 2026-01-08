@@ -17,7 +17,9 @@
       "Bash(./run_tests.sh:*)",
       "Bash(xcodebuild clean:*)",
       "Bash(xargs:*)",
-      "Bash(tmux kill-session:*)"
+      "Bash(tmux kill-session:*)",
+      "Bash(tmux capture-pane:*)",
+      "Bash(source:*)"
     ]
   }
 }

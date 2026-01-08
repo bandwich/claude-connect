@@ -435,6 +435,15 @@ class WebSocketManager: NSObject, ObservableObject {
             print("🔄 UPDATING voiceState to: \(newState.description)")
             self.logToFile("🔄 voiceState -> \(newState.description)")
             self.voiceState = newState
+
+            // Also reset outputState when server says we're idle
+            // Server sends "idle" after connection and after TTS completes
+            // This ensures outputState doesn't get stuck at .thinking/.usingTool
+            if newState == .idle && !self.outputState.expectsPermissionResponse {
+                print("🔄 RESETTING outputState to idle")
+                self.logToFile("🔄 outputState -> idle")
+                self.outputState = .idle
+            }
         }
         onStatusUpdate?(message)
     }

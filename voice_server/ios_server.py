@@ -103,6 +103,13 @@ class TranscriptHandler(FileSystemEventHandler):
                         self.audio_callback(text),
                         self.loop
                     )
+                else:
+                    # No TTS text (e.g., only thinking/tool_use blocks)
+                    # Send idle status to reset client's outputState
+                    asyncio.run_coroutine_threadsafe(
+                        self.server.send_idle_to_all_clients(),
+                        self.loop
+                    )
         except Exception as e:
             print(f"Error processing transcript: {e}")
             import traceback
@@ -386,6 +393,19 @@ class VoiceServer:
             await self.stream_audio(websocket, text)
             print(f"[{time.strftime('%H:%M:%S')}] Audio streaming complete, sending 'idle' status")
             await self.send_status(websocket, "idle", "Ready")
+
+    async def send_idle_to_all_clients(self):
+        """Send idle status to all connected clients.
+
+        Called when content is sent but there's no TTS audio (e.g., only thinking blocks).
+        This ensures the client's outputState is reset even without audio playback.
+        """
+        for websocket in list(self.clients):
+            try:
+                print(f"[{time.strftime('%H:%M:%S')}] Sending idle status (no TTS)")
+                await self.send_status(websocket, "idle", "Ready")
+            except Exception:
+                pass  # Client may have disconnected, that's OK
 
     async def handle_list_projects(self, websocket):
         """Handle list_projects request"""

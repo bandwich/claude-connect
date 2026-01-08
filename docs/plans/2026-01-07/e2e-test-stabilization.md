@@ -182,12 +182,103 @@ Added server reset endpoint and call it before each test:
 
 ---
 
-## Remaining Work
+## Session 10 Progress (2026-01-07)
 
-1. **Fix E2ESessionFlowTests** - Session resume/sync not completing properly
-2. **Fix E2EFullConversationFlowTests** - Increase timeout or fix stuck response
-3. **Fix E2EErrorHandlingTests** - Investigate root cause
-4. **Monitor for flakiness** - Tests depend on real Claude responses which vary in timing
+### Root Cause Analysis
+
+The test failures were caused by two issues:
+
+1. **`waitForSessionSyncComplete()` only checked for `voiceState` element**
+   - When Claude is processing (outputState = .thinking/.usingTool), `outputStatus` is shown instead of `voiceState`
+   - Sync was complete but test couldn't detect it because wrong element was shown
+   - Fix: Also check for `outputStatus` element (both indicate sync is complete)
+
+2. **`outputState` not reset when server sends "idle" status**
+   - Server sends "idle" status after TTS audio completes
+   - `handleStatusMessage` only updated `voiceState`, not `outputState`
+   - `outputState` stayed at `.thinking/.usingTool`, causing `outputStatus` to be shown
+   - Fix: Reset `outputState` to `.idle` when status is "idle"
+
+### Changes Made
+
+1. **E2ETestBase.swift - `waitForSessionSyncComplete()`**
+   - Now checks for EITHER `voiceState` OR `outputStatus` elements
+   - Both indicate sync is complete (just different Claude states)
+   - Added debug logging for `outputStatus` state
+
+2. **WebSocketManager.swift - `handleStatusMessage()`**
+   - Now resets `outputState` to `.idle` when server sends "idle" status
+   - Only resets if not awaiting permission response
+   - Ensures `voiceState` element is shown when Claude is idle
+
+### Expected Impact
+- E2ESessionFlowTests should now detect sync complete properly
+- E2EConversationFlowTests should detect response cycle completion
+- E2EErrorHandlingTests should complete if response comes within timeout
+
+---
+
+## Session 11 Progress (2026-01-08)
+
+### Fix Implemented
+
+**Problem Found:** When Claude responds with only thinking blocks (no text blocks), the `extract_text_for_tts` function returns empty string. This means `audio_callback` is never called, and "idle" status is never sent. The client's `outputState` gets stuck at `.thinking` forever.
+
+**Server-side Fix:**
+1. Added `send_idle_to_all_clients()` method to VoiceServer (ios_server.py:390-398)
+2. Modified TranscriptHandler to call it when there's content but no TTS text (ios_server.py:106-112)
+3. Added unit test `test_on_modified_sends_idle_when_no_tts_text` (test_ios_server.py:112-153)
+
+### Test Results
+
+**Server tests:** 157 passed ✅
+
+**E2E tests:** 15 tests, 3 failures (same as before)
+
+| Test | Status | Failure |
+|------|--------|---------|
+| E2EErrorHandlingTests.test_error_handling | FAIL | "Response cycle never started within 60.0s" |
+| E2EFullConversationFlowTests.test_complete_conversation_flow | FAIL | "Input should reach tmux" |
+| E2EFullConversationFlowTests.test_resume_session | FAIL | "Input should reach tmux" |
+
+### Root Cause Analysis
+
+The fix for thinking-only responses is working (server logs show "Sending idle status (no TTS)"). However, the remaining failures have a different root cause:
+
+**"Input should reach tmux" failures:**
+- Test's `sendVoiceInput()` opens its own WebSocket connection, sends voice_input, then immediately closes
+- Server receives the message, but `handle_voice_input` logs are not appearing
+- Possible issues:
+  1. Permission handler blocking voice_input (pending_permissions check at line 647-653)
+  2. Test WebSocket closing before handler can complete
+  3. Tmux pane capture timing issue
+
+**"Response cycle never started" failure:**
+- Test waits for outputStatus to appear (indicating response started)
+- voiceState remains "Idle" throughout - response processing isn't triggering
+
+### Server Log Pattern
+
+Voice input received but no evidence of processing:
+```
+Received message: {"type":"voice_input","text":"Reply with only ok"...}...
+[DEBUG] Extracted 1 blocks from 1 new lines  # <- This is from PREVIOUS response!
+[01:31:02] Sending idle status (no TTS)
+```
+
+Expected pattern (not seen):
+```
+Received message: {"type":"voice_input","text":"...",...}...
+[timestamp] Voice input received: '...'
+[timestamp] Sending to terminal...
+[DEBUG] send_to_terminal: session_exists=...
+```
+
+### Remaining Work
+
+1. **Debug voice_input handling** - Add more logging to understand why handle_voice_input isn't completing
+2. **Investigate test WebSocket lifecycle** - The test's sendVoiceInput creates a separate connection that closes immediately
+3. **Consider using app's WebSocket** - Tests could trigger voice input through UI instead of direct WebSocket
 
 ---
 

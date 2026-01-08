@@ -368,24 +368,47 @@ class E2ETestBase: XCTestCase {
         let task = URLSession.shared.webSocketTask(with: url)
         task.resume()
 
-        let message: [String: Any] = [
-            "type": "voice_input",
-            "text": text,
-            "timestamp": Date().timeIntervalSince1970
-        ]
+        // Wait for connection to be established by receiving the server's initial status message.
+        // The server sends "idle" status immediately upon connection.
+        // Without this, task.send() may fail silently if called before handshake completes.
+        task.receive { [weak task] result in
+            guard let task = task else {
+                XCTFail("WebSocket task was deallocated")
+                expectation.fulfill()
+                return
+            }
 
-        if let jsonData = try? JSONSerialization.data(withJSONObject: message),
-           let jsonString = String(data: jsonData, encoding: .utf8) {
-            task.send(.string(jsonString)) { error in
-                if let error = error {
-                    XCTFail("WebSocket send failed: \(error)")
+            switch result {
+            case .success(_):
+                // Connection established, now send voice input
+                let message: [String: Any] = [
+                    "type": "voice_input",
+                    "text": text,
+                    "timestamp": Date().timeIntervalSince1970
+                ]
+
+                if let jsonData = try? JSONSerialization.data(withJSONObject: message),
+                   let jsonString = String(data: jsonData, encoding: .utf8) {
+                    task.send(.string(jsonString)) { error in
+                        if let error = error {
+                            XCTFail("WebSocket send failed: \(error)")
+                        }
+                        task.cancel(with: .goingAway, reason: nil)
+                        expectation.fulfill()
+                    }
+                } else {
+                    XCTFail("Failed to serialize voice input message")
+                    task.cancel(with: .goingAway, reason: nil)
+                    expectation.fulfill()
                 }
-                task.cancel(with: .goingAway, reason: nil)
+
+            case .failure(let error):
+                XCTFail("WebSocket connection failed: \(error)")
                 expectation.fulfill()
             }
         }
 
-        wait(for: [expectation], timeout: 5.0)
+        wait(for: [expectation], timeout: 10.0)
         sleep(1)
     }
 
@@ -618,26 +641,36 @@ class E2ETestBase: XCTestCase {
     }
 
     /// Wait for SessionView sync to complete
-    /// Sync is complete when either voiceState or syncError elements appear
-    /// (during sync, neither exists - only "Syncing..." status is shown)
+    /// Sync is complete when voiceState, outputStatus, or syncError elements appear
+    /// (during sync, none of these exist - only "Syncing..." status is shown)
+    /// outputStatus appears when Claude is actively processing (thinking, using tools)
     func waitForSessionSyncComplete(timeout: TimeInterval = 15.0) -> Bool {
         let startTime = Date()
 
         print("⏳ Waiting for session sync to complete...")
 
         // First wait for SessionView to appear (Talk button indicates we're on SessionView)
+        // Use full timeout - new session creation can take 5+ seconds on server
         let talkButton = app.buttons["Tap to Talk"]
-        if !talkButton.waitForExistence(timeout: min(timeout, 10.0)) {
+        if !talkButton.waitForExistence(timeout: timeout) {
             print("✗ SessionView did not appear (Talk button not found)")
             return false
         }
         print("✓ SessionView appeared (Talk button visible)")
 
         while Date().timeIntervalSince(startTime) < timeout {
-            // Check if voiceState element exists (sync succeeded)
+            // Check if voiceState element exists (sync succeeded, Claude idle)
             let voiceStateLabel = app.staticTexts["voiceState"]
             if voiceStateLabel.exists {
-                print("✓ Session sync complete - voiceState visible")
+                print("✓ Session sync complete - voiceState visible: \(voiceStateLabel.label)")
+                return true
+            }
+
+            // Check if outputStatus element exists (sync succeeded, Claude processing)
+            // outputStatus appears when Claude is thinking, using tools, or speaking
+            let outputStatusLabel = app.staticTexts["outputStatus"]
+            if outputStatusLabel.exists {
+                print("✓ Session sync complete - outputStatus visible: \(outputStatusLabel.label)")
                 return true
             }
 
@@ -663,9 +696,11 @@ class E2ETestBase: XCTestCase {
 
         // Debug: print what elements are visible
         let voiceState = app.staticTexts["voiceState"]
+        let outputStatus = app.staticTexts["outputStatus"]
         let syncError = app.staticTexts["syncError"]
         let syncStatus = app.staticTexts["syncStatus"]
         print("  voiceState exists: \(voiceState.exists)")
+        print("  outputStatus exists: \(outputStatus.exists)")
         print("  syncError exists: \(syncError.exists)")
         print("  syncStatus exists: \(syncStatus.exists)")
 

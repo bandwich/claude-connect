@@ -34,6 +34,8 @@ struct SessionsListView: View {
                         }
                     }
 
+                    Spacer()
+
                     // Show active indicator if this session is active
                     if webSocketManager.activeSessionId == session.id {
                         Image(systemName: "checkmark.circle.fill")
@@ -42,6 +44,7 @@ struct SessionsListView: View {
                     }
                 }
                 .padding(.vertical, 4)
+                .contentShape(Rectangle())  // Make entire row tappable
             }
             .buttonStyle(.plain)
         }

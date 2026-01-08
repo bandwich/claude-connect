@@ -64,10 +64,10 @@ struct SessionView: View {
                         ProgressView()
                             .scaleEffect(0.8)
                         Text("Syncing...")
+                            .accessibilityIdentifier("syncStatus")
                     }
                     .font(.caption)
                     .foregroundColor(.secondary)
-                    .accessibilityIdentifier("syncStatus")
                 } else if let error = syncError {
                     Text(error)
                         .font(.caption)
