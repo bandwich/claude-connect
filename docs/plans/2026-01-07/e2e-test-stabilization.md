@@ -86,11 +86,108 @@ cd ios-voice-app/ClaudeVoice && ./run_e2e_tests.sh
 
 ---
 
+## Session 8 Progress (2026-01-07)
+
+### Changes Made
+1. **Fixed syncStatus accessibility identifier** - Was on HStack, moved to Text element so tests can find it as StaticText
+   - File: `SessionView.swift:67`
+
+2. **Updated waitForSessionSyncComplete()** - Now waits for Talk button first to confirm SessionView is visible before checking status elements
+   - File: `E2ETestBase.swift:596-602`
+
+### Test Results
+
+**Before Session 8:** 7 failures
+```
+E2EConnectionTests.test_connection_and_voice_controls()
+E2EErrorHandlingTests.test_error_handling()
+E2EFullConversationFlowTests.test_complete_conversation_flow()
+E2EPermissionTests.test_question_text_input_complete_flow()
+E2EPermissionTests.test_write_permission_complete_flow()
+E2ESessionFlowTests.test_session_switching()
+E2ESessionFlowTests.test_session_sync_flow()
+```
+
+**After Session 8:** 8 failures
+```
+E2EConnectionTests.test_reconnection_flow()          # NEW failure
+E2EErrorHandlingTests.test_error_handling()
+E2EFullConversationFlowTests.test_complete_conversation_flow()
+E2ENavigationFlowTests.test_navigation_flow()        # NEW failure
+E2EPermissionTests.test_question_text_input_complete_flow()
+E2EPermissionTests.test_write_permission_complete_flow()
+E2ESessionFlowTests.test_session_switching()
+E2ESessionFlowTests.test_session_sync_flow()
+```
+
+**Net result:** 1 fixed, 2 new failures (regression)
+- Fixed: `E2EConnectionTests.test_connection_and_voice_controls()`
+- Broke: `E2EConnectionTests.test_reconnection_flow()`, `E2ENavigationFlowTests.test_navigation_flow()`
+
+### Key Observation
+E2ESessionFlowTests passes when run ALONE but fails when run with full suite. This indicates **test isolation issues** - tests are interfering with each other, likely through:
+- Shared server state
+- WebSocket connection state not properly reset
+- tmux session state bleeding between tests
+
+### Root Cause Analysis Needed
+The core issue is NOT just UI element timing. The tests have deeper problems:
+1. Server state persists between test runs
+2. Tests may be receiving stale WebSocket messages from previous tests
+3. tmux sessions from previous tests may still be running
+
+---
+
+## Session 9 Progress (2026-01-07)
+
+### Root Cause
+Tests were failing together because **server state persisted between tests**:
+- tmux sessions from previous tests remained running
+- Transcript watcher still pointed to old session files
+- Session tracking (`active_session_id`, `active_folder_name`) not reset
+
+### Fix Implemented
+Added server reset endpoint and call it before each test:
+
+1. **Added `/reset` HTTP endpoint** (`http_server.py`)
+   - POST `/reset` kills tmux session and clears all tracking state
+
+2. **Added `reset_state()` method** (`ios_server.py`)
+   - Kills active tmux session
+   - Clears `active_session_id`, `active_folder_name`, `transcript_path`
+   - Resets transcript handler tracking
+
+3. **Call reset at start of each test** (`E2ETestBase.swift`)
+   - `resetServerState()` calls `/reset` endpoint in `setUpWithError()`
+   - Ensures clean state before each test runs
+
+### Test Results
+
+**Before Session 9:** 8 failures
+**After Session 9:** 4 failures (50% reduction)
+
+| Test Suite | Before | After | Status |
+|------------|--------|-------|--------|
+| E2EConnectionTests | 1 fail | 0 fail | ✅ Fixed |
+| E2ENavigationFlowTests | 1 fail | 0 fail | ✅ Fixed |
+| E2EPermissionTests | 2 fail | 0 fail | ✅ Fixed |
+| E2EErrorHandlingTests | 1 fail | 1 fail | Still failing |
+| E2EFullConversationFlowTests | 1 fail | 1 fail | Timeout issue |
+| E2ESessionFlowTests | 2 fail | 2 fail | Session resume issue |
+
+### Remaining Issues
+1. **E2ESessionFlowTests** - Session resume not showing Talk button (sync timing)
+2. **E2EFullConversationFlowTests** - Response stuck at "Thinking..." (Claude timeout)
+3. **E2EErrorHandlingTests** - Needs investigation
+
+---
+
 ## Remaining Work
 
-1. **Verify all E2E tests pass** - Run full suite after fixes
-2. **Monitor for flakiness** - Tests depend on real Claude responses which vary in timing
-3. **Consider increasing timeouts** - 60s may not be enough for slow responses
+1. **Fix E2ESessionFlowTests** - Session resume/sync not completing properly
+2. **Fix E2EFullConversationFlowTests** - Increase timeout or fix stuck response
+3. **Fix E2EErrorHandlingTests** - Investigate root cause
+4. **Monitor for flakiness** - Tests depend on real Claude responses which vary in timing
 
 ---
 

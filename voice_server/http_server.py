@@ -156,6 +156,18 @@ def create_http_app(permission_handler: PermissionHandler) -> web.Application:
             "active_session_id": _voice_server.active_session_id
         })
 
+    async def handle_reset(request: web.Request) -> web.Response:
+        """Reset server state for E2E test isolation
+
+        Kills tmux session and clears all tracking state.
+        Call at start of each test to ensure clean state.
+        """
+        if _voice_server is None:
+            return web.json_response({"error": "voice server not set"}, status=500)
+
+        _voice_server.reset_state()
+        return web.json_response({"status": "ok", "message": "Server state reset"})
+
     app = web.Application()
     app.router.add_post("/permission", handle_permission)
     app.router.add_post("/permission_resolved", handle_permission_resolved)
@@ -164,6 +176,7 @@ def create_http_app(permission_handler: PermissionHandler) -> web.Application:
     app.router.add_get("/capture_pane", handle_capture_pane)
     app.router.add_post("/set_transcript", handle_set_transcript)
     app.router.add_get("/transcript", handle_get_transcript)
+    app.router.add_post("/reset", handle_reset)
 
     return app
 

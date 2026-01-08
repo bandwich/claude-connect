@@ -455,6 +455,26 @@ class VoiceServer:
         if success:
             await self.broadcast_connection_status()
 
+    def reset_state(self):
+        """Reset all server state for test isolation
+
+        Called by /reset HTTP endpoint to ensure clean state between E2E tests.
+        """
+        # Kill any active tmux session
+        self.tmux.kill_session()
+
+        # Reset session tracking
+        self.active_session_id = None
+        self.active_folder_name = None
+        self.transcript_path = None
+
+        # Reset transcript handler
+        if self.transcript_handler:
+            self.transcript_handler.reset_tracking_state()
+            self.transcript_handler.expected_session_file = None
+
+        print("[RESET] Server state cleared for test isolation")
+
     async def handle_new_session(self, websocket, data):
         """Handle new_session request - starts claude in tmux"""
         project_path = data.get("project_path", "")

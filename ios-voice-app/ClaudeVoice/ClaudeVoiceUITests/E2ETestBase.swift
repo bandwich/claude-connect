@@ -98,9 +98,41 @@ class E2ETestBase: XCTestCase {
     override func setUpWithError() throws {
         try super.setUpWithError()
         continueAfterFailure = false
+
+        // Reset server state before each test for isolation
+        resetServerState()
+
         Self.app.launch()
         sleep(2)
         connectToServer()
+    }
+
+    /// Reset server state for test isolation
+    /// Calls /reset endpoint to kill tmux sessions and clear tracking state
+    func resetServerState() {
+        let httpPort = testServerPort + 1
+        let url = URL(string: "http://\(testServerHost):\(httpPort)/reset")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+
+        let semaphore = DispatchSemaphore(value: 0)
+        var success = false
+
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 {
+                success = true
+                print("✓ Server state reset for test isolation")
+            } else {
+                print("⚠️ Failed to reset server state: \(error?.localizedDescription ?? "unknown error")")
+            }
+            semaphore.signal()
+        }.resume()
+
+        _ = semaphore.wait(timeout: .now() + 5)
+
+        if !success {
+            print("⚠️ Server reset may have failed, continuing anyway")
+        }
     }
 
     override func tearDownWithError() throws {
@@ -592,6 +624,14 @@ class E2ETestBase: XCTestCase {
         let startTime = Date()
 
         print("⏳ Waiting for session sync to complete...")
+
+        // First wait for SessionView to appear (Talk button indicates we're on SessionView)
+        let talkButton = app.buttons["Tap to Talk"]
+        if !talkButton.waitForExistence(timeout: min(timeout, 10.0)) {
+            print("✗ SessionView did not appear (Talk button not found)")
+            return false
+        }
+        print("✓ SessionView appeared (Talk button visible)")
 
         while Date().timeIntervalSince(startTime) < timeout {
             // Check if voiceState element exists (sync succeeded)
