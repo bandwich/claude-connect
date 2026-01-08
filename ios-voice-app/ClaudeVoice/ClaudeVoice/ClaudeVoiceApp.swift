@@ -6,15 +6,28 @@ struct ClaudeVoiceApp: App {
     @AppStorage("serverIP") private var serverIP = ""
     @AppStorage("serverPort") private var serverPort = 8765
 
+    // For E2E tests: environment variables override saved settings
+    private var effectiveServerIP: String {
+        ProcessInfo.processInfo.environment["SERVER_HOST"] ?? serverIP
+    }
+    private var effectiveServerPort: Int {
+        if let portStr = ProcessInfo.processInfo.environment["SERVER_PORT"],
+           let port = Int(portStr) {
+            return port
+        }
+        return serverPort
+    }
+
     var body: some Scene {
         WindowGroup {
             NavigationStack {
                 ProjectsListView(webSocketManager: webSocketManager)
             }
             .onAppear {
-                // Auto-connect if we have saved settings and not already connected
-                if !serverIP.isEmpty && webSocketManager.connectionState == .disconnected {
-                    webSocketManager.connect(host: serverIP, port: serverPort)
+                // Auto-connect if we have settings and not already connected
+                // Environment variables (for E2E tests) override saved settings
+                if !effectiveServerIP.isEmpty && webSocketManager.connectionState == .disconnected {
+                    webSocketManager.connect(host: effectiveServerIP, port: effectiveServerPort)
                 }
             }
         }

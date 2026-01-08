@@ -73,10 +73,9 @@ final class E2EConnectionTests: E2ETestBase {
         navigateToTestSession()
         XCTAssertTrue(waitForVoiceState("Idle", timeout: 5), "Should be in idle state")
 
-        // Send voice input and inject response (real flow)
-        sendVoiceInput("Test")
-        sleep(1)
-        injectAssistantResponse("Test after reconnect")
-        XCTAssertTrue(waitForVoiceState("Speaking", timeout: 10), "Should work after reconnect")
+        // Send voice input - real Claude responds
+        sendVoiceInput("Reply with only the word ok")
+        XCTAssertTrue(verifyInputInTmux("Reply with only the word ok", timeout: 10), "Input should reach tmux")
+        XCTAssertTrue(waitForVoiceState("Speaking", timeout: 30), "Should speak after reconnect")
     }
 }

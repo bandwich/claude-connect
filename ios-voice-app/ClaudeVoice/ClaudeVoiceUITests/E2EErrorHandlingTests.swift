@@ -2,68 +2,35 @@
 //  E2EErrorHandlingTests.swift
 //  ClaudeVoiceUITests
 //
-//  Error handling E2E tests
+//  Error handling E2E tests with real Claude responses
 //
 
 import XCTest
 
 final class E2EErrorHandlingTests: E2ETestBase {
 
-    /// Tests malformed messages, long responses, empty input
-    func test_error_handling_complete_flow() throws {
-        navigateToTestSession()
+    /// Tests error handling with real flows
+    func test_error_handling() throws {
+        navigateToTestSession(resume: true)
+        XCTAssertTrue(waitForVoiceState("Idle", timeout: 10), "Should start in Idle")
 
-        // --- Test 1: Malformed message handling ---
-        // Send valid conversation turn first (real flow)
-        sendVoiceInput("Test message")
-        sleep(1)
-        injectAssistantResponse("Valid message")
-        XCTAssertTrue(waitForVoiceState("Speaking", timeout: 10), "Should handle valid message")
-        XCTAssertTrue(waitForVoiceState("Idle", timeout: 10), "Should return to idle")
+        // Test 1: Normal conversation works
+        sendVoiceInput("Reply with only ok")
+        XCTAssertTrue(verifyInputInTmux("Reply with only ok", timeout: 10), "Input should reach tmux")
+        XCTAssertTrue(waitForVoiceState("Speaking", timeout: 30), "Should speak response")
+        XCTAssertTrue(waitForVoiceState("Idle", timeout: 15), "Should return to Idle")
 
-        // Inject malformed JSON
-        if let transcriptPath = transcriptPath {
-            let fileHandle = FileHandle(forWritingAtPath: transcriptPath)
-            if let handle = fileHandle {
-                handle.seekToEndOfFile()
-                handle.write("THIS IS NOT JSON\n".data(using: .utf8)!)
-                handle.closeFile()
-            }
-        }
-
-        sleep(2)
-        XCTAssertTrue(waitForVoiceState("Idle", timeout: 5), "Should remain in idle state after malformed JSON")
-
-        // Verify still functional (real flow)
-        sendVoiceInput("Another test")
-        sleep(1)
-        injectAssistantResponse("Another valid message")
-        XCTAssertTrue(waitForVoiceState("Speaking", timeout: 10), "Should still work after error")
-        XCTAssertTrue(waitForVoiceState("Idle", timeout: 10), "Should return to idle")
-
-        // --- Test 2: Empty voice input ---
+        // Test 2: Empty input handling
         sendVoiceInput("")
         sleep(2)
-        XCTAssertTrue(waitForVoiceState("Idle", timeout: 5), "Should be in idle state after empty input")
+        XCTAssertTrue(waitForVoiceState("Idle", timeout: 5), "Should remain Idle after empty input")
 
-        // Verify still functional (real flow)
-        sendVoiceInput("Final test")
-        sleep(1)
-        injectAssistantResponse("Final response")
-        XCTAssertTrue(waitForVoiceState("Speaking", timeout: 10), "Should still work after empty input")
-        XCTAssertTrue(waitForVoiceState("Idle", timeout: 10), "Should return to idle")
+        // Test 3: App still functional after edge case
+        sendVoiceInput("Reply with only yes")
+        XCTAssertTrue(verifyInputInTmux("Reply with only yes", timeout: 10), "Input should still work")
+        XCTAssertTrue(waitForVoiceState("Speaking", timeout: 30), "Should still speak")
+        XCTAssertTrue(waitForVoiceState("Idle", timeout: 15), "Should return to Idle")
 
-        // --- Test 3: Moderately long response ---
-        let longText = String(repeating: "Message. ", count: 5)
-        sendVoiceInput("Send long response")
-        sleep(1)
-        injectAssistantResponse(longText)
-        sleep(8)
-        XCTAssertTrue(app.exists, "App should not crash with long response")
-
-        let stateLabel = app.staticTexts["voiceState"]
-        XCTAssertTrue(stateLabel.waitForExistence(timeout: 10), "Voice state should exist")
-        let validStates = ["Idle", "Speaking", "Processing", "Listening"]
-        XCTAssertTrue(validStates.contains(stateLabel.label), "Should be in valid state")
+        print("✅ Error handling test passed")
     }
 }

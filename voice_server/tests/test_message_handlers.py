@@ -165,8 +165,8 @@ class TestResumeSession:
 
         await server.handle_resume_session(mock_ws, {"session_id": "abc123-def456"})
 
-        # Verify start_session was called with resume_id
-        server.tmux.start_session.assert_called_once_with(resume_id="abc123-def456")
+        # Verify start_session was called with resume_id (working_dir is None when no folder_name provided)
+        server.tmux.start_session.assert_called_once_with(working_dir=None, resume_id="abc123-def456")
 
     @pytest.mark.asyncio
     async def test_resume_session_returns_success(self):
