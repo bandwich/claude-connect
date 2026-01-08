@@ -197,9 +197,14 @@ struct SessionView: View {
             webSocketManager.requestSessionHistory(folderName: project.folderName, sessionId: session.id)
 
             // Auto-resume session in tmux (only for existing sessions)
-            syncSession()
+            // New sessions are already running from the newSession() call
+            if !session.isNewSession {
+                syncSession()
+            } else {
+                // For new sessions, just mark as ready (tmux already started)
+                isSyncing = false
+            }
         }
-        // New sessions are already running from the newSession call
 
         // Setup speech recognizer
         speechRecognizer.onRecordingStarted = { [weak webSocketManager] in
