@@ -8,6 +8,7 @@ struct SessionView: View {
 
     let project: Project
     let session: Session
+    @Environment(\.dismiss) private var dismiss
 
     @State private var messages: [SessionHistoryMessage] = []
     @State private var currentTranscript = ""
@@ -106,20 +107,21 @@ struct SessionView: View {
             .padding(.vertical)
             .background(Color(.systemBackground))
         }
-        .navigationTitle(session.title)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                HStack(spacing: 4) {
-                    Image(systemName: "arrow.triangle.branch")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text(branchName)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
+        .customNavigationBarInline(
+            title: session.title,
+            breadcrumb: "/\(project.name)",
+            onBack: { dismiss() }
+        ) {
+            HStack(spacing: 4) {
+                Image(systemName: "arrow.triangle.branch")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Text(branchName)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
         }
+        .enableSwipeBack()
         .sheet(item: $webSocketManager.pendingPermission) { request in
             PermissionPromptView(request: request) { response in
                 // Add permission response to message history

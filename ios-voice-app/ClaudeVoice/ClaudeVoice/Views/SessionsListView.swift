@@ -41,6 +41,7 @@ struct SessionsListView: View {
                 .buttonStyle(.plain)
             }
             .listStyle(.plain)
+            .padding(.top, 4)
 
             // Floating add button
             Button(action: createNewSession) {
@@ -59,30 +60,14 @@ struct SessionsListView: View {
             .padding(.bottom, 20)
             .accessibilityLabel("New Session")
         }
-        .navigationBarBackButtonHidden(true)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
-                HStack(spacing: 12) {
-                    Button(action: { dismiss() }) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(.secondary)
-                    }
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text("/\(project.name)")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Text("Sessions")
-                            .font(.headline)
-                    }
-                }
-            }
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button(action: { showingSettings = true }) {
-                    Image(systemName: "gearshape.fill")
-                        .foregroundColor(.secondary)
-                }
+        .customNavigationBar(
+            title: "Sessions",
+            breadcrumb: "/\(project.name)",
+            onBack: { dismiss() }
+        ) {
+            Button(action: { showingSettings = true }) {
+                Image(systemName: "gearshape.fill")
+                    .foregroundColor(.secondary)
             }
         }
         .enableSwipeBack()
