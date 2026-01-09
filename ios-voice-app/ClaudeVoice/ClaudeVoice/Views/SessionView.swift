@@ -50,61 +50,39 @@ struct SessionView: View {
 
             Divider()
 
-            // Voice input area
-            VStack(spacing: 12) {
-                if !currentTranscript.isEmpty {
-                    Text(currentTranscript)
-                        .font(.body)
-                        .foregroundColor(.secondary)
-                        .padding(.horizontal)
-                }
-
-                // Show sync status or voice state
-                if isSyncing {
-                    HStack(spacing: 8) {
+            // Bottom mic area
+            VStack(spacing: 16) {
+                if let error = syncError {
+                    // Error state - show error instead of mic
+                    VStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.circle.fill")
+                            .font(.system(size: 40))
+                            .foregroundColor(.red)
+                        Text(error)
+                            .font(.caption)
+                            .foregroundColor(.red)
+                            .multilineTextAlignment(.center)
+                    }
+                    .accessibilityIdentifier("syncError")
+                } else if !isSessionSynced && !session.isNewSession {
+                    // Syncing state
+                    VStack(spacing: 8) {
                         ProgressView()
-                            .scaleEffect(0.8)
-                        Text("Syncing...")
-                            .accessibilityIdentifier("syncStatus")
                     }
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                } else if let error = syncError {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundColor(.red)
-                        .accessibilityIdentifier("syncError")
-                } else if let statusText = webSocketManager.outputState.statusText {
-                    // Show output state when active (thinking, using tool, speaking)
-                    Text(statusText)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .accessibilityIdentifier("outputStatus")
+                    .accessibilityIdentifier("syncStatus")
                 } else {
-                    // Show voice state when idle
-                    Text(webSocketManager.voiceState.description)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .accessibilityIdentifier("voiceState")
-                }
-
-                Button(action: toggleRecording) {
-                    HStack {
+                    // Normal state - show mic
+                    Button(action: toggleRecording) {
                         Image(systemName: speechRecognizer.isRecording ? "mic.fill" : "mic")
-                        Text(speechRecognizer.isRecording ? "Stop" : "Tap to Talk")
+                            .font(.system(size: 32))
+                            .foregroundColor(micColor)
                     }
-                    .font(.headline)
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(buttonColor)
-                    .cornerRadius(12)
+                    .accessibilityLabel(speechRecognizer.isRecording ? "Stop" : "Tap to Talk")
+                    .disabled(!canRecord)
                 }
-                .accessibilityLabel(speechRecognizer.isRecording ? "Stop" : "Tap to Talk")
-                .padding(.horizontal, 40)
-                .disabled(!canRecord)
             }
-            .padding(.vertical)
+            .frame(height: 100)
+            .frame(maxWidth: .infinity)
             .background(Color(.systemBackground))
         }
         .customNavigationBarInline(
@@ -150,9 +128,9 @@ struct SessionView: View {
         .onAppear(perform: setupView)
     }
 
-    private var buttonColor: Color {
+    private var micColor: Color {
         if !canRecord { return .gray }
-        return speechRecognizer.isRecording ? .red : .blue
+        return speechRecognizer.isRecording ? .red : .primary
     }
 
     private var canRecord: Bool {
