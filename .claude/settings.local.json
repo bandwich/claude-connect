@@ -19,7 +19,10 @@
       "Bash(xargs:*)",
       "Bash(tmux kill-session:*)",
       "Bash(tmux capture-pane:*)",
-      "Bash(source:*)"
+      "Bash(source:*)",
+      "Bash(xcodebuild build:*)",
+      "Bash(git -C /Users/aaron/Desktop/max diff ios-voice-app/ClaudeVoice/ClaudeVoice/Views/SessionView.swift ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/E2ENavigationFlowTests.swift)",
+      "Bash(git -C /Users/aaron/Desktop/max log --oneline -5)"
     ]
   }
 }

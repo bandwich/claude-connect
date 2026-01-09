@@ -1,3 +1,24 @@
+## CRITICAL RULES
+
+**MUST FOLLOW - NO EXCEPTIONS:**
+
+When running E2E tests or long-running commands:
+- Your ENTIRE response must be ONLY the Bash tool call
+- NO text before the tool call
+- NO text after the tool call
+- NO timeout parameter
+- NO piping through tee or other commands
+- Just the raw command
+
+WRONG:
+> "Let me run the test now."
+> [tool call]
+
+RIGHT:
+> [tool call only, nothing else]
+
+---
+
 # Claude Voice Mode
 
 Hands-free voice interaction with Claude Code via iOS app + Mac server.
@@ -168,3 +189,4 @@ The app displays Claude Code projects and sessions, allowing users to:
 - View sessions per project
 - See message history for each session
 - Open/resume sessions in tmux
+
