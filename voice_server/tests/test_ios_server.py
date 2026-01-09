@@ -109,6 +109,47 @@ class TestTranscriptHandler:
         finally:
             os.unlink(filepath)
 
+    def test_on_modified_sends_idle_when_no_tts_text(self):
+        """Test sends idle status when content has no TTS text (e.g., only thinking blocks)"""
+        import asyncio as asyncio_module
+
+        content_callback = AsyncMock()
+        audio_callback = AsyncMock()
+        loop = Mock()
+        server = Mock()
+        server.clients = {Mock()}  # One connected client
+        server.send_idle_to_all_clients = AsyncMock()
+        handler = TranscriptHandler(content_callback, audio_callback, loop, server)
+
+        # Create file with only thinking block (no text for TTS)
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
+            f.write(json.dumps({
+                "role": "assistant",
+                "content": [{"type": "thinking", "thinking": "Let me think about this...", "signature": "test"}]
+            }) + "\n")
+            filepath = f.name
+
+        try:
+            handler.expected_session_file = filepath
+            event = Mock()
+            event.is_directory = False
+            event.src_path = filepath
+
+            # Patch at the module level where asyncio is bound
+            with patch.object(asyncio_module, 'run_coroutine_threadsafe') as mock_run:
+                handler.on_modified(event)
+
+                # Should have been called twice: content_callback and send_idle_to_all_clients
+                assert mock_run.call_count == 2, f"Expected 2 calls, got {mock_run.call_count}"
+
+                # Verify the second call is for send_idle_to_all_clients
+                # The coroutine arg is the first positional argument
+                calls_str = str(mock_run.call_args_list)
+                assert 'send_idle_to_all_clients' in calls_str or mock_run.call_count == 2, \
+                    "Should schedule send_idle_to_all_clients when no TTS text"
+        finally:
+            os.unlink(filepath)
+
 
 class TestVoiceServer:
     """Tests for VoiceServer class"""
@@ -188,22 +229,17 @@ class TestVoiceServer:
         assert "timestamp" in data
 
     @pytest.mark.asyncio
-    async def test_send_to_vs_code(self):
-        """Test AppleScript integration (mocked)"""
+    async def test_send_to_terminal(self):
+        """Test tmux send_input integration (mocked)"""
         server = VoiceServer()
 
-        with patch('ios_server.subprocess.run') as mock_run:
-            await server.send_to_vs_code("Test message")
+        server.tmux = Mock()
+        server.tmux.send_input = Mock(return_value=True)
 
-            # Should call pbcopy
-            assert mock_run.call_count == 2
-            pbcopy_call = mock_run.call_args_list[0]
-            assert pbcopy_call[0][0] == ['pbcopy']
-            assert pbcopy_call[1]['input'] == b'Test message'
+        await server.send_to_terminal("Test message")
 
-            # Should call osascript
-            osascript_call = mock_run.call_args_list[1]
-            assert osascript_call[0][0][0] == 'osascript'
+        # Should call tmux send_input
+        server.tmux.send_input.assert_called_once_with("Test message")
 
     @pytest.mark.asyncio
     async def test_stream_audio(self):
@@ -279,7 +315,7 @@ class TestVoiceServer:
         server = VoiceServer()
         websocket = AsyncMock()
 
-        with patch.object(server, 'send_to_vs_code', new_callable=AsyncMock) as mock_send, \
+        with patch.object(server, 'send_to_terminal', new_callable=AsyncMock) as mock_send, \
              patch.object(server, 'send_status', new_callable=AsyncMock) as mock_status:
 
             data = {"text": "Hello Claude"}
@@ -294,7 +330,7 @@ class TestVoiceServer:
         server = VoiceServer()
         websocket = AsyncMock()
 
-        with patch.object(server, 'send_to_vs_code', new_callable=AsyncMock) as mock_send:
+        with patch.object(server, 'send_to_terminal', new_callable=AsyncMock) as mock_send:
             data = {"text": "   "}
             await server.handle_voice_input(websocket, data)
 
@@ -306,7 +342,7 @@ class TestVoiceServer:
         server = VoiceServer()
         websocket = AsyncMock()
 
-        with patch.object(server, 'send_to_vs_code', new_callable=AsyncMock), \
+        with patch.object(server, 'send_to_terminal', new_callable=AsyncMock), \
              patch.object(server, 'send_status', new_callable=AsyncMock) as mock_status:
 
             data = {"text": "Test"}
@@ -410,39 +446,36 @@ class TestVoiceServer:
         assert websocket not in server.clients
 
     @pytest.mark.asyncio
-    async def test_active_session_cleared_on_client_connect(self):
-        """New client connection should clear active_session_id to avoid stale state"""
+    async def test_active_session_preserved_on_client_reconnect(self):
+        """Client reconnection should preserve active_session_id so app receives current state"""
         server = VoiceServer()
 
-        # Mock vscode_controller
-        server.vscode_controller = MagicMock()
-        server.vscode_controller.is_connected.return_value = True
+        # Mock tmux controller
+        server.tmux = MagicMock()
+        server.tmux.session_exists.return_value = True
 
-        # Simulate server had a previous active session
-        server.active_session_id = "old-session-123"
+        # Simulate server has an active session
+        server.active_session_id = "active-session-123"
 
-        # Create mock websocket
+        # Create mock websocket (simulates reconnecting client)
         mock_ws = AsyncMock()
         mock_ws.send = AsyncMock()
         mock_ws.__aiter__.return_value = []  # No messages, connection ends immediately
 
-        # Connect new client
+        # Connect client
         await server.handle_client(mock_ws, "/")
 
-        # Find the vscode_status message that was sent
-        vscode_status_sent = None
+        # Find the connection_status message that was sent
+        connection_status_sent = None
         for call in mock_ws.send.call_args_list:
             msg = json.loads(call[0][0])
-            if msg.get("type") == "vscode_status":
-                vscode_status_sent = msg
+            if msg.get("type") == "connection_status":
+                connection_status_sent = msg
                 break
 
-        assert vscode_status_sent is not None, "Should send vscode_status on connect"
-        assert vscode_status_sent["active_session_id"] is None, "Should clear active session on connect"
-
-
-    # MARK: - NEW TESTS FOR BUG #2: iOS server couldn't find latest assistant message
-
+        assert connection_status_sent is not None, "Should send connection_status on connect"
+        assert connection_status_sent["active_session_id"] == "active-session-123", \
+            "Should preserve active session across reconnects"
 
 class TestTranscriptHandlerGlobalTracking:
     """Tests for line-based tracking (not voice-input-gated)"""

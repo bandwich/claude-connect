@@ -9,7 +9,7 @@ iPhone App                         Mac Server
 ├─ Speech Recognition              ├─ WebSocket Server (port 8765)
 ├─ WebSocket Client ──────────────►├─ Receives voice input
 ├─ Audio Player ◄──────────────────├─ Streams TTS audio (Kokoro)
-├─ Session/Project Browser         ├─ VSCode integration (AppleScript)
+├─ Session/Project Browser         ├─ tmux session management
 └─ Message History Display         └─ Transcript file watching
 ```
 
@@ -25,12 +25,11 @@ voice_server/                  # Python server
 ├─ ios_server.py              # Main WebSocket server
 ├─ session_manager.py         # Claude Code session management
 ├─ tts_utils.py               # Kokoro TTS integration
-├─ vscode_controller.py       # AppleScript automation
+├─ tmux_controller.py         # Tmux session control
 └─ tests/                     # pytest test suite
 
 tests/e2e_support/            # E2E test utilities
-├─ server_manager.py          # Server lifecycle for tests
-└─ transcript_injector.py     # Mock message injection
+└─ server_manager.py          # Server lifecycle for tests
 ```
 
 ## Commands
@@ -39,28 +38,24 @@ tests/e2e_support/            # E2E test utilities
 
 See [`tests/TESTS.md`](tests/TESTS.md) for full test documentation.
 
-**Automatable (for auto-fix skill):**
+**Run all tests to verify functionality:**
 ```bash
-# Server tests (Python)
+# 1. Server tests (Python)
 cd voice_server/tests && ./run_tests.sh
 
-# iOS unit tests
+# 2. iOS unit tests
 cd ios-voice-app/ClaudeVoice
 xcodebuild test -scheme ClaudeVoice \
   -destination 'platform=iOS Simulator,name=iPhone 16' \
   -only-testing:ClaudeVoiceTests
+
+# 3. iOS E2E tests (may timeout, needs simulator)
+cd ios-voice-app/ClaudeVoice && ./run_e2e_tests.sh
 ```
 
-**Requires human (not for auto-fix):**
+**Run specific E2E test suite:**
 ```bash
-# E2E tests - requires simulator, may timeout
-cd ios-voice-app/ClaudeVoice && ./run_e2e_tests.sh
-
-# Run specific E2E test suite
 cd ios-voice-app/ClaudeVoice && ./run_e2e_tests.sh E2EPermissionTests
-
-# Integration tests - requires manually starting server first
-# See tests/TESTS.md for details
 ```
 
 ### Running
@@ -172,4 +167,4 @@ The app displays Claude Code projects and sessions, allowing users to:
 - Browse projects (from `~/.claude/projects/`)
 - View sessions per project
 - See message history for each session
-- Open/resume sessions in VSCode
+- Open/resume sessions in tmux

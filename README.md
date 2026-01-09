@@ -5,13 +5,13 @@ Hands-free voice interaction with Claude Code. Speak to Claude from your iPhone,
 ## How It Works
 
 1. iOS app captures speech and sends text to Mac server via WebSocket
-2. Server pastes text into Claude Code running in VSCode
+2. Server sends text to Claude Code running in tmux session
 3. Server monitors Claude's transcript for responses
 4. Responses are converted to speech (Kokoro TTS) and streamed back to iOS
 
 ## Requirements
 
-- Mac with VSCode and Claude Code CLI installed
+- Mac with tmux and Claude Code CLI installed
 - iPhone (iOS 18+)
 - Python 3.9+ with virtual environment
 - Xcode 15+ (for building the iOS app)
@@ -60,7 +60,7 @@ The server will display your Mac's IP address.
 
 ### Talk to Claude
 
-1. Ensure Claude Code is running in VSCode
+1. The server manages Claude Code sessions via tmux
 2. Tap "Tap to Talk" in the app
 3. Speak your request
 4. Listen to Claude's response

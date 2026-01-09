@@ -37,8 +37,8 @@ class TestMessageValidation:
         from ios_server import VoiceServer
 
         server = VoiceServer()
-        server.vscode_controller = MagicMock()
-        server.vscode_controller.is_connected.return_value = False
+        server.tmux = MagicMock()
+        server.tmux.session_exists.return_value = False
         websocket = AsyncMock()
 
         # Register pending permission

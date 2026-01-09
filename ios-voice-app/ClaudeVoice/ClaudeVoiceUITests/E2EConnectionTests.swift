@@ -23,8 +23,8 @@ final class E2EConnectionTests: E2ETestBase {
         app.buttons["Done"].tap()
 
         // --- Test 2: Navigate to session and verify voice controls ---
-        navigateToTestSession()
-        XCTAssertTrue(waitForVoiceState("Idle", timeout: 5), "Should be in Idle state")
+        navigateToTestSession(resume: true)  // Resume pre-created session
+        XCTAssertTrue(waitForVoiceState("Idle", timeout: 10), "Should be in Idle state")
 
         let talkButton = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Tap to Talk'")).firstMatch
         XCTAssertTrue(talkButton.exists, "Talk button should exist")
@@ -70,10 +70,12 @@ final class E2EConnectionTests: E2ETestBase {
         app.buttons["Done"].tap()
 
         // --- Test 4: Verify voice works after reconnect ---
-        navigateToTestSession()
+        navigateToTestSession(resume: true)  // Resume existing session to use watched transcript
         XCTAssertTrue(waitForVoiceState("Idle", timeout: 5), "Should be in idle state")
 
-        simulateConversationTurn(userInput: "Test", assistantResponse: "Test after reconnect")
-        XCTAssertTrue(waitForVoiceState("Speaking", timeout: 10), "Should work after reconnect")
+        // Send voice input - real Claude responds, wait for full cycle to complete
+        sendVoiceInput("Reply with only the word ok")
+        XCTAssertTrue(verifyInputInTmux("Reply with only the word ok", timeout: 10), "Input should reach tmux")
+        XCTAssertTrue(waitForResponseCycle(timeout: 60), "Response cycle should complete after reconnect")
     }
 }

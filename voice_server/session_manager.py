@@ -71,6 +71,71 @@ class SessionManager:
         """Encode project path to folder name format"""
         return project_path.replace("/", "-")
 
+    def encode_path_to_folder(self, path: str) -> str:
+        """Encode a path to Claude's folder name format.
+
+        Claude encodes both / and _ as - in folder names.
+        e.g., /tmp/e2e_test_project -> -tmp-e2e-test-project
+        """
+        # Resolve symlinks (e.g., /tmp -> /private/tmp on macOS)
+        resolved = os.path.realpath(path)
+        return resolved.replace("/", "-").replace("_", "-")
+
+    def find_newest_session(self, folder_name: str) -> Optional[str]:
+        """Find the most recently created session in a folder.
+
+        Args:
+            folder_name: The folder name in projects_dir
+
+        Returns:
+            Session ID of the newest session, or None if no sessions found
+        """
+        folder_path = os.path.join(self.projects_dir, folder_name)
+        if not os.path.exists(folder_path):
+            return None
+
+        session_files = glob.glob(os.path.join(folder_path, "*.jsonl"))
+        # Filter out agent files
+        session_files = [f for f in session_files if not os.path.basename(f).startswith("agent-")]
+
+        if not session_files:
+            return None
+
+        # Sort by modification time (newest first)
+        session_files.sort(key=os.path.getmtime, reverse=True)
+
+        # Return the session ID (filename without .jsonl)
+        return os.path.splitext(os.path.basename(session_files[0]))[0]
+
+    def get_session_cwd(self, folder_name: str, session_id: str) -> Optional[str]:
+        """Get the working directory from a session file.
+
+        Args:
+            folder_name: The folder name in projects_dir
+            session_id: The session ID (filename without .jsonl)
+
+        Returns:
+            The cwd path, or None if not found
+        """
+        filepath = os.path.join(self.projects_dir, folder_name, f"{session_id}.jsonl")
+
+        if not os.path.exists(filepath):
+            return None
+
+        try:
+            with open(filepath, 'r') as f:
+                for line in f:
+                    try:
+                        entry = json.loads(line.strip())
+                        if 'cwd' in entry:
+                            return entry['cwd']
+                    except json.JSONDecodeError:
+                        continue
+        except Exception:
+            pass
+
+        return None
+
     def list_sessions(self, folder_name: str, limit: int = 10) -> list[Session]:
         """List sessions for a project, sorted by most recent first
 

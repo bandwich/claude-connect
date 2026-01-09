@@ -63,11 +63,11 @@ struct SessionView: View {
                     HStack(spacing: 8) {
                         ProgressView()
                             .scaleEffect(0.8)
-                        Text("Syncing with VSCode...")
+                        Text("Syncing...")
+                            .accessibilityIdentifier("syncStatus")
                     }
                     .font(.caption)
                     .foregroundColor(.secondary)
-                    .accessibilityIdentifier("syncStatus")
                 } else if let error = syncError {
                     Text(error)
                         .font(.caption)
@@ -119,7 +119,7 @@ struct SessionView: View {
                     } else if isSessionSynced {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundColor(.green)
-                            .accessibilityLabel("Synced with VSCode")
+                            .accessibilityLabel("Synced")
                     } else if syncError != nil {
                         Image(systemName: "exclamationmark.circle.fill")
                             .foregroundColor(.red)
@@ -179,9 +179,9 @@ struct SessionView: View {
 
     private var isSessionSynced: Bool {
         if session.isNewSession {
-            // New session is synced when VSCode is connected and no specific session is active
+            // New session is synced when connected and no specific session is active
             // (meaning the new claude session we just started is running)
-            return webSocketManager.vscodeConnected && webSocketManager.activeSessionId == nil
+            return webSocketManager.connected && webSocketManager.activeSessionId == nil
         } else {
             // Resumed session is synced when activeSessionId matches
             return webSocketManager.activeSessionId == session.id
@@ -196,10 +196,15 @@ struct SessionView: View {
             }
             webSocketManager.requestSessionHistory(folderName: project.folderName, sessionId: session.id)
 
-            // Auto-resume session in VSCode (only for existing sessions)
-            syncSession()
+            // Auto-resume session in tmux (only for existing sessions)
+            // New sessions are already running from the newSession() call
+            if !session.isNewSession {
+                syncSession()
+            } else {
+                // For new sessions, just mark as ready (tmux already started)
+                isSyncing = false
+            }
         }
-        // New sessions are already running from the newSession call
 
         // Setup speech recognizer
         speechRecognizer.onRecordingStarted = { [weak webSocketManager] in
@@ -305,9 +310,9 @@ struct SessionView: View {
     private func syncSession() {
         // Don't skip even if appears synced - server state may be stale
 
-        // Check if VSCode is connected
-        guard webSocketManager.vscodeConnected else {
-            syncError = "VSCode not connected"
+        // Check if WebSocket is connected (not tmux session status)
+        guard case .connected = webSocketManager.connectionState else {
+            syncError = "Not connected to server"
             return
         }
 
@@ -317,7 +322,7 @@ struct SessionView: View {
         webSocketManager.onSessionActionResult = { response in
             isSyncing = false
             if response.success {
-                // Session synced - vscode_status broadcast will update activeSessionId
+                // Session synced - connection_status broadcast will update activeSessionId
                 print("Session synced successfully")
             } else {
                 syncError = response.error ?? "Failed to sync"

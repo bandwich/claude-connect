@@ -86,25 +86,44 @@ cd ios-voice-app/ClaudeVoice && ./run_e2e_tests.sh
 cd ios-voice-app/ClaudeVoice && ./run_e2e_tests.sh E2EPermissionTests
 ```
 
-The E2E runner (`run_e2e_tests.sh`):
-1. Starts the real `ios_server.py`
-2. Creates a test transcript file
-3. Runs E2E test suites (all or specified)
-4. Cleans up server and files
+### How E2E Tests Work
+
+The E2E runner (`run_e2e_tests.sh`) performs these steps:
+
+1. **Create test session** - Runs `claude --print "Reply with only: ok"` in `/tmp/e2e_test_project` to create a real Claude session
+2. **Extract session ID** - Finds the session file in `~/.claude/projects/-tmp-e2e_test_project/` and extracts the UUID
+3. **Start server** - Launches `ios_server.py`
+4. **Pass session info** - Exports environment variables to tests:
+   - `E2E_TEST_SESSION_ID` - UUID of the created session
+   - `E2E_TEST_PROJECT_NAME` - "e2e_test_project"
+   - `E2E_TEST_FOLDER_NAME` - "-tmp-e2e_test_project"
+5. **Run tests** - Executes specified test suites
+6. **Cleanup** - Kills server and tmux session (keeps session files for debugging)
+
+### Why Dynamic Session Creation?
+
+Tests use a real Claude session created at test start because:
+- Session files persist in `~/.claude/projects/` but working directories in `/tmp` are cleared on reboot
+- Pre-created sessions can become stale or reference non-existent paths
+- Dynamic creation ensures the session is always valid and resumable
+
+**CRITICAL: If the test passes, it MUST work on a real device.**
+
+Tests that mock core functionality (subprocess calls, file operations) can pass while the real system is broken. E2E tests must use:
+- Real tmux sessions (with test-specific session names)
+- Real file watching with real file modifications
+- Real WebSocket connections
 
 **Test suites:**
-- `E2EHappyPathTests` - Complete voice conversation flows
 - `E2EConnectionTests` - Server connection and reconnection
 - `E2EErrorHandlingTests` - Malformed messages, server errors
-- `E2EProjectsListTests` - Projects list loading and display
-- `E2ESessionsListTests` - Session navigation and counts
-- `E2ESessionViewTests` - Message history and voice controls
-- `E2EVSCodeConnectionTests` - VSCode integration flows
-- `E2EPermissionTests` - Permission prompt UI (bash, edit, question, task)
+- `E2ESessionFlowTests` - Session sync and management
+- `E2EFullConversationFlowTests` - Full voice → Claude → TTS flow
+- `E2ENavigationFlowTests` - Project/session navigation
+- `E2EPermissionTests` - Permission prompt UI
 
 **Support utilities:** `tests/e2e_support/`
 - `server_manager.py` - Server lifecycle management
-- `transcript_injector.py` - Mock message injection
 
 ---
 

@@ -43,70 +43,48 @@ class TestMessageHandlers:
         assert response["projects"][0]["session_count"] == 5
 
 
-class TestVoiceInputWithVSCode:
-    """Tests for voice input via VSCode controller"""
+class TestVoiceInputWithTmux:
+    """Tests for voice input via tmux controller"""
 
     @pytest.mark.asyncio
-    async def test_voice_input_uses_vscode_controller(self):
-        """Voice input should send text via VSCodeController"""
+    async def test_voice_input_uses_tmux_controller(self):
+        """Voice input should send text via TmuxController"""
         from ios_server import VoiceServer
 
         server = VoiceServer()
 
-        server.vscode_controller = Mock()
-        server.vscode_controller.is_connected.return_value = True
-        server.vscode_controller.send_sequence = AsyncMock(return_value=True)
+        server.tmux = Mock()
+        server.tmux.session_exists.return_value = True
+        server.tmux.send_input = Mock(return_value=True)
 
         # Mock WebSocket
         mock_ws = AsyncMock()
 
-        # Mock subprocess to capture AppleScript call for Enter key
-        with patch('ios_server.subprocess.run') as mock_subprocess:
-            # Handle voice input
-            await server.handle_voice_input(mock_ws, {"text": "hello claude"})
+        # Handle voice input
+        await server.handle_voice_input(mock_ws, {"text": "hello claude"})
 
-            # Verify send_sequence was called with just text (no \r)
-            server.vscode_controller.send_sequence.assert_called_once_with("hello claude")
-
-            # Verify AppleScript was called to send return key
-            assert any('keystroke return' in str(call) for call in mock_subprocess.call_args_list)
-
-    @pytest.mark.asyncio
-    async def test_voice_input_falls_back_to_applescript(self):
-        """Should fall back to AppleScript if VSCode not connected"""
-        from ios_server import VoiceServer
-
-        server = VoiceServer()
-
-        server.vscode_controller = Mock()
-        server.vscode_controller.is_connected.return_value = False
-
-        # Mock AppleScript fallback
-        with patch.object(server, 'send_to_vs_code_applescript', new_callable=AsyncMock) as mock_applescript:
-            mock_ws = AsyncMock()
-            await server.handle_voice_input(mock_ws, {"text": "hello"})
-            mock_applescript.assert_called_once_with("hello")
+        # Verify send_input was called with text
+        server.tmux.send_input.assert_called_once_with("hello claude")
 
 
 class TestCloseSession:
     """Tests for close_session handler"""
 
     @pytest.mark.asyncio
-    async def test_close_session_kills_terminal(self):
-        """close_session should kill terminal via VSCodeController"""
+    async def test_close_session_kills_tmux_session(self):
+        """close_session should kill tmux session via TmuxController"""
         from ios_server import VoiceServer
 
         server = VoiceServer()
 
-        server.vscode_controller = Mock()
-        server.vscode_controller.is_connected.return_value = True
-        server.vscode_controller.kill_terminal = AsyncMock()
+        server.tmux = Mock()
+        server.tmux.kill_session = Mock(return_value=True)
 
         mock_ws = AsyncMock()
 
         await server.handle_close_session(mock_ws)
 
-        server.vscode_controller.kill_terminal.assert_called_once()
+        server.tmux.kill_session.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_close_session_returns_success_status(self):
@@ -114,9 +92,8 @@ class TestCloseSession:
         from ios_server import VoiceServer
 
         server = VoiceServer()
-        server.vscode_controller = Mock()
-        server.vscode_controller.is_connected.return_value = True
-        server.vscode_controller.kill_terminal = AsyncMock()
+        server.tmux = Mock()
+        server.tmux.kill_session = Mock(return_value=True)
 
         mock_ws = AsyncMock()
         sent_messages = []
@@ -134,26 +111,21 @@ class TestNewSession:
     """Tests for new_session handler"""
 
     @pytest.mark.asyncio
-    async def test_new_session_kills_existing_terminal_first(self):
-        """new_session should kill existing terminal before creating new one"""
+    async def test_new_session_starts_tmux_session(self):
+        """new_session should start a new tmux session"""
         from ios_server import VoiceServer
 
         server = VoiceServer()
 
-        call_order = []
-        server.vscode_controller = Mock()
-        server.vscode_controller.is_connected.return_value = True
-        server.vscode_controller.kill_terminal = AsyncMock(side_effect=lambda: call_order.append('kill'))
-        server.vscode_controller.new_terminal = AsyncMock(side_effect=lambda: call_order.append('new'))
-        server.vscode_controller.send_sequence = AsyncMock(return_value=True)
+        server.tmux = Mock()
+        server.tmux.start_session = Mock(return_value=True)
 
         mock_ws = AsyncMock()
 
         await server.handle_new_session(mock_ws, {"project_path": "/Users/test/myproject"})
 
-        # Verify kill comes before new
-        assert call_order == ['kill', 'new']
-        server.vscode_controller.send_sequence.assert_called_with("claude\n")
+        # Verify start_session was called with working_dir
+        server.tmux.start_session.assert_called_once_with(working_dir="/Users/test/myproject")
 
     @pytest.mark.asyncio
     async def test_new_session_returns_success_status(self):
@@ -161,11 +133,8 @@ class TestNewSession:
         from ios_server import VoiceServer
 
         server = VoiceServer()
-        server.vscode_controller = Mock()
-        server.vscode_controller.is_connected.return_value = True
-        server.vscode_controller.kill_terminal = AsyncMock()
-        server.vscode_controller.new_terminal = AsyncMock()
-        server.vscode_controller.send_sequence = AsyncMock(return_value=True)
+        server.tmux = Mock()
+        server.tmux.start_session = Mock(return_value=True)
 
         mock_ws = AsyncMock()
         sent_messages = []
@@ -183,26 +152,21 @@ class TestResumeSession:
     """Tests for resume_session handler"""
 
     @pytest.mark.asyncio
-    async def test_resume_session_kills_existing_terminal_first(self):
-        """resume_session should kill existing terminal before creating new one"""
+    async def test_resume_session_starts_with_resume_id(self):
+        """resume_session should start tmux session with resume_id"""
         from ios_server import VoiceServer
 
         server = VoiceServer()
 
-        call_order = []
-        server.vscode_controller = Mock()
-        server.vscode_controller.is_connected.return_value = True
-        server.vscode_controller.kill_terminal = AsyncMock(side_effect=lambda: call_order.append('kill'))
-        server.vscode_controller.new_terminal = AsyncMock(side_effect=lambda: call_order.append('new'))
-        server.vscode_controller.send_sequence = AsyncMock(return_value=True)
+        server.tmux = Mock()
+        server.tmux.start_session = Mock(return_value=True)
 
         mock_ws = AsyncMock()
 
         await server.handle_resume_session(mock_ws, {"session_id": "abc123-def456"})
 
-        # Verify kill comes before new
-        assert call_order == ['kill', 'new']
-        server.vscode_controller.send_sequence.assert_called_with("claude --resume abc123-def456\n")
+        # Verify start_session was called with resume_id (working_dir is None when no folder_name provided)
+        server.tmux.start_session.assert_called_once_with(working_dir=None, resume_id="abc123-def456")
 
     @pytest.mark.asyncio
     async def test_resume_session_returns_success(self):
@@ -210,11 +174,8 @@ class TestResumeSession:
         from ios_server import VoiceServer
 
         server = VoiceServer()
-        server.vscode_controller = Mock()
-        server.vscode_controller.is_connected.return_value = True
-        server.vscode_controller.kill_terminal = AsyncMock()
-        server.vscode_controller.new_terminal = AsyncMock()
-        server.vscode_controller.send_sequence = AsyncMock(return_value=True)
+        server.tmux = Mock()
+        server.tmux.start_session = Mock(return_value=True)
 
         mock_ws = AsyncMock()
         sent_messages = []
@@ -233,31 +194,6 @@ class TestAddProject:
     """Tests for add_project handler"""
 
     @pytest.mark.asyncio
-    async def test_add_project_kills_terminal_before_opening_folder(self):
-        """add_project should kill existing terminal before opening new folder"""
-        from ios_server import VoiceServer
-
-        server = VoiceServer()
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            server.projects_base_path = tmpdir
-
-            call_order = []
-            server.vscode_controller = Mock()
-            server.vscode_controller.is_connected.return_value = True
-            server.vscode_controller.kill_terminal = AsyncMock(side_effect=lambda: call_order.append('kill'))
-            server.vscode_controller.open_folder = AsyncMock(side_effect=lambda x: call_order.append('open'))
-            server.vscode_controller.new_terminal = AsyncMock()
-            server.vscode_controller.send_sequence = AsyncMock(return_value=True)
-
-            mock_ws = AsyncMock()
-
-            await server.handle_add_project(mock_ws, {"name": "test-project"})
-
-            # Verify kill comes before open
-            assert call_order == ['kill', 'open']
-
-    @pytest.mark.asyncio
     async def test_add_project_creates_directory(self):
         """add_project should create project directory"""
         from ios_server import VoiceServer
@@ -267,12 +203,9 @@ class TestAddProject:
         with tempfile.TemporaryDirectory() as tmpdir:
             server.projects_base_path = tmpdir
 
-            server.vscode_controller = Mock()
-            server.vscode_controller.is_connected.return_value = True
-            server.vscode_controller.kill_terminal = AsyncMock()
-            server.vscode_controller.open_folder = AsyncMock()
-            server.vscode_controller.new_terminal = AsyncMock()
-            server.vscode_controller.send_sequence = AsyncMock(return_value=True)
+            server.tmux = Mock()
+            server.tmux.start_session = Mock(return_value=True)
+            server.tmux.send_input = Mock(return_value=True)
 
             mock_ws = AsyncMock()
 
@@ -283,8 +216,8 @@ class TestAddProject:
             assert os.path.isdir(project_path)
 
     @pytest.mark.asyncio
-    async def test_add_project_opens_in_vscode(self):
-        """add_project should open folder in VS Code"""
+    async def test_add_project_starts_tmux_session(self):
+        """add_project should start tmux session in new project directory"""
         from ios_server import VoiceServer
 
         server = VoiceServer()
@@ -292,45 +225,16 @@ class TestAddProject:
         with tempfile.TemporaryDirectory() as tmpdir:
             server.projects_base_path = tmpdir
 
-            server.vscode_controller = Mock()
-            server.vscode_controller.is_connected.return_value = True
-            server.vscode_controller.kill_terminal = AsyncMock()
-            server.vscode_controller.open_folder = AsyncMock()
-            server.vscode_controller.new_terminal = AsyncMock()
-            server.vscode_controller.send_sequence = AsyncMock(return_value=True)
+            server.tmux = Mock()
+            server.tmux.start_session = Mock(return_value=True)
+            server.tmux.send_input = Mock(return_value=True)
 
             mock_ws = AsyncMock()
 
             await server.handle_add_project(mock_ws, {"name": "my-project"})
 
             expected_path = f"{tmpdir}/my-project"
-            server.vscode_controller.open_folder.assert_called_once_with(expected_path)
-
-    @pytest.mark.asyncio
-    async def test_add_project_starts_claude(self):
-        """add_project should start claude in new terminal"""
-        from ios_server import VoiceServer
-
-        server = VoiceServer()
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            server.projects_base_path = tmpdir
-
-            server.vscode_controller = Mock()
-            server.vscode_controller.is_connected.return_value = True
-            server.vscode_controller.kill_terminal = AsyncMock()
-            server.vscode_controller.open_folder = AsyncMock()
-            server.vscode_controller.new_terminal = AsyncMock()
-            server.vscode_controller.send_sequence = AsyncMock(return_value=True)
-
-            mock_ws = AsyncMock()
-
-            await server.handle_add_project(mock_ws, {"name": "new-proj"})
-
-            server.vscode_controller.new_terminal.assert_called_once()
-            # send_sequence is called multiple times (claude\n, then \r for trust)
-            calls = [str(c) for c in server.vscode_controller.send_sequence.call_args_list]
-            assert any("claude" in c for c in calls)
+            server.tmux.start_session.assert_called_once_with(working_dir=expected_path)
 
 
 class TestActiveSessionTracking:
@@ -342,11 +246,8 @@ class TestActiveSessionTracking:
         from ios_server import VoiceServer
 
         server = VoiceServer()
-        server.vscode_controller = AsyncMock()
-        server.vscode_controller.is_connected.return_value = True
-        server.vscode_controller.kill_terminal = AsyncMock()
-        server.vscode_controller.new_terminal = AsyncMock()
-        server.vscode_controller.send_sequence = AsyncMock(return_value=True)
+        server.tmux = Mock()
+        server.tmux.start_session = Mock(return_value=True)
 
         mock_ws = AsyncMock()
         mock_ws.send = AsyncMock()
@@ -362,9 +263,8 @@ class TestActiveSessionTracking:
 
         server = VoiceServer()
         server.active_session_id = "abc123"
-        server.vscode_controller = AsyncMock()
-        server.vscode_controller.is_connected.return_value = True
-        server.vscode_controller.kill_terminal = AsyncMock()
+        server.tmux = Mock()
+        server.tmux.kill_session = Mock(return_value=True)
 
         mock_ws = AsyncMock()
         mock_ws.send = AsyncMock()
@@ -380,11 +280,8 @@ class TestActiveSessionTracking:
 
         server = VoiceServer()
         server.active_session_id = "old-session"
-        server.vscode_controller = AsyncMock()
-        server.vscode_controller.is_connected.return_value = True
-        server.vscode_controller.kill_terminal = AsyncMock()
-        server.vscode_controller.new_terminal = AsyncMock()
-        server.vscode_controller.send_sequence = AsyncMock(return_value=True)
+        server.tmux = Mock()
+        server.tmux.start_session = Mock(return_value=True)
 
         mock_ws = AsyncMock()
         mock_ws.send = AsyncMock()
@@ -394,17 +291,17 @@ class TestActiveSessionTracking:
         assert server.active_session_id is None
 
 
-class TestVSCodeStatusBroadcast:
-    """Tests for VSCode status broadcasting"""
+class TestConnectionStatusBroadcast:
+    """Tests for connection status broadcasting"""
 
     @pytest.mark.asyncio
-    async def test_broadcast_includes_vscode_connected_status(self):
-        """broadcast_vscode_status should include vscode_connected"""
+    async def test_broadcast_includes_connected_status(self):
+        """broadcast_connection_status should include connected"""
         from ios_server import VoiceServer
 
         server = VoiceServer()
-        server.vscode_controller = Mock()
-        server.vscode_controller.is_connected.return_value = True
+        server.tmux = Mock()
+        server.tmux.session_exists = Mock(return_value=True)
         server.active_session_id = "test-session"
 
         mock_ws = AsyncMock()
@@ -412,12 +309,12 @@ class TestVSCodeStatusBroadcast:
         mock_ws.send = AsyncMock(side_effect=lambda msg: sent_messages.append(msg))
         server.clients.add(mock_ws)
 
-        await server.broadcast_vscode_status()
+        await server.broadcast_connection_status()
 
         assert len(sent_messages) == 1
         response = json.loads(sent_messages[0])
-        assert response["type"] == "vscode_status"
-        assert response["vscode_connected"] is True
+        assert response["type"] == "connection_status"
+        assert response["connected"] is True
         assert response["active_session_id"] == "test-session"
 
     @pytest.mark.asyncio
@@ -426,8 +323,8 @@ class TestVSCodeStatusBroadcast:
         from ios_server import VoiceServer
 
         server = VoiceServer()
-        server.vscode_controller = Mock()
-        server.vscode_controller.is_connected.return_value = True
+        server.tmux = Mock()
+        server.tmux.session_exists = Mock(return_value=True)
         server.active_session_id = None
         server.loop = asyncio.get_event_loop()
 
@@ -437,11 +334,11 @@ class TestVSCodeStatusBroadcast:
 
         # Simulate initial status send
         await server.send_status(mock_ws, "idle", "Connected")
-        await server.send_vscode_status(mock_ws)
+        await server.send_connection_status(mock_ws)
 
-        # Should have status message and vscode_status
+        # Should have status message and connection_status
         responses = [json.loads(m) for m in sent_messages]
-        vscode_status = next((r for r in responses if r.get("type") == "vscode_status"), None)
-        assert vscode_status is not None
-        assert "vscode_connected" in vscode_status
-        assert "active_session_id" in vscode_status
+        connection_status = next((r for r in responses if r.get("type") == "connection_status"), None)
+        assert connection_status is not None
+        assert "connected" in connection_status
+        assert "active_session_id" in connection_status

@@ -11,7 +11,6 @@ import Foundation
 class E2ETestBase: XCTestCase {
 
     static var app: XCUIApplication!
-    var transcriptPath: String?
 
     // Environment-aware server configuration
     let testServerHost: String = {
@@ -33,10 +32,33 @@ class E2ETestBase: XCTestCase {
         return 8765
     }()
 
-    /// Test fixture paths for sync-sessions E2E tests
-    let testProjectsDir = "/Users/aaron/.claude/projects"
-    let testProject1Path = "/Users/aaron/.claude/projects/-e2e_test_project1"
-    let testProject2Path = "/Users/aaron/.claude/projects/-e2e_test_project2"
+    /// Test project info - created dynamically by run_e2e_tests.sh
+    /// The script creates a session and writes config to /tmp/e2e_test_config.json
+    private static var _testConfig: [String: String]?
+    private var testConfig: [String: String] {
+        if Self._testConfig == nil {
+            let configPath = "/tmp/e2e_test_config.json"
+            if let data = FileManager.default.contents(atPath: configPath),
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: String] {
+                Self._testConfig = json
+                print("📋 Loaded test config: \(json)")
+            } else {
+                print("⚠️ Could not load test config from \(configPath)")
+                Self._testConfig = [:]
+            }
+        }
+        return Self._testConfig ?? [:]
+    }
+
+    var testProjectName: String {
+        testConfig["project_name"] ?? "project"
+    }
+    var testSessionId: String {
+        testConfig["session_id"] ?? ""
+    }
+    var testFolderName: String {
+        testConfig["folder_name"] ?? "-tmp-e2e-test-project"
+    }
 
     var app: XCUIApplication! {
         return Self.app
@@ -75,25 +97,42 @@ class E2ETestBase: XCTestCase {
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-
         continueAfterFailure = false
 
-        transcriptPath = "/Users/aaron/.claude/projects/e2e_test_project/e2e_transcript.jsonl"
-        print("📝 Using hardcoded Mac path: \(transcriptPath!)")
-
-        let fileManager = FileManager.default
-        let transcriptDir = (transcriptPath! as NSString).deletingLastPathComponent
-        try? fileManager.createDirectory(atPath: transcriptDir, withIntermediateDirectories: true)
-        // Seed with initial message so session isn't filtered (sessions with 0 messages are hidden)
-        let seedMessage = #"{"type":"user","message":{"role":"user","content":"E2E Test Session"},"timestamp":"2026-01-01T00:00:00Z"}"# + "\n"
-        try seedMessage.write(toFile: transcriptPath!, atomically: true, encoding: .utf8)
-
-        createTestFixtures()
+        // Reset server state before each test for isolation
+        resetServerState()
 
         Self.app.launch()
-        sleep(2)  // Wait for app to fully initialize
-
+        sleep(2)
         connectToServer()
+    }
+
+    /// Reset server state for test isolation
+    /// Calls /reset endpoint to kill tmux sessions and clear tracking state
+    func resetServerState() {
+        let httpPort = testServerPort + 1
+        let url = URL(string: "http://\(testServerHost):\(httpPort)/reset")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+
+        let semaphore = DispatchSemaphore(value: 0)
+        var success = false
+
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 {
+                success = true
+                print("✓ Server state reset for test isolation")
+            } else {
+                print("⚠️ Failed to reset server state: \(error?.localizedDescription ?? "unknown error")")
+            }
+            semaphore.signal()
+        }.resume()
+
+        _ = semaphore.wait(timeout: .now() + 5)
+
+        if !success {
+            print("⚠️ Server reset may have failed, continuing anyway")
+        }
     }
 
     override func tearDownWithError() throws {
@@ -102,11 +141,9 @@ class E2ETestBase: XCTestCase {
             disconnectFromServer()
         }
 
-        if let path = transcriptPath, FileManager.default.fileExists(atPath: path) {
-            try? "".write(toFile: path, atomically: true, encoding: .utf8)
-        }
-
-        cleanupTestFixtures()
+        // Note: We don't clean up test project directories
+        // They contain REAL Claude sessions that may be useful for debugging
+        // and will be reused in subsequent test runs
 
         try super.tearDownWithError()
     }
@@ -120,12 +157,40 @@ class E2ETestBase: XCTestCase {
     // MARK: - Connection Methods
 
     func connectToServer() {
+        // App auto-connects on launch using SERVER_HOST env var set by test runner
+        // Wait for the auto-connect to complete, then verify
+
+        // Give auto-connect time to establish
+        sleep(2)
+
+        // Check if already connected (auto-connect worked)
+        // The project list shows if connected, wifi.slash icon if not
+        // Look for any project cell - this indicates we're connected and have projects
+        let anyProjectCell = app.cells.firstMatch
+        if anyProjectCell.waitForExistence(timeout: 5) {
+            print("✓ Auto-connected successfully, project list visible")
+            return
+        }
+
+        // If not connected, fall back to manual connection via Settings
+        print("⚠️ Auto-connect didn't work, trying manual connection...")
+
         let settingsButton = app.buttons["gearshape.fill"]
         if settingsButton.waitForExistence(timeout: 5) {
             settingsButton.tap()
         }
 
+        sleep(1)
+
         let serverIPField = app.textFields["Server IP Address"]
+        if !serverIPField.waitForExistence(timeout: 2) {
+            let connectionHeader = app.staticTexts["Connection"]
+            if connectionHeader.waitForExistence(timeout: 2) {
+                connectionHeader.tap()
+                sleep(1)
+            }
+        }
+
         if serverIPField.waitForExistence(timeout: 5) {
             serverIPField.tap()
 
@@ -138,14 +203,6 @@ class E2ETestBase: XCTestCase {
         }
 
         let connectButton = app.buttons["Connect"]
-        if !connectButton.exists {
-            let connectionHeader = app.staticTexts["Connection"]
-            if connectionHeader.exists {
-                connectionHeader.tap()
-                sleep(1)  // Wait for section to expand
-            }
-        }
-
         if connectButton.waitForExistence(timeout: 5) {
             connectButton.tap()
         }
@@ -163,7 +220,7 @@ class E2ETestBase: XCTestCase {
             doneButton.tap()
         }
 
-        sleep(1)  // Wait for navigation to complete
+        sleep(1)
     }
 
     /// Alias for connectToServer (compatibility with IntegrationTestBase tests)
@@ -211,12 +268,82 @@ class E2ETestBase: XCTestCase {
         return exists && stateLabel.label == expectedState
     }
 
-    /// Wait for Speaking state then Idle state - common pattern in conversation tests
-    func waitForSpeakingThenIdle(speakingTimeout: TimeInterval = 10.0, idleTimeout: TimeInterval = 10.0) -> Bool {
-        guard waitForVoiceState("Speaking", timeout: speakingTimeout) else {
+    /// Wait for a conversation response cycle to complete
+    /// This waits for the state to leave Idle (processing started) then return to Idle (cycle complete)
+    /// More robust than checking for intermediate states like "Speaking"
+    func waitForResponseCycle(timeout: TimeInterval = 30.0) -> Bool {
+        let startTime = Date()
+
+        // First, wait for state to change from Idle (response cycle started)
+        // We detect this by outputStatus appearing (shows "Thinking...", "Speaking...", etc.)
+        var sawNonIdle = false
+        while Date().timeIntervalSince(startTime) < timeout {
+            let outputStatus = app.staticTexts["outputStatus"]
+
+            // Check if we're in a non-idle state (processing, speaking, etc.)
+            if outputStatus.exists {
+                // outputStatus shown means outputState has statusText (thinking, speaking, etc.)
+                sawNonIdle = true
+                print("✓ Response cycle started (outputStatus visible)")
+                break
+            }
+
+            // Also check if voiceState shows something other than Idle
+            // Use waitForExistence briefly to avoid race conditions
+            let voiceState = app.staticTexts["voiceState"]
+            if voiceState.waitForExistence(timeout: 0.1) {
+                let label = voiceState.label
+                if label != "Idle" {
+                    sawNonIdle = true
+                    print("✓ Response cycle started (voiceState: \(label))")
+                    break
+                }
+            }
+
+            usleep(250000)
+        }
+
+        if !sawNonIdle {
+            print("✗ Response cycle never started within \(timeout)s")
             return false
         }
-        return waitForVoiceState("Idle", timeout: idleTimeout)
+
+        // Now wait for cycle to complete
+        // Cycle is complete when voiceState shows "Idle" (outputStatus gone)
+        var lastStatus = ""
+        while Date().timeIntervalSince(startTime) < timeout {
+            let outputStatus = app.staticTexts["outputStatus"]
+            let voiceState = app.staticTexts["voiceState"]
+
+            // Primary check: voiceState shows Idle (means outputStatus is gone)
+            if voiceState.waitForExistence(timeout: 0.1) {
+                let label = voiceState.label
+                if label == "Idle" {
+                    let elapsed = Date().timeIntervalSince(startTime)
+                    print("✓ Response cycle complete after \(String(format: "%.1f", elapsed))s")
+                    return true
+                }
+            }
+
+            // Debug: track what outputStatus shows
+            if outputStatus.exists {
+                let status = outputStatus.label
+                if status != lastStatus {
+                    print("  outputStatus: \(status)")
+                    lastStatus = status
+                }
+            }
+
+            usleep(250000)
+        }
+
+        // Debug info on timeout
+        let outputStatus = app.staticTexts["outputStatus"]
+        let voiceState = app.staticTexts["voiceState"]
+        print("✗ Response cycle did not complete within \(timeout)s")
+        print("  outputStatus exists: \(outputStatus.exists), label: \(outputStatus.exists ? outputStatus.label : "n/a")")
+        print("  voiceState exists: \(voiceState.exists), label: \(voiceState.exists ? voiceState.label : "n/a")")
+        return false
     }
 
     // MARK: - UI Helpers
@@ -233,121 +360,139 @@ class E2ETestBase: XCTestCase {
         return talkButton.exists && talkButton.isEnabled
     }
 
-    // MARK: - Voice Input & Transcript Methods
+    // MARK: - Voice Input
 
     func sendVoiceInput(_ text: String) {
         let expectation = XCTestExpectation(description: "Send voice input")
-
         let url = URL(string: "ws://\(testServerHost):\(testServerPort)")!
         let task = URLSession.shared.webSocketTask(with: url)
         task.resume()
 
-        let message: [String: Any] = [
-            "type": "voice_input",
-            "text": text,
-            "timestamp": Date().timeIntervalSince1970
-        ]
+        // Wait for connection to be established by receiving the server's initial status message.
+        // The server sends "idle" status immediately upon connection.
+        // Without this, task.send() may fail silently if called before handshake completes.
+        task.receive { [weak task] result in
+            guard let task = task else {
+                XCTFail("WebSocket task was deallocated")
+                expectation.fulfill()
+                return
+            }
 
-        if let jsonData = try? JSONSerialization.data(withJSONObject: message),
-           let jsonString = String(data: jsonData, encoding: .utf8) {
-            task.send(.string(jsonString)) { error in
-                if let error = error {
-                    XCTFail("WebSocket send failed: \(error)")
+            switch result {
+            case .success(_):
+                // Connection established, now send voice input
+                let message: [String: Any] = [
+                    "type": "voice_input",
+                    "text": text,
+                    "timestamp": Date().timeIntervalSince1970
+                ]
+
+                if let jsonData = try? JSONSerialization.data(withJSONObject: message),
+                   let jsonString = String(data: jsonData, encoding: .utf8) {
+                    task.send(.string(jsonString)) { error in
+                        if let error = error {
+                            XCTFail("WebSocket send failed: \(error)")
+                        }
+                        task.cancel(with: .goingAway, reason: nil)
+                        expectation.fulfill()
+                    }
+                } else {
+                    XCTFail("Failed to serialize voice input message")
+                    task.cancel(with: .goingAway, reason: nil)
+                    expectation.fulfill()
                 }
-                task.cancel(with: .goingAway, reason: nil)
+
+            case .failure(let error):
+                XCTFail("WebSocket connection failed: \(error)")
                 expectation.fulfill()
             }
         }
 
-        wait(for: [expectation], timeout: 5.0)
-        sleep(1)  // Wait for server to receive WebSocket message
+        wait(for: [expectation], timeout: 10.0)
+        sleep(1)
     }
 
-    func injectAssistantResponse(_ text: String) {
-        guard let transcriptPath = transcriptPath else {
-            XCTFail("No transcript path")
-            return
-        }
+    // MARK: - Tmux Verification
 
-        let entry: [String: Any] = [
-            "role": "assistant",
-            "content": text,
-            "timestamp": Date().timeIntervalSince1970
-        ]
+    /// Verify tmux session is running on the server
+    func verifyTmuxSessionRunning() -> Bool {
+        let httpPort = testServerPort + 1
+        let url = URL(string: "http://\(testServerHost):\(httpPort)/tmux_status")!
+        let semaphore = DispatchSemaphore(value: 0)
+        var sessionExists = false
 
-        do {
-            let jsonData = try JSONSerialization.data(withJSONObject: entry)
-            guard let jsonString = String(data: jsonData, encoding: .utf8) else {
-                XCTFail("Failed to encode JSON")
-                return
+        URLSession.shared.dataTask(with: url) { data, _, _ in
+            if let data = data,
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let exists = json["session_exists"] as? Bool {
+                sessionExists = exists
             }
+            semaphore.signal()
+        }.resume()
 
-            let lineData = (jsonString + "\n").data(using: .utf8)!
-            let fileURL = URL(fileURLWithPath: transcriptPath)
-            let handle = try FileHandle(forWritingTo: fileURL)
-            try handle.seekToEnd()
-            try handle.write(contentsOf: lineData)
-            try handle.close()
-        } catch {
-            XCTFail("Failed to inject response: \(error)")
-        }
-
-        // Brief delay for file system sync
-        usleep(100000) // 100ms
+        _ = semaphore.wait(timeout: .now() + 5)
+        return sessionExists
     }
 
-    func injectUserMessage(_ text: String) {
-        guard let transcriptPath = transcriptPath else {
-            XCTFail("No transcript path")
-            return
-        }
+    /// Capture tmux pane content to verify input arrived
+    func captureTmuxPane() -> String? {
+        let httpPort = testServerPort + 1
+        let url = URL(string: "http://\(testServerHost):\(httpPort)/capture_pane")!
+        let semaphore = DispatchSemaphore(value: 0)
+        var content: String?
 
-        let entry: [String: Any] = [
-            "role": "user",
-            "content": text,
-            "timestamp": Date().timeIntervalSince1970
-        ]
-
-        do {
-            let jsonData = try JSONSerialization.data(withJSONObject: entry)
-            guard let jsonString = String(data: jsonData, encoding: .utf8) else {
-                XCTFail("Failed to encode JSON")
-                return
+        URLSession.shared.dataTask(with: url) { data, _, _ in
+            if let data = data,
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let paneContent = json["content"] as? String {
+                content = paneContent
             }
+            semaphore.signal()
+        }.resume()
 
-            let lineData = (jsonString + "\n").data(using: .utf8)!
-            let fileURL = URL(fileURLWithPath: transcriptPath)
-            let handle = try FileHandle(forWritingTo: fileURL)
-            try handle.seekToEnd()
-            try handle.write(contentsOf: lineData)
-            try handle.close()
-        } catch {
-            XCTFail("Failed to inject user message: \(error)")
-        }
-
-        // Brief delay for file system sync
-        usleep(100000) // 100ms
+        _ = semaphore.wait(timeout: .now() + 5)
+        return content
     }
 
-    func simulateConversationTurn(userInput: String, assistantResponse: String) {
-        print("📝 Simulating conversation turn: '\(userInput)' -> '\(assistantResponse)'")
+    /// Verify that text appears in tmux pane (voice input arrived)
+    func verifyInputInTmux(_ text: String, timeout: TimeInterval = 5.0) -> Bool {
+        let startTime = Date()
+        while Date().timeIntervalSince(startTime) < timeout {
+            if let content = captureTmuxPane(), content.contains(text) {
+                return true
+            }
+            usleep(500000) // Check every 500ms
+        }
+        return false
+    }
 
-        // Send voice input via WebSocket
-        sendVoiceInput(userInput)
+    /// Wait for Claude Code to be ready to accept input
+    /// Polls tmux pane looking for Claude's prompt indicator (❯ or the input box)
+    /// Returns true when ready, false on timeout
+    func waitForClaudeReady(timeout: TimeInterval = 15.0) -> Bool {
+        let startTime = Date()
+        // Claude Code shows these indicators when ready for input:
+        // - "❯" prompt character
+        // - "╭─" box drawing (input area border)
+        let readyIndicators = ["❯", "╭─", "│ >"]
 
-        // Wait for server to process WebSocket message
-        usleep(500000) // 500ms
+        print("⏳ Waiting for Claude Code to be ready...")
 
-        // Inject user message to transcript
-        injectUserMessage(userInput)
+        while Date().timeIntervalSince(startTime) < timeout {
+            if let content = captureTmuxPane() {
+                for indicator in readyIndicators {
+                    if content.contains(indicator) {
+                        let elapsed = Date().timeIntervalSince(startTime)
+                        print("✓ Claude ready after \(String(format: "%.1f", elapsed))s (found '\(indicator)')")
+                        return true
+                    }
+                }
+            }
+            usleep(500000) // Check every 500ms
+        }
 
-        // Wait for file watcher to detect
-        usleep(200000) // 200ms
-
-        // Inject assistant response
-        injectAssistantResponse(assistantResponse)
-
-        // Don't wait here - let the test's waitForVoiceState do the waiting
+        print("✗ Claude not ready after \(timeout)s timeout")
+        return false
     }
 
     // MARK: - Permission Request Helpers
@@ -437,124 +582,129 @@ class E2ETestBase: XCTestCase {
         return true
     }
 
-    // MARK: - Server API Helpers (from IntegrationTestBase)
-
-    func sendMockClaudeResponse(_ text: String) {
-        let url = URL(string: "http://\(testServerHost):\(testServerPort + 1)/inject_response")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.httpBody = text.data(using: .utf8)
-
-        let semaphore = DispatchSemaphore(value: 0)
-        URLSession.shared.dataTask(with: request) { _, _, _ in
-            semaphore.signal()
-        }.resume()
-
-        _ = semaphore.wait(timeout: .now() + 5)
-    }
-
-    func getServerLogs() -> String {
-        let url = URL(string: "http://\(testServerHost):\(testServerPort + 1)/logs")!
-        let semaphore = DispatchSemaphore(value: 0)
-        var logs = ""
-
-        URLSession.shared.dataTask(with: url) { data, _, _ in
-            if let data = data, let logText = String(data: data, encoding: .utf8) {
-                logs = logText
-            }
-            semaphore.signal()
-        }.resume()
-
-        _ = semaphore.wait(timeout: .now() + 5)
-        return logs
-    }
-
-    func sendStatus(_ state: String, message: String = "") {
-        let url = URL(string: "http://\(testServerHost):\(testServerPort + 1)/inject_status")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        let payload = ["state": state, "message": message]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
-
-        let semaphore = DispatchSemaphore(value: 0)
-        URLSession.shared.dataTask(with: request) { _, _, _ in
-            semaphore.signal()
-        }.resume()
-
-        _ = semaphore.wait(timeout: .now() + 5)
-    }
-
     // MARK: - Navigation Helpers
 
-    func navigateToTestSession() {
-        let projectText = app.staticTexts["e2e_test_project"]
-        if projectText.waitForExistence(timeout: 5) {
-            projectText.tap()
-        } else {
-            let firstProject = app.cells.firstMatch
-            if firstProject.waitForExistence(timeout: 5) {
-                firstProject.tap()
+    /// Navigate back to Projects list from any screen
+    func navigateToProjectsList() {
+        // Try to navigate back to projects list by repeatedly tapping back buttons
+        for _ in 0..<5 {
+            // Check if we're already on Projects list
+            if app.navigationBars["Projects"].exists {
+                return
+            }
+
+            // Try to dismiss any sheets first
+            let doneButton = app.buttons["Done"]
+            if doneButton.exists {
+                doneButton.tap()
+                sleep(1)
+                continue
+            }
+
+            // Try back button
+            let backButton = app.navigationBars.buttons.element(boundBy: 0)
+            if backButton.exists && backButton.isEnabled {
+                backButton.tap()
+                sleep(1)
+            } else {
+                break
             }
         }
+    }
 
-        sleep(1)  // Wait for sessions list to load
+    /// Navigate to test project and start/resume a Claude session
+    func navigateToTestSession(resume: Bool = false) {
+        // First, ensure we're at the projects list
+        navigateToProjectsList()
 
-        let testSession = app.staticTexts["E2E Test Session"]
-        if testSession.waitForExistence(timeout: 5) {
-            testSession.tap()
+        // Find and tap test project
+        let projectText = app.staticTexts[testProjectName]
+        XCTAssertTrue(projectText.waitForExistence(timeout: 5), "Test project '\(testProjectName)' should exist")
+        projectText.tap()
+        sleep(1)
+
+        if resume {
+            // Resume existing session
+            let sessionCell = app.cells.firstMatch
+            XCTAssertTrue(sessionCell.waitForExistence(timeout: 5), "Session should exist to resume")
+            sessionCell.tap()
         } else {
-            let firstSession = app.cells.firstMatch
-            if firstSession.waitForExistence(timeout: 5) {
-                firstSession.tap()
-            }
+            // Start new session
+            let newSessionButton = app.buttons["New Session"]
+            XCTAssertTrue(newSessionButton.waitForExistence(timeout: 5), "New Session button should exist")
+            newSessionButton.tap()
         }
 
-        sleep(2)  // Wait for session view to load
+        XCTAssertTrue(waitForSessionSyncComplete(timeout: 15.0), "Session sync should complete")
+        XCTAssertTrue(verifyTmuxSessionRunning(), "Tmux session should be running")
+        XCTAssertTrue(waitForClaudeReady(timeout: 15.0), "Claude should be ready for input")
     }
 
-    // MARK: - Test Fixtures for Sync-Sessions
+    /// Wait for SessionView sync to complete
+    /// Sync is complete when voiceState, outputStatus, or syncError elements appear
+    /// (during sync, none of these exist - only "Syncing..." status is shown)
+    /// outputStatus appears when Claude is actively processing (thinking, using tools)
+    func waitForSessionSyncComplete(timeout: TimeInterval = 15.0) -> Bool {
+        let startTime = Date()
 
-    func createTestFixtures() {
-        let fileManager = FileManager.default
+        print("⏳ Waiting for session sync to complete...")
 
-        try? fileManager.createDirectory(atPath: testProject1Path, withIntermediateDirectories: true)
+        // First wait for SessionView to appear (Talk button indicates we're on SessionView)
+        // Use full timeout - new session creation can take 5+ seconds on server
+        let talkButton = app.buttons["Tap to Talk"]
+        if !talkButton.waitForExistence(timeout: timeout) {
+            print("✗ SessionView did not appear (Talk button not found)")
+            return false
+        }
+        print("✓ SessionView appeared (Talk button visible)")
 
-        let session1 = """
-{"type":"user","message":{"role":"user","content":"Hello Claude"},"timestamp":"2026-01-01T10:00:00Z"}
-{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hi! How can I help?"}]},"timestamp":"2026-01-01T10:00:05Z"}
-"""
-        try? session1.write(toFile: "\(testProject1Path)/session1.jsonl", atomically: true, encoding: .utf8)
+        while Date().timeIntervalSince(startTime) < timeout {
+            // Check if voiceState element exists (sync succeeded, Claude idle)
+            let voiceStateLabel = app.staticTexts["voiceState"]
+            if voiceStateLabel.exists {
+                print("✓ Session sync complete - voiceState visible: \(voiceStateLabel.label)")
+                return true
+            }
 
-        let session2 = """
-{"type":"user","message":{"role":"user","content":"How do I write a Swift function?"},"timestamp":"2026-01-02T10:00:00Z"}
-{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Here's how to write a Swift function..."}]},"timestamp":"2026-01-02T10:00:05Z"}
-{"type":"user","message":{"role":"user","content":"Thanks!"},"timestamp":"2026-01-02T10:00:10Z"}
-"""
-        try? session2.write(toFile: "\(testProject1Path)/session2.jsonl", atomically: true, encoding: .utf8)
+            // Check if outputStatus element exists (sync succeeded, Claude processing)
+            // outputStatus appears when Claude is thinking, using tools, or speaking
+            let outputStatusLabel = app.staticTexts["outputStatus"]
+            if outputStatusLabel.exists {
+                print("✓ Session sync complete - outputStatus visible: \(outputStatusLabel.label)")
+                return true
+            }
 
-        try? fileManager.createDirectory(atPath: testProject2Path, withIntermediateDirectories: true)
+            // Check if syncError element exists (sync failed)
+            let syncErrorLabel = app.staticTexts["syncError"]
+            if syncErrorLabel.exists {
+                print("⚠️ Session sync failed - syncError visible: \(syncErrorLabel.label)")
+                // Return true because sync is "complete" (just failed)
+                // The test can then decide how to handle the failure
+                return true
+            }
 
-        let session3 = """
-{"type":"user","message":{"role":"user","content":"What is TDD?"},"timestamp":"2026-01-01T09:00:00Z"}
-"""
-        try? session3.write(toFile: "\(testProject2Path)/session1.jsonl", atomically: true, encoding: .utf8)
+            // Check if syncStatus shows syncing (still in progress)
+            let syncStatus = app.staticTexts["syncStatus"]
+            if syncStatus.exists {
+                // Still syncing, continue waiting
+            }
+
+            usleep(250000) // Check every 250ms
+        }
+
+        print("✗ Session sync did not complete within \(timeout)s")
+
+        // Debug: print what elements are visible
+        let voiceState = app.staticTexts["voiceState"]
+        let outputStatus = app.staticTexts["outputStatus"]
+        let syncError = app.staticTexts["syncError"]
+        let syncStatus = app.staticTexts["syncStatus"]
+        print("  voiceState exists: \(voiceState.exists)")
+        print("  outputStatus exists: \(outputStatus.exists)")
+        print("  syncError exists: \(syncError.exists)")
+        print("  syncStatus exists: \(syncStatus.exists)")
+
+        return false
     }
 
-    func cleanupTestFixtures() {
-        let fileManager = FileManager.default
-        try? fileManager.removeItem(atPath: testProject1Path)
-        try? fileManager.removeItem(atPath: testProject2Path)
-    }
-}
-
-// MARK: - Errors
-
-enum E2ETestError: Error {
-    case noTranscriptPath
-    case injectionFailed
-    case serverStartupTimeout
-    case serverNotRunning
-    case connectionFailed
 }

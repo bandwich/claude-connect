@@ -123,6 +123,10 @@ struct SettingsView: View {
     }
 
     private func connectToServer() {
+        // Don't attempt to connect if already connecting or connected
+        if case .connecting = webSocketManager.connectionState { return }
+        if case .connected = webSocketManager.connectionState { return }
+
         guard !tempServerIP.isEmpty else {
             alertMessage = "Please enter a server IP address"
             showingAlert = true
