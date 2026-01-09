@@ -11,10 +11,10 @@ struct SessionView: View {
 
     @State private var messages: [SessionHistoryMessage] = []
     @State private var currentTranscript = ""
-    @State private var showingSettings = false
     @State private var isInitialLoad = true
     @State private var isSyncing = false
     @State private var syncError: String? = nil
+    @State private var branchName: String = "main"  // Placeholder for now
 
     var body: some View {
         VStack(spacing: 0) {
@@ -110,30 +110,15 @@ struct SessionView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                HStack(spacing: 16) {
-                    // Show sync status indicator
-                    if isSyncing {
-                        ProgressView()
-                            .scaleEffect(0.8)
-                            .accessibilityLabel("Syncing")
-                    } else if isSessionSynced {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                            .accessibilityLabel("Synced")
-                    } else if syncError != nil {
-                        Image(systemName: "exclamationmark.circle.fill")
-                            .foregroundColor(.red)
-                            .accessibilityLabel("Sync Error")
-                    }
-
-                    Button(action: { showingSettings = true }) {
-                        Image(systemName: "gearshape.fill")
-                    }
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.triangle.branch")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text(branchName)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
             }
-        }
-        .sheet(isPresented: $showingSettings) {
-            SettingsView(webSocketManager: webSocketManager)
         }
         .sheet(item: $webSocketManager.pendingPermission) { request in
             PermissionPromptView(request: request) { response in

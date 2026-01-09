@@ -50,10 +50,9 @@ final class E2ENavigationFlowTests: E2ETestBase {
         let talkButton = app.buttons["Tap to Talk"]
         XCTAssertTrue(talkButton.waitForExistence(timeout: 10), "Talk button should exist")
 
-        // Settings accessible from session view
-        settingsButton.tap()
-        XCTAssertTrue(app.staticTexts["Settings"].waitForExistence(timeout: 5))
-        app.buttons["Done"].tap()
+        // Branch indicator visible
+        let branchIndicator = app.staticTexts["main"]
+        XCTAssertTrue(branchIndicator.exists, "Branch indicator should be visible")
 
         // PHASE 4: Back navigation
         print("📍 PHASE 4: Back navigation")
