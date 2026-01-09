@@ -371,21 +371,21 @@ struct MessageBubble: View {
     let message: SessionHistoryMessage
 
     var body: some View {
-        HStack {
+        HStack(alignment: .top, spacing: 8) {
             if message.role == "user" {
+                Text("‹")
+                    .foregroundColor(.secondary)
+                Text(message.content)
+                    .foregroundColor(.primary)
                 Spacer()
-            }
-
-            Text(message.content)
-                .padding(12)
-                .background(message.role == "user" ? Color.blue : Color(.systemGray5))
-                .foregroundColor(message.role == "user" ? .white : .primary)
-                .cornerRadius(16)
-                .accessibilityIdentifier("messageBubble")
-
-            if message.role == "assistant" {
+            } else {
+                Text(message.content)
+                    .padding(12)
+                    .background(Color(.systemGray5))
+                    .cornerRadius(12)
                 Spacer()
             }
         }
+        .accessibilityIdentifier("messageBubble")
     }
 }
