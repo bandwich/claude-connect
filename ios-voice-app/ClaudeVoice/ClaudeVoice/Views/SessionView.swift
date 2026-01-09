@@ -8,7 +8,7 @@ struct SessionView: View {
 
     let project: Project
     let session: Session
-    @Environment(\.dismiss) private var dismiss
+    @Binding var selectedSessionBinding: Session?  // Use binding to avoid closure recreation
 
     @State private var messages: [SessionHistoryMessage] = []
     @State private var currentTranscript = ""
@@ -88,7 +88,7 @@ struct SessionView: View {
         .customNavigationBarInline(
             title: session.title,
             breadcrumb: "/\(project.name)",
-            onBack: { dismiss() }
+            onBack: { selectedSessionBinding = nil }
         ) {
             HStack(spacing: 4) {
                 Image(systemName: "arrow.triangle.branch")
@@ -126,6 +126,13 @@ struct SessionView: View {
             }
         }
         .onAppear(perform: setupView)
+        .onChange(of: webSocketManager.connectionState) { _, newState in
+            // Retry sync when connection is established (for resumed sessions)
+            if case .connected = newState, !session.isNewSession {
+                print("[SessionView] Connection established, attempting sync")
+                syncSession()
+            }
+        }
     }
 
     private var micColor: Color {
@@ -154,21 +161,18 @@ struct SessionView: View {
     }
 
     private func setupView() {
-        // Load message history (skip for new sessions - no history yet)
+        print("[SessionView] setupView called, isNewSession=\(session.isNewSession)")
+
+        // Load message history and sync (skip for new sessions - no history yet)
         if !session.isNewSession {
             webSocketManager.onSessionHistoryReceived = { messages in
                 self.messages = messages
             }
             webSocketManager.requestSessionHistory(folderName: project.folderName, sessionId: session.id)
 
-            // Auto-resume session in tmux (only for existing sessions)
-            // New sessions are already running from the newSession() call
-            if !session.isNewSession {
-                syncSession()
-            } else {
-                // For new sessions, just mark as ready (tmux already started)
-                isSyncing = false
-            }
+            // Auto-resume session in tmux (existing sessions only)
+            // Note: syncSession() will check connection state and retry via onChange if not connected
+            syncSession()
         }
 
         // Setup speech recognizer
@@ -277,10 +281,18 @@ struct SessionView: View {
 
         // Check if WebSocket is connected (not tmux session status)
         guard case .connected = webSocketManager.connectionState else {
-            syncError = "Not connected to server"
+            print("[SessionView] syncSession: Not connected yet, will retry when connected")
+            // Don't set syncError here - we'll retry when connected
             return
         }
 
+        // Don't sync again if already syncing or synced
+        guard !isSyncing && !isSessionSynced else {
+            print("[SessionView] syncSession: Already syncing or synced, skipping")
+            return
+        }
+
+        print("[SessionView] syncSession: Starting sync for session \(session.id)")
         isSyncing = true
         syncError = nil
 
@@ -288,10 +300,10 @@ struct SessionView: View {
             isSyncing = false
             if response.success {
                 // Session synced - connection_status broadcast will update activeSessionId
-                print("Session synced successfully")
+                print("[SessionView] Session synced successfully")
             } else {
                 syncError = response.error ?? "Failed to sync"
-                print("Failed to sync session: \(response.error ?? "Unknown error")")
+                print("[SessionView] Failed to sync session: \(response.error ?? "Unknown error")")
             }
         }
 
