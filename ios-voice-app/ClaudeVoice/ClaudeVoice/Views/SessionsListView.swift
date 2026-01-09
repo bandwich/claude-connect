@@ -4,7 +4,7 @@ import SwiftUI
 struct SessionsListView: View {
     @ObservedObject var webSocketManager: WebSocketManager
     let project: Project
-    @Environment(\.dismiss) private var dismiss
+    @Binding var showingBinding: Bool  // Use binding to avoid @Environment(\.dismiss) render loop
 
     @State private var sessions: [Session] = []
     @State private var selectedSession: Session?
@@ -63,7 +63,7 @@ struct SessionsListView: View {
         .customNavigationBar(
             title: "Sessions",
             breadcrumb: "/\(project.name)",
-            onBack: { dismiss() }
+            onBack: { showingBinding = false }
         ) {
             Button(action: { showingSettings = true }) {
                 Image(systemName: "gearshape.fill")
@@ -85,7 +85,8 @@ struct SessionsListView: View {
             SessionView(
                 webSocketManager: webSocketManager,
                 project: project,
-                session: session
+                session: session,
+                selectedSessionBinding: $selectedSession
             )
         }
     }

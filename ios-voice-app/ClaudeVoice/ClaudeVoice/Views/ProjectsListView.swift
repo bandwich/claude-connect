@@ -128,7 +128,8 @@ struct ProjectsListView: View {
             if let project = selectedProject {
                 SessionsListView(
                     webSocketManager: webSocketManager,
-                    project: project
+                    project: project,
+                    showingBinding: $showingSessionsList
                 )
             }
         }
