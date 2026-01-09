@@ -12,30 +12,34 @@ struct CustomNavigationBarInline<TrailingContent: View>: ViewModifier {
         content
             .navigationBarBackButtonHidden(true)
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.visible, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    HStack(spacing: 12) {
+                    HStack(spacing: 8) {
                         Button(action: onBack) {
                             Image(systemName: "chevron.left")
                                 .font(.system(size: 16, weight: .semibold))
                                 .foregroundColor(.secondary)
                         }
                         VStack(alignment: .leading, spacing: 4) {
-                            HStack(spacing: 0) {
-                                Text(breadcrumb)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                Spacer(minLength: 8)
-                                trailingContent()
-                            }
+                            Text(breadcrumb)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
                             Text(title)
                                 .font(.headline)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
                         }
-                        .padding(.bottom, 8)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.bottom, 8)
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    VStack(spacing: 4) {
+                        trailingContent()
+                        Spacer()
+                            .frame(height: 20)  // Match title height
+                    }
+                    .padding(.bottom, 8)
                 }
             }
     }

@@ -373,11 +373,11 @@ struct MessageBubble: View {
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             if message.role == "user" {
-                Text("‹")
+                Spacer()
+                Text("›")
                     .foregroundColor(.secondary)
                 Text(message.content)
                     .foregroundColor(.primary)
-                Spacer()
             } else {
                 Text(message.content)
                     .padding(12)

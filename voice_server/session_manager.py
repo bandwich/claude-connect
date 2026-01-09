@@ -251,6 +251,10 @@ class SessionManager:
                     if not content or not content.strip():
                         continue
 
+                    # Skip skill expansions (injected by Claude Code, not actual user input)
+                    if role == 'user' and content.strip().startswith('Base directory for this skill:'):
+                        continue
+
                     timestamp_str = entry.get('timestamp', '')
                     try:
                         from datetime import datetime
