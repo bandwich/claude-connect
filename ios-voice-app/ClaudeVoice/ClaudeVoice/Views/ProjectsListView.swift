@@ -14,32 +14,48 @@ struct ProjectsListView: View {
     var body: some View {
         Group {
             if case .connected = webSocketManager.connectionState {
-                List(projects) { project in
-                    Button(action: {
-                        selectedProject = project
-                        showingSessionsList = true
-                    }) {
-                        HStack {
-                            VStack(alignment: .leading) {
-                                Text(project.name)
-                                    .font(.headline)
-                                Text(project.path)
-                                    .font(.caption)
+                ZStack(alignment: .bottomTrailing) {
+                    List(projects) { project in
+                        Button(action: {
+                            selectedProject = project
+                            showingSessionsList = true
+                        }) {
+                            HStack {
+                                VStack(alignment: .leading) {
+                                    Text(project.name)
+                                        .font(.headline)
+                                    Text(project.path)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+
+                                Spacer()
+
+                                Text("\(project.sessionCount)")
+                                    .font(.subheadline)
                                     .foregroundColor(.secondary)
                             }
-
-                            Spacer()
-
-                            Text("\(project.sessionCount)")
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(Color.secondary.opacity(0.2))
-                                .cornerRadius(8)
                         }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
+                    .listStyle(.plain)
+
+                    // Floating add button
+                    Button(action: { showingAddProject = true }) {
+                        Image(systemName: "folder.badge.plus")
+                            .font(.system(size: 20))
+                            .foregroundColor(.primary)
+                            .frame(width: 50, height: 50)
+                            .background(Color(.systemBackground))
+                            .cornerRadius(12)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(Color(.separator), lineWidth: 1)
+                            )
+                    }
+                    .padding(.trailing, 20)
+                    .padding(.bottom, 20)
+                    .accessibilityLabel("Add Project")
                 }
             } else {
                 VStack(spacing: 20) {
@@ -63,21 +79,23 @@ struct ProjectsListView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .navigationTitle("Projects")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                HStack(spacing: 16) {
-                    Button(action: { showingAddProject = true }) {
-                        Image(systemName: "folder.badge.plus")
-                    }
-                    .accessibilityLabel("Add Project")
-
+            ToolbarItem(placement: .principal) {
+                HStack {
+                    Text("Projects")
+                        .font(.title2)
+                        .fontWeight(.medium)
+                    Spacer()
                     Button(action: { showingSettings = true }) {
                         Image(systemName: "gearshape.fill")
+                            .foregroundColor(.primary)
                     }
                 }
+                .frame(maxWidth: .infinity)
             }
         }
+        .preferredColorScheme(.light)
         .sheet(isPresented: $showingSettings) {
             SettingsView(webSocketManager: webSocketManager)
         }
