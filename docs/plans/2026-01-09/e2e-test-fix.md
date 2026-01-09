@@ -11,62 +11,131 @@ E2E tests fail with 60-second timeout when entering SessionView. XCTest waits fo
 - XCTest interprets this as "app not idle" and times out after 60s
 - Works on real device (no XCTest idle detection)
 
-### What we ruled out:
-1. WebSocket messages - only ~3-4 status messages received, not 669
-2. Audio engine blocking - engine starts successfully
-3. Semaphores/sync calls - none found in codebase
-4. File I/O in debug logging - removed, issue persists
+### What we tried (DID NOT FIX):
+1. **SwipeBackModifier** - Removed `DispatchQueue.main.async` from `updateUIViewController` - still fails
+2. **voiceState/outputState guards** - Added guards to prevent redundant @Published updates in WebSocketManager and SessionView callbacks - still fails
+3. **isRunningUITests check** - This was a red herring, audio/speech worked before UI overhaul
 
-### Likely causes to investigate:
-1. **@StateObject initialization** - SpeechRecognizer and AudioPlayer are @StateObject in SessionView. Their @Published properties might trigger initial updates
-2. **enableSwipeBack modifier** - Uses UIViewControllerRepresentable with DispatchQueue.main.async in make/updateUIViewController
-3. **customNavigationBarInline modifier** - Creates new closures on each body evaluation
-4. **voiceState being set to same value** - `handleStatusMessage` sets voiceState unconditionally without checking if value changed
+### Key difference from working version:
+Old SessionView (commit 39385ce) used:
+- `.navigationTitle(session.title)`
+- `.navigationBarTitleDisplayMode(.inline)`
+- `.toolbar { ... }`
 
-### Code locations:
-- SessionView body: `ios-voice-app/ClaudeVoice/ClaudeVoice/Views/SessionView.swift:20`
-- handleStatusMessage: `ios-voice-app/ClaudeVoice/ClaudeVoice/Services/WebSocketManager.swift:420`
-- enableSwipeBack: `ios-voice-app/ClaudeVoice/ClaudeVoice/Utils/SwipeBackModifier.swift`
-- customNavigationBarInline: `ios-voice-app/ClaudeVoice/ClaudeVoice/Views/CustomNavigationBar.swift`
+New SessionView uses:
+- `.customNavigationBarInline(...)`
+- `.enableSwipeBack()`
 
-## Other E2E fixes already made (not yet tested):
-1. `app.staticTexts["Settings"]` → `app.navigationBars["Settings"]`
-2. `app.staticTexts[testProjectName]` → buttons pattern (3 places)
-3. `app.staticTexts["Idle"]` → mic button check in E2EPermissionTests
-4. Settings button tap changed from tapByCoordinate to regular tap()
-5. Sessions list check changed from navigationBars["Sessions"] to buttons["New Session"]
-6. Back navigation updated for custom nav bar
+**UI CANNOT CHANGE** - must fix without altering visual appearance.
 
-## Investigation Steps for Next Session
+## Code locations:
+- SessionView: `ios-voice-app/ClaudeVoice/ClaudeVoice/Views/SessionView.swift`
+- CustomNavigationBar: `ios-voice-app/ClaudeVoice/ClaudeVoice/Views/CustomNavigationBar.swift`
+- SwipeBackModifier: `ios-voice-app/ClaudeVoice/ClaudeVoice/Utils/SwipeBackModifier.swift`
+- WebSocketManager: `ios-voice-app/ClaudeVoice/ClaudeVoice/Services/WebSocketManager.swift`
 
-1. **Isolate the cause of re-render loop:**
-   - Comment out enableSwipeBack modifier, test
-   - Comment out customNavigationBarInline, use standard navigationTitle, test
-   - Remove @StateObject declarations, test with injected dependencies
+## Current state of code changes:
+1. `SwipeBackModifier.updateUIViewController` is now empty (change kept)
+2. Guards added to voiceState/outputState updates (change kept)
+3. Guards added to SessionView audio/speech callbacks (change kept)
 
-2. **Add guard for voiceState updates:**
-   ```swift
-   if self.voiceState != newState {
-       self.voiceState = newState
-   }
-   ```
+## Next investigation steps:
 
-3. **Check if @Published property access patterns cause loops:**
-   - The body accesses: speechRecognizer.isRecording, audioPlayer.isPlaying, webSocketManager.outputState, etc.
-   - Any of these publishing during view setup could cause cascade
+1. **Compare CustomNavigationBarInline implementation** - The ViewModifier creates new closures on each body evaluation. Check if `@ViewBuilder let trailingContent: () -> TrailingContent` pattern causes issues.
 
-4. **Compare with pre-UI-overhaul SessionView:**
-   - Old version at commit 39385ce didn't have this issue
-   - Key differences: no enableSwipeBack, no customNavigationBar, standard toolbar
+2. **Check for @Published property cascade** - SessionView body accesses many @Published properties:
+   - speechRecognizer.isRecording
+   - audioPlayer.isPlaying
+   - webSocketManager.outputState
+   - webSocketManager.connectionState
+   - webSocketManager.voiceState
+   - webSocketManager.activeSessionId
+   - webSocketManager.pendingPermission
+
+   Any of these changing triggers body re-evaluation.
+
+3. **Check setupView() onAppear** - This sets up callbacks that modify @Published state. Could trigger immediate re-renders.
+
+4. **Check onChange handlers** - `onChange(of: messages.count)` and `onChange(of: webSocketManager.pendingPermission)` might cascade.
+
+5. **Test with EquatableView** - Wrap SessionView body in EquatableView to prevent unnecessary re-renders.
+
+6. **Add debug logging** - Add `let _ = print("body evaluated")` at top of SessionView body to count evaluations during test.
+
+## Session 6 Progress
+
+### Fixed (test infrastructure):
+- SIGPIPE in run_e2e_tests.sh (743 session files caused grep|head pipe to break)
+- Tests use tapByCoordinate() for SessionView entry
+- waitForSessionSyncComplete() uses HTTP verification instead of UI elements
+- Removed UI element checks while in SessionView
+
+### NOT fixed (root cause):
+- SwiftUI re-render loop still happens
+- XCTest still times out waiting for idle after entering SessionView
+- Back navigation fails because XCTest can't interact with busy app
+
+### Key insight:
+- App works fine on real device - re-render loop only affects XCTest idle detection
+- Test changes are workarounds, not fixes
+- Need to find what triggers continuous re-renders in XCTest environment only
+
+### Remaining investigation (not yet done):
+1. Why does re-render happen in XCTest but not on device?
+2. Is there something in the test setup that triggers state changes?
+3. Check if WebSocketManager receives continuous messages during tests
 
 ## Test Commands
 ```bash
 # Run single E2E test suite
 cd ios-voice-app/ClaudeVoice && ./run_e2e_tests.sh E2ENavigationFlowTests
 
-# Check body evaluation count (add logging first)
-cat /tmp/sessionview_body.log | wc -l
-
 # Check test result
-grep -E "(PASSED|FAILED)" /tmp/e2e_debug.log
+grep -E "(PASSED|FAILED)" /tmp/e2e_test.log
 ```
+
+## Notes on test infrastructure:
+- Test script runs `claude --print` to create session - can hang without timeout
+- If stuck, check `/tmp/claude_init.log` and kill stale `claude` processes
+- Session dir: `~/.claude/projects/-private-tmp-e2e-test-project/`
+
+## Session 13 Progress
+
+### ROOT CAUSE FOUND AND FIXED: @Environment(\.dismiss)
+
+The render loop was caused by `@Environment(\.dismiss)` in both SessionsListView and SessionView.
+
+**Evidence:**
+- With @Environment(\.dismiss): 30,000+ body evaluations, XCTest timeout
+- Without @Environment(\.dismiss): 29 body evaluations, test progresses
+
+**Fix applied:**
+1. SessionsListView: Replaced `@Environment(\.dismiss)` with `@Binding var showingBinding: Bool` passed from ProjectsListView
+2. SessionView: Replaced `@Environment(\.dismiss)` with `@Binding var selectedSessionBinding: Session?` passed from SessionsListView
+3. Both views now use binding assignment (`binding = false/nil`) instead of `dismiss()`
+
+**Files changed:**
+- `SessionView.swift`: Line 11 - `@Binding var selectedSessionBinding: Session?`
+- `SessionsListView.swift`: Line 7 - `@Binding var showingBinding: Bool`
+- `ProjectsListView.swift`: Line 132 - passes `showingBinding: $showingSessionsList`
+
+### Current status:
+- ✅ Render loop FIXED (29 lines vs 30,000+)
+- ✅ Test no longer times out on idle
+- ❌ Test fails on "Session should sync" - server never receives resume_session message
+
+### Next investigation:
+The sync failure appears unrelated to the render loop. Possible causes:
+1. `syncSession()` guard failing (connectionState not .connected)
+2. `webSocketManager.resumeSession()` not sending message
+3. Session `isNewSession` check incorrectly returning true
+
+Debug by adding print statements to:
+- `SessionView.setupView()`
+- `SessionView.syncSession()`
+- `WebSocketManager.resumeSession()`
+
+## TODO
+- [x] Fix render loop (remove @Environment(\.dismiss))
+- [ ] Debug why syncSession() doesn't send resume_session message
+- [ ] Run E2E tests to verify complete fix
