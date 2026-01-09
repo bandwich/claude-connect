@@ -31,7 +31,7 @@ final class E2ENavigationFlowTests: E2ETestBase {
         print("📍 PHASE 2: Sessions list")
 
         project.tap()
-        let navTitle = app.navigationBars[testProjectName]
+        let navTitle = app.navigationBars["Sessions"]
         XCTAssertTrue(navTitle.waitForExistence(timeout: 5), "Should navigate to sessions list")
 
         // Session exists

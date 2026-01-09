@@ -4,6 +4,7 @@ import SwiftUI
 struct SessionsListView: View {
     @ObservedObject var webSocketManager: WebSocketManager
     let project: Project
+    @Environment(\.dismiss) private var dismiss
 
     @State private var sessions: [Session] = []
     @State private var selectedSession: Session?
@@ -11,58 +12,80 @@ struct SessionsListView: View {
     @State private var isCreating = false
 
     var body: some View {
-        List(sessions) { session in
-            Button(action: {
-                selectedSession = session
-            }) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(session.title)
-                            .font(.headline)
-                            .lineLimit(2)
-
-                        HStack {
-                            Text(session.formattedDate)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-
-                            Spacer()
+        ZStack(alignment: .bottomTrailing) {
+            List(sessions) { session in
+                Button(action: {
+                    selectedSession = session
+                }) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(session.title)
+                                .font(.subheadline)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
 
                             Text("\(session.messageCount) messages")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
-                    }
 
-                    Spacer()
+                        Spacer()
 
-                    // Show active indicator if this session is active
-                    if webSocketManager.activeSessionId == session.id {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                            .accessibilityLabel("Active session")
+                        Text(TimeFormatter.relativeTimeString(from: session.timestamp))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
+                    .padding(.vertical, 4)
+                    .contentShape(Rectangle())
                 }
-                .padding(.vertical, 4)
-                .contentShape(Rectangle())  // Make entire row tappable
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
+            .listStyle(.plain)
+
+            // Floating add button
+            Button(action: createNewSession) {
+                Image(systemName: "plus")
+                    .font(.system(size: 20))
+                    .foregroundColor(.primary)
+                    .frame(width: 50, height: 50)
+                    .background(Color(.systemBackground))
+                    .cornerRadius(25)
+                    .overlay(
+                        Circle()
+                            .stroke(Color(.separator), lineWidth: 1)
+                    )
+            }
+            .padding(.trailing, 20)
+            .padding(.bottom, 20)
+            .accessibilityLabel("New Session")
         }
-        .navigationTitle(project.name)
+        .navigationBarBackButtonHidden(true)
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                HStack(spacing: 16) {
-                    Button(action: createNewSession) {
-                        Image(systemName: "plus")
+            ToolbarItem(placement: .navigationBarLeading) {
+                HStack(spacing: 12) {
+                    Button(action: { dismiss() }) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(.secondary)
                     }
-                    .accessibilityLabel("New Session")
-
-                    Button(action: { showingSettings = true }) {
-                        Image(systemName: "gearshape.fill")
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text("/\(project.name)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text("Sessions")
+                            .font(.headline)
                     }
                 }
             }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(action: { showingSettings = true }) {
+                    Image(systemName: "gearshape.fill")
+                        .foregroundColor(.secondary)
+                }
+            }
         }
+        .enableSwipeBack()
         .sheet(isPresented: $showingSettings) {
             SettingsView(webSocketManager: webSocketManager)
         }
