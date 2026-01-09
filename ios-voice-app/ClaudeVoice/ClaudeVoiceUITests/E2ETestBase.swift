@@ -616,7 +616,8 @@ class E2ETestBase: XCTestCase {
             // Resume existing session
             let sessionCell = app.cells.firstMatch
             XCTAssertTrue(sessionCell.waitForExistence(timeout: 5), "Session should exist to resume")
-            sessionCell.tap()
+            // Use coordinate tap to avoid XCTest idle-wait timeout (SessionView has continuous SwiftUI updates)
+            tapByCoordinate(sessionCell)
         } else {
             // Start new session
             let newSessionButton = app.buttons["New Session"]
@@ -630,47 +631,26 @@ class E2ETestBase: XCTestCase {
     }
 
     /// Wait for SessionView sync to complete
-    /// Sync is complete when the mic button appears (syncStatus/syncError gone)
+    /// Uses HTTP-based verification to avoid XCTest idle-wait issues with SwiftUI re-renders
     func waitForSessionSyncComplete(timeout: TimeInterval = 15.0) -> Bool {
         let startTime = Date()
 
         print("⏳ Waiting for session sync to complete...")
 
-        // Wait for mic button to appear (indicates sync complete, no error)
-        let talkButton = app.buttons["Tap to Talk"]
+        // Use HTTP-based checks to avoid XCTest idle-wait issues
+        // SessionView has continuous SwiftUI updates that block XCTest element checks
         while Date().timeIntervalSince(startTime) < timeout {
-            // Check if Talk button exists and is enabled (sync succeeded)
-            if talkButton.exists && talkButton.isEnabled {
+            // Check if tmux session is running via HTTP endpoint
+            if verifyTmuxSessionRunning() {
                 let elapsed = Date().timeIntervalSince(startTime)
-                print("✓ Session sync complete after \(String(format: "%.1f", elapsed))s - mic button visible")
+                print("✓ Session sync complete after \(String(format: "%.1f", elapsed))s - tmux running")
                 return true
             }
 
-            // Check if syncError element exists (sync failed)
-            let syncErrorElement = app.otherElements["syncError"]
-            if syncErrorElement.exists {
-                print("⚠️ Session sync failed - syncError visible")
-                return true
-            }
-
-            // Check if syncStatus exists (still syncing)
-            let syncStatus = app.otherElements["syncStatus"]
-            if syncStatus.exists {
-                // Still syncing, continue waiting
-            }
-
-            usleep(250000) // Check every 250ms
+            usleep(500000) // Check every 500ms
         }
 
         print("✗ Session sync did not complete within \(timeout)s")
-
-        // Debug: print what elements are visible
-        print("  talkButton exists: \(talkButton.exists), enabled: \(talkButton.isEnabled)")
-        let syncError = app.otherElements["syncError"]
-        let syncStatus = app.otherElements["syncStatus"]
-        print("  syncError exists: \(syncError.exists)")
-        print("  syncStatus exists: \(syncStatus.exists)")
-
         return false
     }
 

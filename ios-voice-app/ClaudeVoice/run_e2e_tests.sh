@@ -84,7 +84,8 @@ if [ ! -d "$SESSION_DIR" ]; then
 fi
 
 # Get the most recent main session file (not agent-*.jsonl)
-SESSION_FILE=$(ls -t "$SESSION_DIR"/*.jsonl 2>/dev/null | grep -v '/agent-' | head -1)
+# Note: || true handles SIGPIPE when head closes before grep finishes (many session files)
+SESSION_FILE=$(ls -t "$SESSION_DIR"/*.jsonl 2>/dev/null | grep -v '/agent-' | head -1 || true)
 
 if [ -z "$SESSION_FILE" ]; then
     echo "❌ No session file found in $SESSION_DIR"
