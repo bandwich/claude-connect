@@ -11,19 +11,13 @@ struct EnableSwipeBack: ViewModifier {
 
 private struct SwipeBackEnabler: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UIViewController {
-        let controller = UIViewController()
-        DispatchQueue.main.async {
-            controller.navigationController?.interactivePopGestureRecognizer?.isEnabled = true
-            controller.navigationController?.interactivePopGestureRecognizer?.delegate = nil
-        }
-        return controller
+        return UIViewController()
     }
 
     func updateUIViewController(_ uiViewController: UIViewController, context: Context) {
-        DispatchQueue.main.async {
-            uiViewController.navigationController?.interactivePopGestureRecognizer?.isEnabled = true
-            uiViewController.navigationController?.interactivePopGestureRecognizer?.delegate = nil
-        }
+        // Configure gesture recognizer here - runs after view controller is in hierarchy
+        uiViewController.navigationController?.interactivePopGestureRecognizer?.isEnabled = true
+        uiViewController.navigationController?.interactivePopGestureRecognizer?.delegate = nil
     }
 }
 

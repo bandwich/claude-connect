@@ -12,36 +12,46 @@ struct CustomNavigationBarInline<TrailingContent: View>: ViewModifier {
         content
             .navigationBarBackButtonHidden(true)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(.visible, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    HStack(spacing: 8) {
-                        Button(action: onBack) {
-                            Image(systemName: "chevron.left")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundColor(.secondary)
-                        }
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(breadcrumb)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            Text(title)
-                                .font(.headline)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                        }
-                    }
-                    .padding(.bottom, 8)
+                    LeadingNavContent(title: title, breadcrumb: breadcrumb, onBack: onBack)
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     VStack(spacing: 4) {
                         trailingContent()
                         Spacer()
-                            .frame(height: 20)  // Match title height
+                            .frame(height: 20)
                     }
                     .padding(.bottom, 8)
                 }
             }
+    }
+}
+
+// Extracted to prevent closure re-creation
+private struct LeadingNavContent: View {
+    let title: String
+    let breadcrumb: String
+    let onBack: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button(action: onBack) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(.secondary)
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                Text(breadcrumb)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Text(title)
+                    .font(.headline)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+        }
+        .padding(.bottom, 8)
     }
 }
 
@@ -115,4 +125,3 @@ extension View {
         ))
     }
 }
-
