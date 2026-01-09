@@ -89,8 +89,9 @@ struct ProjectsListView: View {
                     Spacer()
                     Button(action: { showingSettings = true }) {
                         Image(systemName: "gearshape.fill")
-                            .foregroundColor(.primary)
+                            .foregroundColor(.secondary)
                     }
+                    .accessibilityIdentifier("settingsButton")
                 }
                 .frame(maxWidth: .infinity)
             }

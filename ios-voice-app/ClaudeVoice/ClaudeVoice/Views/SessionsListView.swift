@@ -69,6 +69,7 @@ struct SessionsListView: View {
                 Image(systemName: "gearshape.fill")
                     .foregroundColor(.secondary)
             }
+            .accessibilityIdentifier("settingsButton")
         }
         .enableSwipeBack()
         .sheet(isPresented: $showingSettings) {
