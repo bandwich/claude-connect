@@ -17,20 +17,21 @@ final class E2ENavigationFlowTests: E2ETestBase {
         // PHASE 1: Projects list
         print("📍 PHASE 1: Projects list")
 
-        let project = app.staticTexts[testProjectName]
-        XCTAssertTrue(project.waitForExistence(timeout: 5), "Project should exist")
+        let projectLabelPrefix = testProjectName + ","
+        let projectButton = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", projectLabelPrefix)).firstMatch
+        XCTAssertTrue(projectButton.waitForExistence(timeout: 5), "Project should exist")
 
         // Settings accessible
-        let settingsButton = app.buttons["gearshape.fill"]
+        let settingsButton = app.buttons["settingsButton"]
         XCTAssertTrue(settingsButton.exists, "Settings button should exist")
-        settingsButton.tap()
+        tapByCoordinate(settingsButton)
         XCTAssertTrue(app.staticTexts["Settings"].waitForExistence(timeout: 5))
         app.buttons["Done"].tap()
 
         // PHASE 2: Sessions list
         print("📍 PHASE 2: Sessions list")
 
-        project.tap()
+        projectButton.tap()
         let navTitle = app.navigationBars["Sessions"]
         XCTAssertTrue(navTitle.waitForExistence(timeout: 5), "Should navigate to sessions list")
 
@@ -61,7 +62,7 @@ final class E2ENavigationFlowTests: E2ETestBase {
         XCTAssertTrue(navTitle.waitForExistence(timeout: 5), "Should return to sessions list")
 
         app.navigationBars.buttons.element(boundBy: 0).tap()
-        XCTAssertTrue(app.navigationBars["Projects"].waitForExistence(timeout: 5), "Should return to projects list")
+        XCTAssertTrue(app.buttons["Add Project"].waitForExistence(timeout: 5), "Should return to projects list")
 
         print("✅ Navigation flow passed")
     }

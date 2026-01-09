@@ -154,6 +154,21 @@ class E2ETestBase: XCTestCase {
         super.tearDown()
     }
 
+    // MARK: - UI Helpers
+
+    /// Tap element using coordinates (bypasses scroll-to-visible which fails for toolbar buttons)
+    func tapByCoordinate(_ element: XCUIElement) {
+        element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+    }
+
+    /// Open settings by tapping the settings button
+    func openSettings() {
+        let settingsButton = app.buttons["settingsButton"]
+        if settingsButton.waitForExistence(timeout: 5) {
+            tapByCoordinate(settingsButton)
+        }
+    }
+
     // MARK: - Connection Methods
 
     func connectToServer() {
@@ -175,10 +190,7 @@ class E2ETestBase: XCTestCase {
         // If not connected, fall back to manual connection via Settings
         print("⚠️ Auto-connect didn't work, trying manual connection...")
 
-        let settingsButton = app.buttons["gearshape.fill"]
-        if settingsButton.waitForExistence(timeout: 5) {
-            settingsButton.tap()
-        }
+        openSettings()
 
         sleep(1)
 
@@ -229,10 +241,7 @@ class E2ETestBase: XCTestCase {
     }
 
     func disconnectFromServer() {
-        let settingsButton = app.buttons["gearshape.fill"]
-        if settingsButton.waitForExistence(timeout: 2) {
-            settingsButton.tap()
-        }
+        openSettings()
 
         let disconnectButton = app.buttons["Disconnect"]
         if disconnectButton.waitForExistence(timeout: 2) {
@@ -562,9 +571,14 @@ class E2ETestBase: XCTestCase {
     func navigateToProjectsList() {
         // Try to navigate back to projects list by repeatedly tapping back buttons
         for _ in 0..<5 {
-            // Check if we're already on Projects list
-            if app.navigationBars["Projects"].exists {
-                return
+            // Check if we're already on Projects list (look for Add Project floating button)
+            let addProjectButton = app.buttons["Add Project"]
+            if addProjectButton.exists {
+                // Also make sure no sheet is open (no Done button visible)
+                let doneButton = app.buttons["Done"]
+                if !doneButton.exists {
+                    return
+                }
             }
 
             // Try to dismiss any sheets first
@@ -591,10 +605,11 @@ class E2ETestBase: XCTestCase {
         // First, ensure we're at the projects list
         navigateToProjectsList()
 
-        // Find and tap test project
-        let projectText = app.staticTexts[testProjectName]
-        XCTAssertTrue(projectText.waitForExistence(timeout: 5), "Test project '\(testProjectName)' should exist")
-        projectText.tap()
+        // Find and tap test project (it's a Button with label starting with "projectName,")
+        let projectLabelPrefix = testProjectName + ","
+        let projectButton = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", projectLabelPrefix)).firstMatch
+        XCTAssertTrue(projectButton.waitForExistence(timeout: 5), "Test project '\(testProjectName)' should exist")
+        projectButton.tap()
         sleep(1)
 
         if resume {

@@ -35,10 +35,10 @@ final class DebugUITest: XCTestCase {
         }
 
         // Now tap settings and see what's there
-        let settingsButton = app.buttons["gearshape.fill"]
+        let settingsButton = app.buttons["settingsButton"]
         if settingsButton.exists {
             print("\n=== TAPPING SETTINGS ===")
-            settingsButton.tap()
+            settingsButton.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
             sleep(1)
 
             print("\n=== SETTINGS BUTTONS ===")
@@ -49,6 +49,11 @@ final class DebugUITest: XCTestCase {
             print("\n=== SETTINGS TEXT FIELDS ===")
             for field in app.textFields.allElementsBoundByIndex {
                 print("TextField: identifier='\(field.identifier)' label='\(field.label)' value='\(field.value as? String ?? "nil")'")
+            }
+
+            print("\n=== SETTINGS STATIC TEXTS ===")
+            for text in app.staticTexts.allElementsBoundByIndex {
+                print("StaticText: identifier='\(text.identifier)' label='\(text.label)'")
             }
         } else {
             print("Settings button not found!")

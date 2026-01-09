@@ -12,9 +12,9 @@ final class E2EConnectionTests: E2ETestBase {
     /// Tests connection and voice controls
     func test_connection_and_voice_controls() throws {
         // --- Test 1: Verify connected via settings ---
-        let settingsButton = app.buttons["gearshape.fill"]
+        let settingsButton = app.buttons["settingsButton"]
         XCTAssertTrue(settingsButton.waitForExistence(timeout: 5), "Settings button should exist")
-        settingsButton.tap()
+        tapByCoordinate(settingsButton)
 
         let statusLabel = app.staticTexts["connectionStatus"]
         XCTAssertTrue(statusLabel.waitForExistence(timeout: 5), "Should show connection status")
@@ -33,8 +33,9 @@ final class E2EConnectionTests: E2ETestBase {
     /// Tests disconnect, reconnect, and disconnect handling
     func test_reconnection_flow() throws {
         // --- Setup: Open settings ---
-        let settingsButton = app.buttons["gearshape.fill"]
-        settingsButton.tap()
+        let settingsButton = app.buttons["settingsButton"]
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 5), "Settings button should exist")
+        tapByCoordinate(settingsButton)
 
         let statusLabel = app.staticTexts["connectionStatus"]
         XCTAssertTrue(statusLabel.waitForExistence(timeout: 5))
@@ -56,7 +57,7 @@ final class E2EConnectionTests: E2ETestBase {
         XCTAssertTrue(notConnectedText.waitForExistence(timeout: 5), "Should show Not Connected")
 
         // --- Test 3: Reconnect ---
-        settingsButton.tap()
+        tapByCoordinate(settingsButton)
 
         let connectButton = app.buttons["Connect"]
         XCTAssertTrue(connectButton.waitForExistence(timeout: 5))
