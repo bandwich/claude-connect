@@ -173,3 +173,38 @@ class TestSessionManager:
 
         assert len(sessions) == 1
         assert sessions[0].id == "normal456"
+
+    def test_list_projects_decodes_path_with_underscores_correctly(self, tmp_path):
+        """Underscores in paths should NOT be converted to slashes.
+
+        Claude encodes both / and _ as - in folder names, so we need to
+        read the cwd from session files to get the actual path.
+        e.g., folder -Users-aaron-Desktop-max-voice-server should decode to
+        /Users/aaron/Desktop/max/voice_server (not /Users/aaron/Desktop/max/voice/server)
+
+        Without cwd from sessions, we can't know which - was originally _ vs /
+        """
+        from session_manager import SessionManager
+
+        # Claude encodes /Users/aaron/Desktop/max/voice_server as:
+        # -Users-aaron-Desktop-max-voice-server (both / and _ become -)
+        project_dir = tmp_path / "-Users-aaron-Desktop-max-voice-server"
+        project_dir.mkdir()
+
+        # Create a session with cwd that shows the ACTUAL path
+        session_file = project_dir / "session123.jsonl"
+        session_file.write_text(json.dumps({
+            "cwd": "/Users/aaron/Desktop/max/voice_server",
+            "message": {"role": "user", "content": "Hello"}
+        }) + "\n")
+
+        manager = SessionManager(projects_dir=str(tmp_path))
+        projects = manager.list_projects()
+
+        assert len(projects) == 1
+        p = projects[0]
+        # The path should preserve the underscore (from cwd), not convert to slash
+        assert p.path == "/Users/aaron/Desktop/max/voice_server"
+        assert "voice/server" not in p.path  # Should NOT have slash here
+        assert p.name == "voice_server"
+        assert p.folder_name == "-Users-aaron-Desktop-max-voice-server"
