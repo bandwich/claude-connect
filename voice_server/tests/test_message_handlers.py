@@ -236,6 +236,30 @@ class TestAddProject:
             expected_path = f"{tmpdir}/my-project"
             server.tmux.start_session.assert_called_once_with(working_dir=expected_path)
 
+    @pytest.mark.asyncio
+    async def test_add_project_preserves_spaces_in_name(self):
+        """add_project should preserve spaces in the project name"""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            server.projects_base_path = tmpdir
+
+            server.tmux = Mock()
+            server.tmux.start_session = Mock(return_value=True)
+            server.tmux.send_input = Mock(return_value=True)
+
+            mock_ws = AsyncMock()
+
+            await server.handle_add_project(mock_ws, {"name": "Test project"})
+
+            # The project directory should preserve the space
+            expected_path = os.path.join(tmpdir, "Test project")
+            assert os.path.exists(expected_path)
+            assert os.path.isdir(expected_path)
+            server.tmux.start_session.assert_called_once_with(working_dir=expected_path)
+
 
 class TestActiveSessionTracking:
     """Tests for active session tracking"""

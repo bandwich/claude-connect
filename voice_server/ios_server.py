@@ -574,7 +574,7 @@ class VoiceServer:
             await websocket.send(json.dumps(response))
             return
 
-        safe_name = "".join(c for c in name if c.isalnum() or c in "-_.")
+        safe_name = "".join(c for c in name if c.isalnum() or c in "-_. ")
         project_path = os.path.join(self.projects_base_path, safe_name)
 
         try:

@@ -74,14 +74,26 @@ class SessionManager:
         return projects
 
     def _get_project_cwd(self, folder_name: str) -> Optional[str]:
-        """Get the actual project path from the newest session's cwd field.
+        """Get the actual project path from session cwd fields.
 
         Claude's folder encoding is lossy (both / and _ become -), so we
         read the cwd from session files to get the authoritative path.
+        Tries multiple sessions since some may lack cwd (e.g., file-history-snapshot).
         """
-        newest_session = self.find_newest_session(folder_name)
-        if newest_session:
-            return self.get_session_cwd(folder_name, newest_session)
+        folder_path = os.path.join(self.projects_dir, folder_name)
+        if not os.path.exists(folder_path):
+            return None
+
+        session_files = glob.glob(os.path.join(folder_path, "*.jsonl"))
+        session_files = [f for f in session_files if not os.path.basename(f).startswith("agent-")]
+        session_files.sort(key=os.path.getmtime, reverse=True)
+
+        # Try sessions until we find one with cwd
+        for filepath in session_files[:10]:  # Check up to 10 newest
+            session_id = os.path.splitext(os.path.basename(filepath))[0]
+            cwd = self.get_session_cwd(folder_name, session_id)
+            if cwd:
+                return cwd
         return None
 
     def _encode_project_path(self, project_path: str) -> str:
