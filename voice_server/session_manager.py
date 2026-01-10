@@ -48,15 +48,21 @@ class SessionManager:
         for entry in os.listdir(self.projects_dir):
             project_path = os.path.join(self.projects_dir, entry)
             if os.path.isdir(project_path):
-                # Decode path from folder name (e.g., "-Users-aaron-Desktop-max" -> "/Users/aaron/Desktop/max")
-                decoded_path = entry.replace("-", "/")
-                if decoded_path.startswith("/"):
-                    decoded_path = decoded_path  # Already absolute
+                session_count = len(glob.glob(os.path.join(project_path, "*.jsonl")))
+
+                # Try to get actual path from session cwd (authoritative source)
+                # This handles the lossy encoding where both / and _ become -
+                actual_path = self._get_project_cwd(entry)
+
+                if actual_path:
+                    decoded_path = actual_path
                 else:
-                    decoded_path = "/" + decoded_path
+                    # Fallback: naive decode (can't distinguish _ from / in encoded form)
+                    decoded_path = entry.replace("-", "/")
+                    if not decoded_path.startswith("/"):
+                        decoded_path = "/" + decoded_path
 
                 name = os.path.basename(decoded_path)
-                session_count = len(glob.glob(os.path.join(project_path, "*.jsonl")))
 
                 projects.append(Project(
                     path=decoded_path,
@@ -66,6 +72,29 @@ class SessionManager:
                 ))
 
         return projects
+
+    def _get_project_cwd(self, folder_name: str) -> Optional[str]:
+        """Get the actual project path from session cwd fields.
+
+        Claude's folder encoding is lossy (both / and _ become -), so we
+        read the cwd from session files to get the authoritative path.
+        Tries multiple sessions since some may lack cwd (e.g., file-history-snapshot).
+        """
+        folder_path = os.path.join(self.projects_dir, folder_name)
+        if not os.path.exists(folder_path):
+            return None
+
+        session_files = glob.glob(os.path.join(folder_path, "*.jsonl"))
+        session_files = [f for f in session_files if not os.path.basename(f).startswith("agent-")]
+        session_files.sort(key=os.path.getmtime, reverse=True)
+
+        # Try sessions until we find one with cwd
+        for filepath in session_files[:10]:  # Check up to 10 newest
+            session_id = os.path.splitext(os.path.basename(filepath))[0]
+            cwd = self.get_session_cwd(folder_name, session_id)
+            if cwd:
+                return cwd
+        return None
 
     def _encode_project_path(self, project_path: str) -> str:
         """Encode project path to folder name format"""
