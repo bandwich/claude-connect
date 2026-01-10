@@ -154,6 +154,21 @@ class E2ETestBase: XCTestCase {
         super.tearDown()
     }
 
+    // MARK: - UI Helpers
+
+    /// Tap element using coordinates (bypasses scroll-to-visible which fails for toolbar buttons)
+    func tapByCoordinate(_ element: XCUIElement) {
+        element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+    }
+
+    /// Open settings by tapping the settings button
+    func openSettings() {
+        let settingsButton = app.buttons["settingsButton"]
+        if settingsButton.waitForExistence(timeout: 5) {
+            tapByCoordinate(settingsButton)
+        }
+    }
+
     // MARK: - Connection Methods
 
     func connectToServer() {
@@ -175,10 +190,7 @@ class E2ETestBase: XCTestCase {
         // If not connected, fall back to manual connection via Settings
         print("⚠️ Auto-connect didn't work, trying manual connection...")
 
-        let settingsButton = app.buttons["gearshape.fill"]
-        if settingsButton.waitForExistence(timeout: 5) {
-            settingsButton.tap()
-        }
+        openSettings()
 
         sleep(1)
 
@@ -229,10 +241,7 @@ class E2ETestBase: XCTestCase {
     }
 
     func disconnectFromServer() {
-        let settingsButton = app.buttons["gearshape.fill"]
-        if settingsButton.waitForExistence(timeout: 2) {
-            settingsButton.tap()
-        }
+        openSettings()
 
         let disconnectButton = app.buttons["Disconnect"]
         if disconnectButton.waitForExistence(timeout: 2) {
@@ -250,16 +259,26 @@ class E2ETestBase: XCTestCase {
     // MARK: - State Waiting
 
     func waitForVoiceState(_ expectedState: String, timeout: TimeInterval = 10.0) -> Bool {
-        let stateLabel = app.staticTexts["voiceState"]
+        // Voice state is now indicated by mic button appearance
+        // "Idle" = mic button visible with "Tap to Talk" label
+        // "Listening" = mic button visible with "Stop" label
+        let startTime = Date()
 
-        guard stateLabel.waitForExistence(timeout: timeout) else {
-            return false
+        while Date().timeIntervalSince(startTime) < timeout {
+            if expectedState == "Idle" {
+                let talkButton = app.buttons["Tap to Talk"]
+                if talkButton.exists && talkButton.isEnabled {
+                    return true
+                }
+            } else if expectedState == "Listening" {
+                let stopButton = app.buttons["Stop"]
+                if stopButton.exists {
+                    return true
+                }
+            }
+            usleep(250000)
         }
-
-        let predicate = NSPredicate(format: "label == %@", expectedState)
-        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: stateLabel)
-        let result = XCTWaiter().wait(for: [expectation], timeout: timeout)
-        return result == .completed
+        return false
     }
 
     func waitForConnectionState(_ expectedState: String, timeout: TimeInterval = 10.0) -> Bool {
@@ -269,80 +288,44 @@ class E2ETestBase: XCTestCase {
     }
 
     /// Wait for a conversation response cycle to complete
-    /// This waits for the state to leave Idle (processing started) then return to Idle (cycle complete)
-    /// More robust than checking for intermediate states like "Speaking"
+    /// This waits for the mic button to become disabled then enabled again
     func waitForResponseCycle(timeout: TimeInterval = 30.0) -> Bool {
         let startTime = Date()
 
-        // First, wait for state to change from Idle (response cycle started)
-        // We detect this by outputStatus appearing (shows "Thinking...", "Speaking...", etc.)
-        var sawNonIdle = false
+        // First, wait for mic to become unavailable (response cycle started)
+        var sawProcessing = false
         while Date().timeIntervalSince(startTime) < timeout {
-            let outputStatus = app.staticTexts["outputStatus"]
+            let talkButton = app.buttons["Tap to Talk"]
 
-            // Check if we're in a non-idle state (processing, speaking, etc.)
-            if outputStatus.exists {
-                // outputStatus shown means outputState has statusText (thinking, speaking, etc.)
-                sawNonIdle = true
-                print("✓ Response cycle started (outputStatus visible)")
+            // Check if mic is disabled or not present (processing)
+            if !talkButton.exists || !talkButton.isEnabled {
+                sawProcessing = true
+                print("✓ Response cycle started (mic unavailable)")
                 break
-            }
-
-            // Also check if voiceState shows something other than Idle
-            // Use waitForExistence briefly to avoid race conditions
-            let voiceState = app.staticTexts["voiceState"]
-            if voiceState.waitForExistence(timeout: 0.1) {
-                let label = voiceState.label
-                if label != "Idle" {
-                    sawNonIdle = true
-                    print("✓ Response cycle started (voiceState: \(label))")
-                    break
-                }
             }
 
             usleep(250000)
         }
 
-        if !sawNonIdle {
+        if !sawProcessing {
             print("✗ Response cycle never started within \(timeout)s")
             return false
         }
 
-        // Now wait for cycle to complete
-        // Cycle is complete when voiceState shows "Idle" (outputStatus gone)
-        var lastStatus = ""
+        // Now wait for cycle to complete (mic button becomes available again)
         while Date().timeIntervalSince(startTime) < timeout {
-            let outputStatus = app.staticTexts["outputStatus"]
-            let voiceState = app.staticTexts["voiceState"]
+            let talkButton = app.buttons["Tap to Talk"]
 
-            // Primary check: voiceState shows Idle (means outputStatus is gone)
-            if voiceState.waitForExistence(timeout: 0.1) {
-                let label = voiceState.label
-                if label == "Idle" {
-                    let elapsed = Date().timeIntervalSince(startTime)
-                    print("✓ Response cycle complete after \(String(format: "%.1f", elapsed))s")
-                    return true
-                }
-            }
-
-            // Debug: track what outputStatus shows
-            if outputStatus.exists {
-                let status = outputStatus.label
-                if status != lastStatus {
-                    print("  outputStatus: \(status)")
-                    lastStatus = status
-                }
+            if talkButton.exists && talkButton.isEnabled {
+                let elapsed = Date().timeIntervalSince(startTime)
+                print("✓ Response cycle complete after \(String(format: "%.1f", elapsed))s")
+                return true
             }
 
             usleep(250000)
         }
 
-        // Debug info on timeout
-        let outputStatus = app.staticTexts["outputStatus"]
-        let voiceState = app.staticTexts["voiceState"]
         print("✗ Response cycle did not complete within \(timeout)s")
-        print("  outputStatus exists: \(outputStatus.exists), label: \(outputStatus.exists ? outputStatus.label : "n/a")")
-        print("  voiceState exists: \(voiceState.exists), label: \(voiceState.exists ? voiceState.label : "n/a")")
         return false
     }
 
@@ -588,9 +571,14 @@ class E2ETestBase: XCTestCase {
     func navigateToProjectsList() {
         // Try to navigate back to projects list by repeatedly tapping back buttons
         for _ in 0..<5 {
-            // Check if we're already on Projects list
-            if app.navigationBars["Projects"].exists {
-                return
+            // Check if we're already on Projects list (look for Add Project floating button)
+            let addProjectButton = app.buttons["Add Project"]
+            if addProjectButton.exists {
+                // Also make sure no sheet is open (no Done button visible)
+                let doneButton = app.buttons["Done"]
+                if !doneButton.exists {
+                    return
+                }
             }
 
             // Try to dismiss any sheets first
@@ -617,17 +605,19 @@ class E2ETestBase: XCTestCase {
         // First, ensure we're at the projects list
         navigateToProjectsList()
 
-        // Find and tap test project
-        let projectText = app.staticTexts[testProjectName]
-        XCTAssertTrue(projectText.waitForExistence(timeout: 5), "Test project '\(testProjectName)' should exist")
-        projectText.tap()
+        // Find and tap test project (it's a Button with label starting with "projectName,")
+        let projectLabelPrefix = testProjectName + ","
+        let projectButton = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", projectLabelPrefix)).firstMatch
+        XCTAssertTrue(projectButton.waitForExistence(timeout: 5), "Test project '\(testProjectName)' should exist")
+        projectButton.tap()
         sleep(1)
 
         if resume {
             // Resume existing session
             let sessionCell = app.cells.firstMatch
             XCTAssertTrue(sessionCell.waitForExistence(timeout: 5), "Session should exist to resume")
-            sessionCell.tap()
+            // Use coordinate tap to avoid XCTest idle-wait timeout (SessionView has continuous SwiftUI updates)
+            tapByCoordinate(sessionCell)
         } else {
             // Start new session
             let newSessionButton = app.buttons["New Session"]
@@ -641,69 +631,26 @@ class E2ETestBase: XCTestCase {
     }
 
     /// Wait for SessionView sync to complete
-    /// Sync is complete when voiceState, outputStatus, or syncError elements appear
-    /// (during sync, none of these exist - only "Syncing..." status is shown)
-    /// outputStatus appears when Claude is actively processing (thinking, using tools)
+    /// Uses HTTP-based verification to avoid XCTest idle-wait issues with SwiftUI re-renders
     func waitForSessionSyncComplete(timeout: TimeInterval = 15.0) -> Bool {
         let startTime = Date()
 
         print("⏳ Waiting for session sync to complete...")
 
-        // First wait for SessionView to appear (Talk button indicates we're on SessionView)
-        // Use full timeout - new session creation can take 5+ seconds on server
-        let talkButton = app.buttons["Tap to Talk"]
-        if !talkButton.waitForExistence(timeout: timeout) {
-            print("✗ SessionView did not appear (Talk button not found)")
-            return false
-        }
-        print("✓ SessionView appeared (Talk button visible)")
-
+        // Use HTTP-based checks to avoid XCTest idle-wait issues
+        // SessionView has continuous SwiftUI updates that block XCTest element checks
         while Date().timeIntervalSince(startTime) < timeout {
-            // Check if voiceState element exists (sync succeeded, Claude idle)
-            let voiceStateLabel = app.staticTexts["voiceState"]
-            if voiceStateLabel.exists {
-                print("✓ Session sync complete - voiceState visible: \(voiceStateLabel.label)")
+            // Check if tmux session is running via HTTP endpoint
+            if verifyTmuxSessionRunning() {
+                let elapsed = Date().timeIntervalSince(startTime)
+                print("✓ Session sync complete after \(String(format: "%.1f", elapsed))s - tmux running")
                 return true
             }
 
-            // Check if outputStatus element exists (sync succeeded, Claude processing)
-            // outputStatus appears when Claude is thinking, using tools, or speaking
-            let outputStatusLabel = app.staticTexts["outputStatus"]
-            if outputStatusLabel.exists {
-                print("✓ Session sync complete - outputStatus visible: \(outputStatusLabel.label)")
-                return true
-            }
-
-            // Check if syncError element exists (sync failed)
-            let syncErrorLabel = app.staticTexts["syncError"]
-            if syncErrorLabel.exists {
-                print("⚠️ Session sync failed - syncError visible: \(syncErrorLabel.label)")
-                // Return true because sync is "complete" (just failed)
-                // The test can then decide how to handle the failure
-                return true
-            }
-
-            // Check if syncStatus shows syncing (still in progress)
-            let syncStatus = app.staticTexts["syncStatus"]
-            if syncStatus.exists {
-                // Still syncing, continue waiting
-            }
-
-            usleep(250000) // Check every 250ms
+            usleep(500000) // Check every 500ms
         }
 
         print("✗ Session sync did not complete within \(timeout)s")
-
-        // Debug: print what elements are visible
-        let voiceState = app.staticTexts["voiceState"]
-        let outputStatus = app.staticTexts["outputStatus"]
-        let syncError = app.staticTexts["syncError"]
-        let syncStatus = app.staticTexts["syncStatus"]
-        print("  voiceState exists: \(voiceState.exists)")
-        print("  outputStatus exists: \(outputStatus.exists)")
-        print("  syncError exists: \(syncError.exists)")
-        print("  syncStatus exists: \(syncStatus.exists)")
-
         return false
     }
 

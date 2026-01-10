@@ -59,13 +59,27 @@ cd "$TEST_PROJECT_DIR"
 
 # Run claude with a one-word response prompt, non-interactive
 # The --print flag outputs response and exits
-# Use gtimeout on macOS (from coreutils), fall back to no timeout
+# Use timeout command if available, otherwise shell-based timeout
+run_with_timeout() {
+    local timeout=$1
+    shift
+    "$@" &
+    local pid=$!
+    ( sleep "$timeout"; kill -9 $pid 2>/dev/null ) &
+    local killer=$!
+    wait $pid 2>/dev/null
+    local ret=$?
+    kill $killer 2>/dev/null
+    wait $killer 2>/dev/null
+    return $ret
+}
+
 if command -v gtimeout &> /dev/null; then
     gtimeout 60 claude --print "Reply with only: ok" > /tmp/claude_init.log 2>&1 || true
 elif command -v timeout &> /dev/null; then
     timeout 60 claude --print "Reply with only: ok" > /tmp/claude_init.log 2>&1 || true
 else
-    claude --print "Reply with only: ok" > /tmp/claude_init.log 2>&1 || true
+    run_with_timeout 60 claude --print "Reply with only: ok" > /tmp/claude_init.log 2>&1 || true
 fi
 
 # Find the session ID from the transcript
@@ -84,7 +98,8 @@ if [ ! -d "$SESSION_DIR" ]; then
 fi
 
 # Get the most recent main session file (not agent-*.jsonl)
-SESSION_FILE=$(ls -t "$SESSION_DIR"/*.jsonl 2>/dev/null | grep -v '/agent-' | head -1)
+# Note: || true handles SIGPIPE when head closes before grep finishes (many session files)
+SESSION_FILE=$(ls -t "$SESSION_DIR"/*.jsonl 2>/dev/null | grep -v '/agent-' | head -1 || true)
 
 if [ -z "$SESSION_FILE" ]; then
     echo "❌ No session file found in $SESSION_DIR"

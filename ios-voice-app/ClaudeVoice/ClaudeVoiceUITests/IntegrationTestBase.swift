@@ -132,6 +132,11 @@ class IntegrationTestBase: XCTestCase {
 
     // MARK: - Helper Methods
 
+    /// Tap element using coordinates (bypasses scroll-to-visible which fails for toolbar buttons)
+    func tapByCoordinate(_ element: XCUIElement) {
+        element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+    }
+
     func connectToTestServer() {
         // Skip if already connected (connection persists for all tests in class)
         if Self.isConnected {
@@ -139,9 +144,9 @@ class IntegrationTestBase: XCTestCase {
         }
 
         // Tap settings button
-        let settingsButton = app.buttons["gearshape.fill"]
+        let settingsButton = app.buttons["settingsButton"]
         if settingsButton.waitForExistence(timeout: 5) {
-            settingsButton.tap()
+            tapByCoordinate(settingsButton)
         }
 
         // Enter server IP
@@ -228,9 +233,9 @@ class IntegrationTestBase: XCTestCase {
 
     func disconnectFromServer() {
         // Open settings
-        let settingsButton = app.buttons["gearshape.fill"]
+        let settingsButton = app.buttons["settingsButton"]
         if settingsButton.waitForExistence(timeout: 2) {
-            settingsButton.tap()
+            tapByCoordinate(settingsButton)
         }
 
         // Tap disconnect

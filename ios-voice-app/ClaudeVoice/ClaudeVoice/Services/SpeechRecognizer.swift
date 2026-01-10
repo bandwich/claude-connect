@@ -17,18 +17,21 @@ class SpeechRecognizer: ObservableObject {
     var onRecordingStopped: (() -> Void)?
 
     init() {
-        // Don't request authorization during UI tests
-        if !isRunningUITests {
-            checkAuthorization()
-        }
+        checkAuthorization()
     }
 
-    private var isRunningUITests: Bool {
-        // Check if running under test environment
-        return NSClassFromString("XCTestCase") != nil
+    private var isIntegrationTestMode: Bool {
+        ProcessInfo.processInfo.environment["INTEGRATION_TEST_MODE"] == "1"
     }
 
     func checkAuthorization() {
+        // In integration tests, bypass speech authorization (can't be granted via simctl)
+        // The test sends voice input via WebSocket, so actual mic auth isn't needed
+        if isIntegrationTestMode {
+            isAuthorized = true
+            return
+        }
+
         SFSpeechRecognizer.requestAuthorization { authStatus in
             DispatchQueue.main.async {
                 self.isAuthorized = authStatus == .authorized

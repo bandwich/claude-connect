@@ -4,6 +4,7 @@ import SwiftUI
 struct SessionsListView: View {
     @ObservedObject var webSocketManager: WebSocketManager
     let project: Project
+    @Binding var showingBinding: Bool  // Use binding to avoid @Environment(\.dismiss) render loop
 
     @State private var sessions: [Session] = []
     @State private var selectedSession: Session?
@@ -11,58 +12,66 @@ struct SessionsListView: View {
     @State private var isCreating = false
 
     var body: some View {
-        List(sessions) { session in
-            Button(action: {
-                selectedSession = session
-            }) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(session.title)
-                            .font(.headline)
-                            .lineLimit(2)
-
-                        HStack {
-                            Text(session.formattedDate)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-
-                            Spacer()
+        ZStack(alignment: .bottomTrailing) {
+            List(sessions) { session in
+                Button(action: {
+                    selectedSession = session
+                }) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(session.title)
+                                .font(.subheadline)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
 
                             Text("\(session.messageCount) messages")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
-                    }
 
-                    Spacer()
+                        Spacer()
 
-                    // Show active indicator if this session is active
-                    if webSocketManager.activeSessionId == session.id {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                            .accessibilityLabel("Active session")
+                        Text(TimeFormatter.relativeTimeString(from: session.timestamp))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
+                    .padding(.vertical, 4)
+                    .contentShape(Rectangle())
                 }
-                .padding(.vertical, 4)
-                .contentShape(Rectangle())  // Make entire row tappable
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
-        }
-        .navigationTitle(project.name)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                HStack(spacing: 16) {
-                    Button(action: createNewSession) {
-                        Image(systemName: "plus")
-                    }
-                    .accessibilityLabel("New Session")
+            .listStyle(.plain)
+            .padding(.top, 4)
 
-                    Button(action: { showingSettings = true }) {
-                        Image(systemName: "gearshape.fill")
-                    }
-                }
+            // Floating add button
+            Button(action: createNewSession) {
+                Image(systemName: "plus")
+                    .font(.system(size: 20))
+                    .foregroundColor(.primary)
+                    .frame(width: 50, height: 50)
+                    .background(Color(.systemBackground))
+                    .cornerRadius(25)
+                    .overlay(
+                        Circle()
+                            .stroke(Color(.separator), lineWidth: 1)
+                    )
             }
+            .padding(.trailing, 20)
+            .padding(.bottom, 20)
+            .accessibilityLabel("New Session")
         }
+        .customNavigationBar(
+            title: "Sessions",
+            breadcrumb: "/\(project.name)",
+            onBack: { showingBinding = false }
+        ) {
+            Button(action: { showingSettings = true }) {
+                Image(systemName: "gearshape.fill")
+                    .foregroundColor(.secondary)
+            }
+            .accessibilityIdentifier("settingsButton")
+        }
+        .enableSwipeBack()
         .sheet(isPresented: $showingSettings) {
             SettingsView(webSocketManager: webSocketManager)
         }
@@ -76,7 +85,8 @@ struct SessionsListView: View {
             SessionView(
                 webSocketManager: webSocketManager,
                 project: project,
-                session: session
+                session: session,
+                selectedSessionBinding: $selectedSession
             )
         }
     }

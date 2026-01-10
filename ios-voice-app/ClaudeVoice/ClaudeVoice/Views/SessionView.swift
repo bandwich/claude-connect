@@ -8,13 +8,14 @@ struct SessionView: View {
 
     let project: Project
     let session: Session
+    @Binding var selectedSessionBinding: Session?  // Use binding to avoid closure recreation
 
     @State private var messages: [SessionHistoryMessage] = []
     @State private var currentTranscript = ""
-    @State private var showingSettings = false
     @State private var isInitialLoad = true
     @State private var isSyncing = false
     @State private var syncError: String? = nil
+    @State private var branchName: String = "main"  // Placeholder for now
 
     var body: some View {
         VStack(spacing: 0) {
@@ -49,92 +50,56 @@ struct SessionView: View {
 
             Divider()
 
-            // Voice input area
-            VStack(spacing: 12) {
-                if !currentTranscript.isEmpty {
-                    Text(currentTranscript)
-                        .font(.body)
-                        .foregroundColor(.secondary)
-                        .padding(.horizontal)
-                }
-
-                // Show sync status or voice state
-                if isSyncing {
-                    HStack(spacing: 8) {
+            // Bottom mic area
+            VStack(spacing: 16) {
+                if let error = syncError {
+                    // Error state - show error instead of mic
+                    VStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.circle.fill")
+                            .font(.system(size: 40))
+                            .foregroundColor(.red)
+                        Text(error)
+                            .font(.caption)
+                            .foregroundColor(.red)
+                            .multilineTextAlignment(.center)
+                    }
+                    .accessibilityIdentifier("syncError")
+                } else if !isSessionSynced && !session.isNewSession {
+                    // Syncing state
+                    VStack(spacing: 8) {
                         ProgressView()
-                            .scaleEffect(0.8)
-                        Text("Syncing...")
-                            .accessibilityIdentifier("syncStatus")
                     }
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                } else if let error = syncError {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundColor(.red)
-                        .accessibilityIdentifier("syncError")
-                } else if let statusText = webSocketManager.outputState.statusText {
-                    // Show output state when active (thinking, using tool, speaking)
-                    Text(statusText)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .accessibilityIdentifier("outputStatus")
+                    .accessibilityIdentifier("syncStatus")
                 } else {
-                    // Show voice state when idle
-                    Text(webSocketManager.voiceState.description)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .accessibilityIdentifier("voiceState")
-                }
-
-                Button(action: toggleRecording) {
-                    HStack {
+                    // Normal state - show mic
+                    Button(action: toggleRecording) {
                         Image(systemName: speechRecognizer.isRecording ? "mic.fill" : "mic")
-                        Text(speechRecognizer.isRecording ? "Stop" : "Tap to Talk")
+                            .font(.system(size: 32))
+                            .foregroundColor(micColor)
                     }
-                    .font(.headline)
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(buttonColor)
-                    .cornerRadius(12)
+                    .accessibilityLabel(speechRecognizer.isRecording ? "Stop" : "Tap to Talk")
+                    .disabled(!canRecord)
                 }
-                .accessibilityLabel(speechRecognizer.isRecording ? "Stop" : "Tap to Talk")
-                .padding(.horizontal, 40)
-                .disabled(!canRecord)
             }
-            .padding(.vertical)
+            .frame(height: 100)
+            .frame(maxWidth: .infinity)
             .background(Color(.systemBackground))
         }
-        .navigationTitle(session.title)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                HStack(spacing: 16) {
-                    // Show sync status indicator
-                    if isSyncing {
-                        ProgressView()
-                            .scaleEffect(0.8)
-                            .accessibilityLabel("Syncing")
-                    } else if isSessionSynced {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                            .accessibilityLabel("Synced")
-                    } else if syncError != nil {
-                        Image(systemName: "exclamationmark.circle.fill")
-                            .foregroundColor(.red)
-                            .accessibilityLabel("Sync Error")
-                    }
-
-                    Button(action: { showingSettings = true }) {
-                        Image(systemName: "gearshape.fill")
-                    }
-                }
+        .customNavigationBarInline(
+            title: session.title,
+            breadcrumb: "/\(project.name)",
+            onBack: { selectedSessionBinding = nil }
+        ) {
+            HStack(spacing: 4) {
+                Image(systemName: "arrow.triangle.branch")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Text(branchName)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
         }
-        .sheet(isPresented: $showingSettings) {
-            SettingsView(webSocketManager: webSocketManager)
-        }
+        .enableSwipeBack()
         .sheet(item: $webSocketManager.pendingPermission) { request in
             PermissionPromptView(request: request) { response in
                 // Add permission response to message history
@@ -161,11 +126,18 @@ struct SessionView: View {
             }
         }
         .onAppear(perform: setupView)
+        .onChange(of: webSocketManager.connectionState) { _, newState in
+            // Retry sync when connection is established (for resumed sessions)
+            if case .connected = newState, !session.isNewSession {
+                print("[SessionView] Connection established, attempting sync")
+                syncSession()
+            }
+        }
     }
 
-    private var buttonColor: Color {
+    private var micColor: Color {
         if !canRecord { return .gray }
-        return speechRecognizer.isRecording ? .red : .blue
+        return speechRecognizer.isRecording ? .red : .primary
     }
 
     private var canRecord: Bool {
@@ -189,21 +161,18 @@ struct SessionView: View {
     }
 
     private func setupView() {
-        // Load message history (skip for new sessions - no history yet)
+        print("[SessionView] setupView called, isNewSession=\(session.isNewSession)")
+
+        // Load message history and sync (skip for new sessions - no history yet)
         if !session.isNewSession {
             webSocketManager.onSessionHistoryReceived = { messages in
                 self.messages = messages
             }
             webSocketManager.requestSessionHistory(folderName: project.folderName, sessionId: session.id)
 
-            // Auto-resume session in tmux (only for existing sessions)
-            // New sessions are already running from the newSession() call
-            if !session.isNewSession {
-                syncSession()
-            } else {
-                // For new sessions, just mark as ready (tmux already started)
-                isSyncing = false
-            }
+            // Auto-resume session in tmux (existing sessions only)
+            // Note: syncSession() will check connection state and retry via onChange if not connected
+            syncSession()
         }
 
         // Setup speech recognizer
@@ -312,10 +281,18 @@ struct SessionView: View {
 
         // Check if WebSocket is connected (not tmux session status)
         guard case .connected = webSocketManager.connectionState else {
-            syncError = "Not connected to server"
+            print("[SessionView] syncSession: Not connected yet, will retry when connected")
+            // Don't set syncError here - we'll retry when connected
             return
         }
 
+        // Don't sync again if already syncing or synced
+        guard !isSyncing && !isSessionSynced else {
+            print("[SessionView] syncSession: Already syncing or synced, skipping")
+            return
+        }
+
+        print("[SessionView] syncSession: Starting sync for session \(session.id)")
         isSyncing = true
         syncError = nil
 
@@ -323,10 +300,10 @@ struct SessionView: View {
             isSyncing = false
             if response.success {
                 // Session synced - connection_status broadcast will update activeSessionId
-                print("Session synced successfully")
+                print("[SessionView] Session synced successfully")
             } else {
                 syncError = response.error ?? "Failed to sync"
-                print("Failed to sync session: \(response.error ?? "Unknown error")")
+                print("[SessionView] Failed to sync session: \(response.error ?? "Unknown error")")
             }
         }
 
@@ -384,21 +361,21 @@ struct MessageBubble: View {
     let message: SessionHistoryMessage
 
     var body: some View {
-        HStack {
+        HStack(alignment: .top, spacing: 8) {
             if message.role == "user" {
                 Spacer()
-            }
-
-            Text(message.content)
-                .padding(12)
-                .background(message.role == "user" ? Color.blue : Color(.systemGray5))
-                .foregroundColor(message.role == "user" ? .white : .primary)
-                .cornerRadius(16)
-                .accessibilityIdentifier("messageBubble")
-
-            if message.role == "assistant" {
+                Text("›")
+                    .foregroundColor(.secondary)
+                Text(message.content)
+                    .foregroundColor(.primary)
+            } else {
+                Text(message.content)
+                    .padding(12)
+                    .background(Color(.systemGray5))
+                    .cornerRadius(12)
                 Spacer()
             }
         }
+        .accessibilityIdentifier("messageBubble")
     }
 }

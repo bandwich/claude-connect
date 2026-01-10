@@ -2,7 +2,11 @@ import Foundation
 import Combine
 
 class WebSocketManager: NSObject, ObservableObject {
-    @Published var connectionState: ConnectionState = .disconnected
+    @Published var connectionState: ConnectionState = .disconnected {
+        didSet {
+            print("🔄 connectionState didSet: \(oldValue) -> \(connectionState)")
+        }
+    }
 
     @Published var voiceState: VoiceState = .idle {
         didSet {
@@ -11,9 +15,21 @@ class WebSocketManager: NSObject, ObservableObject {
         }
     }
 
-    @Published var connected: Bool = false
-    @Published var activeSessionId: String? = nil
-    @Published var outputState: ClaudeOutputState = .idle
+    @Published var connected: Bool = false {
+        didSet {
+            print("🔄 connected didSet: \(oldValue) -> \(connected)")
+        }
+    }
+    @Published var activeSessionId: String? = nil {
+        didSet {
+            print("🔄 activeSessionId didSet: \(oldValue ?? "nil") -> \(activeSessionId ?? "nil")")
+        }
+    }
+    @Published var outputState: ClaudeOutputState = .idle {
+        didSet {
+            print("🔄 outputState didSet: \(oldValue) -> \(outputState)")
+        }
+    }
 
     var onAudioChunk: ((AudioChunkMessage) -> Void)?
     var onStatusUpdate: ((StatusMessage) -> Void)?
@@ -25,7 +41,11 @@ class WebSocketManager: NSObject, ObservableObject {
     var onConnectionStatusReceived: ((ConnectionStatus) -> Void)?
     var onPermissionRequest: ((PermissionRequest) -> Void)?
     var onPermissionResolved: ((PermissionResolved) -> Void)?
-    @Published var pendingPermission: PermissionRequest? = nil
+    @Published var pendingPermission: PermissionRequest? = nil {
+        didSet {
+            print("🔄 pendingPermission didSet: \(oldValue?.requestId ?? "nil") -> \(pendingPermission?.requestId ?? "nil")")
+        }
+    }
     var isPlayingAudio: Bool = false // Tracks if audio is currently playing
     private var lastContentBlocks: [ContentBlock] = []  // NEW: store for future UI
 
@@ -432,14 +452,17 @@ class WebSocketManager: NSObject, ObservableObject {
                 return
             }
 
-            print("🔄 UPDATING voiceState to: \(newState.description)")
-            self.logToFile("🔄 voiceState -> \(newState.description)")
-            self.voiceState = newState
+            // Only update if value actually changed to avoid SwiftUI render loops
+            if self.voiceState != newState {
+                print("🔄 UPDATING voiceState to: \(newState.description)")
+                self.logToFile("🔄 voiceState -> \(newState.description)")
+                self.voiceState = newState
+            }
 
             // Also reset outputState when server says we're idle
             // Server sends "idle" after connection and after TTS completes
             // This ensures outputState doesn't get stuck at .thinking/.usingTool
-            if newState == .idle && !self.outputState.expectsPermissionResponse {
+            if newState == .idle && !self.outputState.expectsPermissionResponse && self.outputState != .idle {
                 print("🔄 RESETTING outputState to idle")
                 self.logToFile("🔄 outputState -> idle")
                 self.outputState = .idle
