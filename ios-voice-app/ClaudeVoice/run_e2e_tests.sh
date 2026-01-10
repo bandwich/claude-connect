@@ -111,10 +111,9 @@ TEST_SESSION_ID=$(basename "$SESSION_FILE" .jsonl)
 echo "✅ Created test session: $TEST_SESSION_ID"
 
 # The project name as it appears in the UI
-# Due to encoding issues, the UI shows basename of simple /-for-- decoded path
-# e.g., -private-tmp-e2e-test-project decodes to /private/tmp/e2e/test/project -> "project"
-DECODED_FOR_UI=$(echo "$ENCODED_PATH" | sed 's|-|/|g')
-TEST_PROJECT_NAME=$(basename "$DECODED_FOR_UI")
+# Server reads cwd from session file to get actual path (handles _ vs / in encoding)
+# e.g., /private/tmp/e2e_test_project -> name is "e2e_test_project"
+TEST_PROJECT_NAME=$(basename "$REAL_PATH")
 echo "   Project name in UI: $TEST_PROJECT_NAME"
 echo "   Folder name: $ENCODED_PATH"
 
