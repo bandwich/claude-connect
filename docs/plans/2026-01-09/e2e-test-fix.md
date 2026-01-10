@@ -137,5 +137,8 @@ Debug by adding print statements to:
 
 ## TODO
 - [x] Fix render loop (remove @Environment(\.dismiss))
-- [ ] Debug why syncSession() doesn't send resume_session message
-- [ ] Run E2E tests to verify complete fix
+- [x] Debug why syncSession() doesn't send resume_session message
+- [x] Run E2E tests to verify session sync fix (12/14 pass)
+- [x] Restore swipe back gestures (use didMove(toParent:) callback)
+- [ ] Fix E2EConnectionTests.test_reconnection_flow ("Should be in idle state")
+- [ ] Fix E2EErrorHandlingTests.test_error_handling ("First response cycle should complete")
