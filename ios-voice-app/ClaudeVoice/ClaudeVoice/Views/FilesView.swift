@@ -43,7 +43,8 @@ struct FilesView: View {
         .navigationDestination(item: $selectedFilePath) { path in
             FileView(
                 webSocketManager: webSocketManager,
-                filePath: path
+                filePath: path,
+                selectedFilePathBinding: $selectedFilePath
             )
         }
     }

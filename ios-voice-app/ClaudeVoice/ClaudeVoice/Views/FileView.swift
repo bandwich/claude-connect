@@ -4,6 +4,7 @@ import SwiftUI
 struct FileView: View {
     @ObservedObject var webSocketManager: WebSocketManager
     let filePath: String
+    @Binding var selectedFilePathBinding: String?
 
     @State private var contents: String?
     @State private var error: String?
@@ -31,20 +32,24 @@ struct FileView: View {
                 }
                 Spacer()
             } else if let contents = contents {
-                ScrollView([.horizontal, .vertical]) {
-                    FileContentView(contents: contents)
+                GeometryReader { geometry in
+                    ScrollView([.horizontal, .vertical]) {
+                        FileContentView(contents: contents)
+                            .frame(minHeight: geometry.size.height, alignment: .top)
+                    }
                 }
+                .clipped()
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(.systemBackground))
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                Text(fileName)
-                    .font(.headline)
-                    .lineLimit(1)
-            }
+        .clipped()
+        .customNavigationBar(
+            title: fileName,
+            breadcrumb: "Files",
+            onBack: { selectedFilePathBinding = nil }
+        ) {
+            EmptyView()
         }
         .onAppear {
             loadFile()
@@ -92,7 +97,9 @@ struct FileContentView: View {
                 .padding(.vertical, 1)
             }
         }
-        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 8)
+        .padding(.trailing, 8)
     }
 }
 
@@ -100,7 +107,8 @@ struct FileContentView: View {
     NavigationStack {
         FileView(
             webSocketManager: WebSocketManager(),
-            filePath: "/Users/aaron/Desktop/max/README.md"
+            filePath: "/Users/aaron/Desktop/max/README.md",
+            selectedFilePathBinding: .constant("/Users/aaron/Desktop/max/README.md")
         )
     }
 }
