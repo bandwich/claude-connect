@@ -59,7 +59,21 @@ final class E2EConnectionTests: E2ETestBase {
         XCTAssertTrue(connectButton.waitForExistence(timeout: 3), "Connect button should reappear after failure")
         XCTAssertTrue(connectButton.isEnabled, "Connect button should be enabled after failure")
 
-        // --- Cleanup ---
+        // --- Cleanup: Restore valid IP for subsequent tests ---
+        serverIPField.tap()
+        sleep(1)
+        serverIPField.press(forDuration: 1.0)
+        let selectAllCleanup = app.menuItems["Select All"]
+        if selectAllCleanup.waitForExistence(timeout: 2) {
+            selectAllCleanup.tap()
+        }
+        serverIPField.typeText(testServerHost)
+        connectButton.tap()
+
+        let reconnectPredicate = NSPredicate(format: "label == %@", "Connected")
+        let reconnectExpectation = XCTNSPredicateExpectation(predicate: reconnectPredicate, object: statusLabel)
+        XCTWaiter().wait(for: [reconnectExpectation], timeout: 10)
+
         app.buttons["Done"].tap()
     }
 
