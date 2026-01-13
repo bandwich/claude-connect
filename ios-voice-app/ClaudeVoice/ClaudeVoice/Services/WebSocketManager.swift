@@ -584,4 +584,13 @@ extension WebSocketManager: URLSessionWebSocketDelegate {
             attemptReconnect()
         }
     }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        // Called when connection fails (host unreachable, refused, timeout, etc.)
+        guard let error = error else { return }
+        print("❌ WEBSOCKET CONNECTION FAILED: \(error.localizedDescription)")
+        // Already on main thread due to delegateQueue: .main
+        connectionState = .error("Connection failed")
+        shouldReconnect = false
+    }
 }
