@@ -9,6 +9,60 @@ import XCTest
 
 final class E2EConnectionTests: E2ETestBase {
 
+    /// Tests that connection failure to unreachable host shows error state
+    func test_connection_failure_shows_error() throws {
+        // --- Setup: Open settings and disconnect if connected ---
+        openSettings()
+        sleep(1)
+
+        // Disconnect if we're connected
+        let disconnectButton = app.buttons["Disconnect"]
+        if disconnectButton.exists {
+            disconnectButton.tap()
+            sleep(2)
+        }
+
+        // --- Test: Try to connect to unreachable IP ---
+        let serverIPField = app.textFields["Server IP Address"]
+        XCTAssertTrue(serverIPField.waitForExistence(timeout: 5), "IP field should exist")
+        serverIPField.tap()
+        sleep(1)
+
+        // Clear existing text and enter unreachable IP
+        serverIPField.press(forDuration: 1.0)  // Long press to select all
+        let selectAll = app.menuItems["Select All"]
+        if selectAll.waitForExistence(timeout: 2) {
+            selectAll.tap()
+        }
+        serverIPField.typeText("10.255.255.1")
+
+        let connectButton = app.buttons["Connect"]
+        XCTAssertTrue(connectButton.waitForExistence(timeout: 3), "Connect button should exist")
+        connectButton.tap()
+
+        // --- Verify: Should show error state (not stuck on Connecting) ---
+        let statusLabel = app.staticTexts["connectionStatus"]
+        XCTAssertTrue(statusLabel.waitForExistence(timeout: 5), "Status label should exist")
+
+        // Wait for either error or connection failure - should NOT stay on "Connecting..." forever
+        let errorPredicate = NSPredicate(format: "label CONTAINS[c] 'error' OR label CONTAINS[c] 'failed' OR label == 'Disconnected'")
+        let errorExpectation = XCTNSPredicateExpectation(predicate: errorPredicate, object: statusLabel)
+        let result = XCTWaiter().wait(for: [errorExpectation], timeout: 15)
+
+        // If still "Connecting..." after 15 seconds, that's the bug
+        if result != .completed {
+            let currentStatus = statusLabel.label
+            XCTFail("Connection should fail with error, but status is: '\(currentStatus)'")
+        }
+
+        // --- Verify: Connect button should be available again ---
+        XCTAssertTrue(connectButton.waitForExistence(timeout: 3), "Connect button should reappear after failure")
+        XCTAssertTrue(connectButton.isEnabled, "Connect button should be enabled after failure")
+
+        // --- Cleanup ---
+        app.buttons["Done"].tap()
+    }
+
     /// Tests connection and voice controls
     func test_connection_and_voice_controls() throws {
         // --- Test 1: Verify connected via settings ---

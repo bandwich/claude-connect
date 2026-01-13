@@ -61,10 +61,10 @@ class WebSocketManager: NSObject, ObservableObject {
     override init() {
         super.init()
         let config = URLSessionConfiguration.default
-        // Increase timeout to handle long TTS generation (can take 20+ seconds for long responses)
-        // Plus streaming time (10+ seconds for large audio chunks)
-        config.timeoutIntervalForRequest = 120  // 2 minutes
-        config.timeoutIntervalForResource = 120  // 2 minutes
+        // Connection timeout - fail fast if server is unreachable
+        config.timeoutIntervalForRequest = 10  // 10 seconds for connection
+        // Resource timeout - longer to handle TTS generation and audio streaming
+        config.timeoutIntervalForResource = 120  // 2 minutes for full request
         urlSession = URLSession(configuration: config, delegate: self, delegateQueue: .main)
     }
 
@@ -568,7 +568,7 @@ class WebSocketManager: NSObject, ObservableObject {
     }
 }
 
-extension WebSocketManager: URLSessionWebSocketDelegate {
+extension WebSocketManager: URLSessionWebSocketDelegate, URLSessionTaskDelegate {
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol protocol: String?) {
         print("✅ WEBSOCKET CONNECTED")
         // Already on main thread due to delegateQueue: .main
