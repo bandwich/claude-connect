@@ -41,6 +41,8 @@ class WebSocketManager: NSObject, ObservableObject {
     var onConnectionStatusReceived: ((ConnectionStatus) -> Void)?
     var onPermissionRequest: ((PermissionRequest) -> Void)?
     var onPermissionResolved: ((PermissionResolved) -> Void)?
+    var onDirectoryListing: ((DirectoryListingResponse) -> Void)?
+    var onFileContents: ((FileContentsResponse) -> Void)?
     @Published var pendingPermission: PermissionRequest? = nil {
         didSet {
             print("🔄 pendingPermission didSet: \(oldValue?.requestId ?? "nil") -> \(pendingPermission?.requestId ?? "nil")")
@@ -237,6 +239,22 @@ class WebSocketManager: NSObject, ObservableObject {
         sendJSON(message)
     }
 
+    func listDirectory(path: String) {
+        let message: [String: Any] = [
+            "type": "list_directory",
+            "path": path
+        ]
+        sendJSON(message)
+    }
+
+    func readFile(path: String) {
+        let message: [String: Any] = [
+            "type": "read_file",
+            "path": path
+        ]
+        sendJSON(message)
+    }
+
     private func sendJSON(_ dict: [String: Any]) {
         guard let data = try? JSONSerialization.data(withJSONObject: dict),
               let jsonString = String(data: data, encoding: .utf8) else {
@@ -373,6 +391,16 @@ class WebSocketManager: NSObject, ObservableObject {
                         self.pendingPermission = nil
                     }
                     self.onPermissionResolved?(permissionResolved)
+                }
+            } else if let directoryListing = try? JSONDecoder().decode(DirectoryListingResponse.self, from: data) {
+                logToFile("Decoded as DirectoryListingResponse: \(directoryListing.path)")
+                DispatchQueue.main.async {
+                    self.onDirectoryListing?(directoryListing)
+                }
+            } else if let fileContents = try? JSONDecoder().decode(FileContentsResponse.self, from: data) {
+                logToFile("Decoded as FileContentsResponse: \(fileContents.path)")
+                DispatchQueue.main.async {
+                    self.onFileContents?(fileContents)
                 }
             } else {
                 print("❌ Failed to decode message as any known type")
