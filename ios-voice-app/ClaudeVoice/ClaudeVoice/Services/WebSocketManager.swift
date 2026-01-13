@@ -575,6 +575,7 @@ extension WebSocketManager: URLSessionWebSocketDelegate, URLSessionTaskDelegate 
         print("✅ WEBSOCKET CONNECTED")
         // Already on main thread due to delegateQueue: .main
         connectionState = .connected
+        outputState = .idle  // Reset output state on new connection
         reconnectAttempts = 0
     }
 
