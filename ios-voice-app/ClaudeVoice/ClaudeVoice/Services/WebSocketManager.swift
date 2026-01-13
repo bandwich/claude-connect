@@ -392,12 +392,14 @@ class WebSocketManager: NSObject, ObservableObject {
                     }
                     self.onPermissionResolved?(permissionResolved)
                 }
-            } else if let directoryListing = try? JSONDecoder().decode(DirectoryListingResponse.self, from: data) {
+            } else if let directoryListing = try? JSONDecoder().decode(DirectoryListingResponse.self, from: data),
+                      directoryListing.type == "directory_listing" {
                 logToFile("Decoded as DirectoryListingResponse: \(directoryListing.path)")
                 DispatchQueue.main.async {
                     self.onDirectoryListing?(directoryListing)
                 }
-            } else if let fileContents = try? JSONDecoder().decode(FileContentsResponse.self, from: data) {
+            } else if let fileContents = try? JSONDecoder().decode(FileContentsResponse.self, from: data),
+                      fileContents.type == "file_contents" {
                 logToFile("Decoded as FileContentsResponse: \(fileContents.path)")
                 DispatchQueue.main.async {
                     self.onFileContents?(fileContents)
