@@ -366,3 +366,202 @@ class TestConnectionStatusBroadcast:
         assert connection_status is not None
         assert "connected" in connection_status
         assert "active_session_id" in connection_status
+
+
+class TestListDirectory:
+    """Tests for list_directory handler"""
+
+    @pytest.mark.asyncio
+    async def test_list_directory_returns_entries(self):
+        """list_directory should return files and directories"""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create test files and directories
+            os.makedirs(os.path.join(tmpdir, "subdir"))
+            with open(os.path.join(tmpdir, "file1.txt"), "w") as f:
+                f.write("content")
+            with open(os.path.join(tmpdir, "file2.py"), "w") as f:
+                f.write("print('hello')")
+
+            mock_ws = AsyncMock()
+            sent_messages = []
+            mock_ws.send = AsyncMock(side_effect=lambda msg: sent_messages.append(msg))
+
+            await server.handle_list_directory(mock_ws, {"path": tmpdir})
+
+            assert len(sent_messages) == 1
+            response = json.loads(sent_messages[0])
+            assert response["type"] == "directory_listing"
+            assert response["path"] == tmpdir
+            assert "entries" in response
+            # Should have subdir, file1.txt, file2.py
+            names = [e["name"] for e in response["entries"]]
+            assert "subdir" in names
+            assert "file1.txt" in names
+            assert "file2.py" in names
+
+    @pytest.mark.asyncio
+    async def test_list_directory_sorts_directories_first(self):
+        """list_directory should sort directories before files, alphabetically"""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create mixed entries
+            os.makedirs(os.path.join(tmpdir, "zebra_dir"))
+            os.makedirs(os.path.join(tmpdir, "alpha_dir"))
+            with open(os.path.join(tmpdir, "beta.txt"), "w") as f:
+                f.write("")
+            with open(os.path.join(tmpdir, "alpha.txt"), "w") as f:
+                f.write("")
+
+            mock_ws = AsyncMock()
+            sent_messages = []
+            mock_ws.send = AsyncMock(side_effect=lambda msg: sent_messages.append(msg))
+
+            await server.handle_list_directory(mock_ws, {"path": tmpdir})
+
+            response = json.loads(sent_messages[0])
+            entries = response["entries"]
+            # Directories first (alphabetical), then files (alphabetical)
+            assert entries[0]["name"] == "alpha_dir"
+            assert entries[0]["type"] == "directory"
+            assert entries[1]["name"] == "zebra_dir"
+            assert entries[1]["type"] == "directory"
+            assert entries[2]["name"] == "alpha.txt"
+            assert entries[2]["type"] == "file"
+            assert entries[3]["name"] == "beta.txt"
+            assert entries[3]["type"] == "file"
+
+    @pytest.mark.asyncio
+    async def test_list_directory_invalid_path_returns_error(self):
+        """list_directory should return error for invalid path"""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+
+        mock_ws = AsyncMock()
+        sent_messages = []
+        mock_ws.send = AsyncMock(side_effect=lambda msg: sent_messages.append(msg))
+
+        await server.handle_list_directory(mock_ws, {"path": "/nonexistent/path"})
+
+        response = json.loads(sent_messages[0])
+        assert response["type"] == "directory_listing"
+        assert response["error"] == "invalid_path"
+        assert response["entries"] == []
+
+    @pytest.mark.asyncio
+    async def test_list_directory_message_routing(self):
+        """list_directory message type should route to handler"""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mock_ws = AsyncMock()
+            sent_messages = []
+            mock_ws.send = AsyncMock(side_effect=lambda msg: sent_messages.append(msg))
+
+            await server.handle_message(mock_ws, json.dumps({
+                "type": "list_directory",
+                "path": tmpdir
+            }))
+
+            response = json.loads(sent_messages[0])
+            assert response["type"] == "directory_listing"
+
+
+class TestReadFile:
+    """Tests for read_file handler"""
+
+    @pytest.mark.asyncio
+    async def test_read_file_returns_contents(self):
+        """read_file should return file contents"""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = os.path.join(tmpdir, "test.txt")
+            with open(file_path, "w") as f:
+                f.write("Hello, World!")
+
+            mock_ws = AsyncMock()
+            sent_messages = []
+            mock_ws.send = AsyncMock(side_effect=lambda msg: sent_messages.append(msg))
+
+            await server.handle_read_file(mock_ws, {"path": file_path})
+
+            response = json.loads(sent_messages[0])
+            assert response["type"] == "file_contents"
+            assert response["path"] == file_path
+            assert response["contents"] == "Hello, World!"
+
+    @pytest.mark.asyncio
+    async def test_read_file_not_found_returns_error(self):
+        """read_file should return error for nonexistent file"""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+
+        mock_ws = AsyncMock()
+        sent_messages = []
+        mock_ws.send = AsyncMock(side_effect=lambda msg: sent_messages.append(msg))
+
+        await server.handle_read_file(mock_ws, {"path": "/nonexistent/file.txt"})
+
+        response = json.loads(sent_messages[0])
+        assert response["type"] == "file_contents"
+        assert response["error"] == "not_found"
+
+    @pytest.mark.asyncio
+    async def test_read_file_binary_returns_error(self):
+        """read_file should return error for binary files"""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = os.path.join(tmpdir, "binary.bin")
+            with open(file_path, "wb") as f:
+                f.write(bytes([0x00, 0x01, 0xFF, 0xFE]))
+
+            mock_ws = AsyncMock()
+            sent_messages = []
+            mock_ws.send = AsyncMock(side_effect=lambda msg: sent_messages.append(msg))
+
+            await server.handle_read_file(mock_ws, {"path": file_path})
+
+            response = json.loads(sent_messages[0])
+            assert response["type"] == "file_contents"
+            assert response["error"] == "binary_file"
+
+    @pytest.mark.asyncio
+    async def test_read_file_message_routing(self):
+        """read_file message type should route to handler"""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = os.path.join(tmpdir, "test.txt")
+            with open(file_path, "w") as f:
+                f.write("test content")
+
+            mock_ws = AsyncMock()
+            sent_messages = []
+            mock_ws.send = AsyncMock(side_effect=lambda msg: sent_messages.append(msg))
+
+            await server.handle_message(mock_ws, json.dumps({
+                "type": "read_file",
+                "path": file_path
+            }))
+
+            response = json.loads(sent_messages[0])
+            assert response["type"] == "file_contents"
+            assert response["contents"] == "test content"
