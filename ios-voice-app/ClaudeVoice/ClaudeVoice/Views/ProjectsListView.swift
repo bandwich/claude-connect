@@ -126,7 +126,7 @@ struct ProjectsListView: View {
         }
         .navigationDestination(isPresented: $showingSessionsList) {
             if let project = selectedProject {
-                SessionsListView(
+                ProjectDetailView(
                     webSocketManager: webSocketManager,
                     project: project,
                     showingBinding: $showingSessionsList

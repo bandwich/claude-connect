@@ -41,6 +41,8 @@ class WebSocketManager: NSObject, ObservableObject {
     var onConnectionStatusReceived: ((ConnectionStatus) -> Void)?
     var onPermissionRequest: ((PermissionRequest) -> Void)?
     var onPermissionResolved: ((PermissionResolved) -> Void)?
+    var onDirectoryListing: ((DirectoryListingResponse) -> Void)?
+    var onFileContents: ((FileContentsResponse) -> Void)?
     @Published var pendingPermission: PermissionRequest? = nil {
         didSet {
             print("🔄 pendingPermission didSet: \(oldValue?.requestId ?? "nil") -> \(pendingPermission?.requestId ?? "nil")")
@@ -59,10 +61,10 @@ class WebSocketManager: NSObject, ObservableObject {
     override init() {
         super.init()
         let config = URLSessionConfiguration.default
-        // Increase timeout to handle long TTS generation (can take 20+ seconds for long responses)
-        // Plus streaming time (10+ seconds for large audio chunks)
-        config.timeoutIntervalForRequest = 120  // 2 minutes
-        config.timeoutIntervalForResource = 120  // 2 minutes
+        // Connection timeout - fail fast if server is unreachable
+        config.timeoutIntervalForRequest = 10  // 10 seconds for connection
+        // Resource timeout - longer to handle TTS generation and audio streaming
+        config.timeoutIntervalForResource = 120  // 2 minutes for full request
         urlSession = URLSession(configuration: config, delegate: self, delegateQueue: .main)
     }
 
@@ -237,6 +239,22 @@ class WebSocketManager: NSObject, ObservableObject {
         sendJSON(message)
     }
 
+    func listDirectory(path: String) {
+        let message: [String: Any] = [
+            "type": "list_directory",
+            "path": path
+        ]
+        sendJSON(message)
+    }
+
+    func readFile(path: String) {
+        let message: [String: Any] = [
+            "type": "read_file",
+            "path": path
+        ]
+        sendJSON(message)
+    }
+
     private func sendJSON(_ dict: [String: Any]) {
         guard let data = try? JSONSerialization.data(withJSONObject: dict),
               let jsonString = String(data: data, encoding: .utf8) else {
@@ -373,6 +391,18 @@ class WebSocketManager: NSObject, ObservableObject {
                         self.pendingPermission = nil
                     }
                     self.onPermissionResolved?(permissionResolved)
+                }
+            } else if let directoryListing = try? JSONDecoder().decode(DirectoryListingResponse.self, from: data),
+                      directoryListing.type == "directory_listing" {
+                logToFile("Decoded as DirectoryListingResponse: \(directoryListing.path)")
+                DispatchQueue.main.async {
+                    self.onDirectoryListing?(directoryListing)
+                }
+            } else if let fileContents = try? JSONDecoder().decode(FileContentsResponse.self, from: data),
+                      fileContents.type == "file_contents" {
+                logToFile("Decoded as FileContentsResponse: \(fileContents.path)")
+                DispatchQueue.main.async {
+                    self.onFileContents?(fileContents)
                 }
             } else {
                 print("❌ Failed to decode message as any known type")
@@ -540,11 +570,12 @@ class WebSocketManager: NSObject, ObservableObject {
     }
 }
 
-extension WebSocketManager: URLSessionWebSocketDelegate {
+extension WebSocketManager: URLSessionWebSocketDelegate, URLSessionTaskDelegate {
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol protocol: String?) {
         print("✅ WEBSOCKET CONNECTED")
         // Already on main thread due to delegateQueue: .main
         connectionState = .connected
+        outputState = .idle  // Reset output state on new connection
         reconnectAttempts = 0
     }
 
@@ -555,5 +586,14 @@ extension WebSocketManager: URLSessionWebSocketDelegate {
         if shouldReconnect {
             attemptReconnect()
         }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        // Called when connection fails (host unreachable, refused, timeout, etc.)
+        guard let error = error else { return }
+        print("❌ WEBSOCKET CONNECTION FAILED: \(error.localizedDescription)")
+        // Already on main thread due to delegateQueue: .main
+        connectionState = .error("Connection failed")
+        shouldReconnect = false
     }
 }

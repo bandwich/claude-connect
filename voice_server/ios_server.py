@@ -559,6 +559,82 @@ class VoiceServer:
         if success:
             await self.broadcast_connection_status()
 
+    async def handle_list_directory(self, websocket, data):
+        """Handle list_directory request - returns files and folders in a directory"""
+        path = data.get("path", "")
+
+        if not path or not os.path.isdir(path):
+            response = {
+                "type": "directory_listing",
+                "path": path,
+                "entries": [],
+                "error": "invalid_path"
+            }
+            await websocket.send(json.dumps(response))
+            return
+
+        try:
+            entries = []
+            for name in os.listdir(path):
+                full_path = os.path.join(path, name)
+                entry_type = "directory" if os.path.isdir(full_path) else "file"
+                entries.append({"name": name, "type": entry_type})
+
+            # Sort: directories first, then files, both alphabetical
+            entries.sort(key=lambda e: (0 if e["type"] == "directory" else 1, e["name"].lower()))
+
+            response = {
+                "type": "directory_listing",
+                "path": path,
+                "entries": entries
+            }
+        except PermissionError:
+            response = {
+                "type": "directory_listing",
+                "path": path,
+                "entries": [],
+                "error": "permission_denied"
+            }
+
+        await websocket.send(json.dumps(response))
+
+    async def handle_read_file(self, websocket, data):
+        """Handle read_file request - returns file contents as text"""
+        path = data.get("path", "")
+
+        if not path or not os.path.isfile(path):
+            response = {
+                "type": "file_contents",
+                "path": path,
+                "error": "not_found"
+            }
+            await websocket.send(json.dumps(response))
+            return
+
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                contents = f.read()
+
+            response = {
+                "type": "file_contents",
+                "path": path,
+                "contents": contents
+            }
+        except UnicodeDecodeError:
+            response = {
+                "type": "file_contents",
+                "path": path,
+                "error": "binary_file"
+            }
+        except PermissionError:
+            response = {
+                "type": "file_contents",
+                "path": path,
+                "error": "permission_denied"
+            }
+
+        await websocket.send(json.dumps(response))
+
     async def handle_add_project(self, websocket, data):
         """Handle add_project request - creates directory and starts Claude"""
         name = data.get("name", "").strip()
@@ -671,6 +747,10 @@ class VoiceServer:
                 await self.handle_resume_session(websocket, data)
             elif msg_type == 'add_project':
                 await self.handle_add_project(websocket, data)
+            elif msg_type == 'list_directory':
+                await self.handle_list_directory(websocket, data)
+            elif msg_type == 'read_file':
+                await self.handle_read_file(websocket, data)
             elif msg_type == 'permission_response':
                 await self.handle_permission_response(data)
         except Exception as e:
