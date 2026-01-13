@@ -1,36 +1,21 @@
 # Claude Voice Mode
 
-Hands-free voice interaction with Claude Code. Speak to Claude from your iPhone, hear responses via text-to-speech.
-
-## How It Works
-
-1. iOS app captures speech and sends text to Mac server via WebSocket
-2. Server sends text to Claude Code running in tmux session
-3. Server monitors Claude's transcript for responses
-4. Responses are converted to speech (Kokoro TTS) and streamed back to iOS
-
-## Requirements
-
-- Mac with tmux and Claude Code CLI installed
-- iPhone (iOS 18+)
-- Python 3.9+ with virtual environment
-- Xcode 15+ (for building the iOS app)
-- Both devices on the same network
+claude code via iOS
 
 ## Installation
 
 ### Server (Mac)
 
 ```bash
-# Clone the repo
+# Clone repo
 git clone https://github.com/yourusername/claude-voice-mode.git
 cd claude-voice-mode
 
-# Create virtual environment
+# Create venv
 python3 -m venv .venv
 source .venv/bin/activate
 
-# Install dependencies
+# Install deps
 pip install -r requirements.txt
 ```
 
@@ -38,39 +23,15 @@ pip install -r requirements.txt
 
 1. Open `ios-voice-app/ClaudeVoice/ClaudeVoice.xcodeproj` in Xcode
 2. Select your iPhone as the build target
-3. Build and run (Cmd+R)
+3. Build and run
 
 ## Usage
 
-### Start the Server
+### Start server
 
 ```bash
 source .venv/bin/activate
 python3 voice_server/ios_server.py
-```
-
-The server will display your Mac's IP address.
-
-### Connect from iOS
-
-1. Open Claude Voice on your iPhone
-2. Tap Settings (gear icon)
-3. Enter your Mac's IP address (port 8765)
-4. Tap Connect
-
-### Talk to Claude
-
-1. The server manages Claude Code sessions via tmux
-2. Tap "Tap to Talk" in the app
-3. Speak your request
-4. Listen to Claude's response
-
-## Project Structure
-
-```
-ios-voice-app/ClaudeVoice/    # iOS app (Swift/SwiftUI)
-voice_server/                  # Python WebSocket server
-tests/                         # Test documentation and E2E support
 ```
 
 ## Testing
@@ -89,4 +50,4 @@ xcodebuild test -scheme ClaudeVoice \
 cd ios-voice-app/ClaudeVoice && ./run_e2e_tests.sh
 ```
 
-See [tests/TESTS.md](tests/TESTS.md) for detailed test documentation.
+See [tests/TESTS.md](tests/TESTS.md) for test docs
