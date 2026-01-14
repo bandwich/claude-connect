@@ -807,13 +807,13 @@ class VoiceServer:
         # Start HTTP server for permission hooks
         http_runner = await start_http_server(self.permission_handler)
 
-        import socket
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        local_ip = s.getsockname()[0]
-        s.close()
+        from qr_display import get_local_ip, print_startup_banner
 
-        print(f"Server running on ws://{local_ip}:{PORT}")
+        local_ip = get_local_ip()
+        if local_ip:
+            print_startup_banner(local_ip, PORT)
+        else:
+            print(f"WARNING: Could not detect local IP. Server running on port {PORT}")
 
         async with websockets.serve(self.handle_client, "0.0.0.0", PORT):
             await asyncio.Future()
