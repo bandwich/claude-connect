@@ -2,11 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var webSocketManager: WebSocketManager
-    @AppStorage("serverIP") private var serverIP = ""
-    @AppStorage("serverPort") private var serverPort = 8765
-
-    @State private var tempServerIP = ""
-    @State private var tempServerPort = "8765"
+    @State private var showingScanner = false
     @State private var showingAlert = false
     @State private var alertMessage = ""
 
@@ -16,21 +12,38 @@ struct SettingsView: View {
         NavigationView {
             Form {
                 Section(header: Text("Server Configuration")) {
-                    HStack {
-                        Text("IP Address:")
-                        TextField("192.168.1.100", text: $tempServerIP)
-                            .textFieldStyle(RoundedBorderTextFieldStyle())
-                            .autocapitalization(.none)
-                            .keyboardType(.decimalPad)
-                            .accessibilityIdentifier("Server IP Address")
-                    }
-
-                    HStack {
-                        Text("Port:")
-                        TextField("8765", text: $tempServerPort)
-                            .textFieldStyle(RoundedBorderTextFieldStyle())
-                            .keyboardType(.numberPad)
-                            .accessibilityIdentifier("Port")
+                    if case .connected = webSocketManager.connectionState {
+                        // Show connected IP when connected
+                        if let url = webSocketManager.connectedURL {
+                            HStack {
+                                Text("Connected:")
+                                Spacer()
+                                Text(formatURL(url))
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    } else {
+                        // Show Connect button when disconnected
+                        Button(action: { showingScanner = true }) {
+                            HStack {
+                                Spacer()
+                                if case .connecting = webSocketManager.connectionState {
+                                    ProgressView()
+                                        .padding(.trailing, 8)
+                                    Text("Connecting...")
+                                } else {
+                                    Text("Connect")
+                                }
+                                Spacer()
+                            }
+                        }
+                        .accessibilityIdentifier("Connect")
+                        .disabled({
+                            if case .connecting = webSocketManager.connectionState {
+                                return true
+                            }
+                            return false
+                        }())
                     }
                 }
 
@@ -53,47 +66,28 @@ struct SettingsView: View {
                         }
                         .accessibilityIdentifier("Disconnect")
                         .foregroundColor(.red)
-                    } else {
-                        Button(action: connectToServer) {
-                            HStack {
-                                Spacer()
-                                if case .connecting = webSocketManager.connectionState {
-                                    ProgressView()
-                                        .padding(.trailing, 8)
-                                }
-                                Text(connectionButtonText)
-                                Spacer()
-                            }
-                        }
-                        .accessibilityIdentifier("Connect")
-                        .disabled({
-                            if case .connecting = webSocketManager.connectionState {
-                                return true
-                            }
-                            return false
-                        }())
                     }
-                }
-
-                Section(header: Text("Instructions")) {
-                    Text("1. Make sure your server is running")
-                    Text("2. Enter the IP address shown by the server")
-                    Text("3. Keep the default port (8765)")
-                    Text("4. Tap Connect")
                 }
             }
             .navigationTitle("Settings")
             .navigationBarItems(trailing: Button("Done") {
                 dismiss()
             })
-            .onAppear {
-                tempServerIP = serverIP
-                tempServerPort = String(serverPort)
-            }
             .alert("Connection Error", isPresented: $showingAlert) {
                 Button("OK", role: .cancel) { }
             } message: {
                 Text(alertMessage)
+            }
+            .fullScreenCover(isPresented: $showingScanner) {
+                QRScannerView(
+                    onCodeScanned: { url in
+                        showingScanner = false
+                        webSocketManager.connect(url: url)
+                    },
+                    onCancel: {
+                        showingScanner = false
+                    }
+                )
             }
         }
     }
@@ -111,38 +105,12 @@ struct SettingsView: View {
         }
     }
 
-    private var connectionButtonText: String {
-        switch webSocketManager.connectionState {
-        case .connecting:
-            return "Connecting..."
-        case .connected:
-            return "Connected"
-        default:
-            return "Connect"
+    private func formatURL(_ url: String) -> String {
+        // Extract IP from ws://192.168.1.42:8765
+        if let range = url.range(of: "ws://") {
+            return String(url[range.upperBound...])
         }
-    }
-
-    private func connectToServer() {
-        // Don't attempt to connect if already connecting or connected
-        if case .connecting = webSocketManager.connectionState { return }
-        if case .connected = webSocketManager.connectionState { return }
-
-        guard !tempServerIP.isEmpty else {
-            alertMessage = "Please enter a server IP address"
-            showingAlert = true
-            return
-        }
-
-        guard let port = Int(tempServerPort), port > 0, port < 65536 else {
-            alertMessage = "Please enter a valid port number (1-65535)"
-            showingAlert = true
-            return
-        }
-
-        serverIP = tempServerIP
-        serverPort = port
-
-        webSocketManager.connect(host: serverIP, port: serverPort)
+        return url
     }
 
     private func disconnect() {
