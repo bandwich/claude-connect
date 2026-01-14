@@ -114,9 +114,11 @@ final class E2EConnectionTests: E2ETestBase {
         XCTAssertTrue(disconnectButton.waitForExistence(timeout: 5))
         disconnectButton.tap()
 
-        let disconnectPredicate = NSPredicate(format: "label == %@", "Disconnected")
-        let disconnectExpectation = XCTNSPredicateExpectation(predicate: disconnectPredicate, object: statusLabel)
-        XCTWaiter().wait(for: [disconnectExpectation], timeout: 5)
+        // Wait for disconnected state and ASSERT it's not error
+        sleep(2)
+        let statusAfterDisconnect = statusLabel.label
+        XCTAssertEqual(statusAfterDisconnect, "Disconnected", "Status should be 'Disconnected', not '\(statusAfterDisconnect)'")
+        XCTAssertFalse(statusAfterDisconnect.contains("Error"), "Status should not contain 'Error'")
 
         // --- Test 2: Verify disconnected state in main view ---
         app.buttons["Done"].tap()

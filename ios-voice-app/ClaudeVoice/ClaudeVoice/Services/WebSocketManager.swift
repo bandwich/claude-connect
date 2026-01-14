@@ -187,8 +187,13 @@ class WebSocketManager: NSObject, ObservableObject {
         logToFile("🔵 sendVoiceInput: webSocketTask=\(webSocketTask != nil ? "EXISTS" : "NIL")")
 
         let wsMessage = URLSessionWebSocketTask.Message.string(jsonString)
-        webSocketTask?.send(wsMessage) { error in
+        webSocketTask?.send(wsMessage) { [weak self] error in
+            guard let self = self else { return }
             if let error = error {
+                // Don't set error state if we intentionally disconnected
+                if case .disconnected = self.connectionState {
+                    return
+                }
                 print("❌ WebSocketManager: Send FAILED: \(error.localizedDescription)")
                 self.logToFile("❌ sendVoiceInput: SEND ERROR: \(error.localizedDescription)")
                 DispatchQueue.main.async {
@@ -323,9 +328,15 @@ class WebSocketManager: NSObject, ObservableObject {
                 self.receiveMessage()
 
             case .failure(let error):
+                // Don't set error state if we intentionally disconnected
+                if case .disconnected = self.connectionState {
+                    return
+                }
                 print("WebSocket receive error: \(error.localizedDescription)")
                 self.logToFile("❌ WebSocket receive error: \(error.localizedDescription)")
-                self.connectionState = .error(error.localizedDescription)
+                DispatchQueue.main.async {
+                    self.connectionState = .error(error.localizedDescription)
+                }
             }
         }
     }
