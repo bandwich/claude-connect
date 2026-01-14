@@ -57,6 +57,7 @@ class WebSocketManager: NSObject, ObservableObject {
     private var reconnectAttempts = 0
     private let maxReconnectAttempts = 5
     private var shouldReconnect = false
+    @Published var connectedURL: String? = nil
 
     override init() {
         super.init()
@@ -91,6 +92,25 @@ class WebSocketManager: NSObject, ObservableObject {
         shouldReconnect = true
         reconnectAttempts = 0
         connectToURL(url)
+    }
+
+    func connect(url: String) {
+        guard let wsURL = URL(string: url) else {
+            DispatchQueue.main.async {
+                self.connectionState = .error("Invalid URL")
+            }
+            return
+        }
+
+        // Disconnect existing connection if any
+        if webSocketTask != nil {
+            disconnect()
+        }
+
+        shouldReconnect = true
+        reconnectAttempts = 0
+        connectedURL = url
+        connectToURL(wsURL)
     }
 
     private func connectToURL(_ url: URL) {
@@ -139,6 +159,7 @@ class WebSocketManager: NSObject, ObservableObject {
         webSocketTask?.cancel(with: .goingAway, reason: nil)
         webSocketTask = nil
         currentURL = nil
+        connectedURL = nil
 
         DispatchQueue.main.async {
             self.connectionState = .disconnected
