@@ -1,0 +1,2 @@
+[console_scripts]
+voice-server = voice_server.ios_server:main

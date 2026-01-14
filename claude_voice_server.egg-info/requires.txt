@@ -1,0 +1,4 @@
+websockets
+watchdog
+qrcode
+pydantic
