@@ -47,6 +47,7 @@ class QRScannerViewController: UIViewController, AVCaptureMetadataOutputObjectsD
     private var captureSession: AVCaptureSession?
     private var previewLayer: AVCaptureVideoPreviewLayer?
     private var hasScanned = false
+    private let validator = QRCodeValidator()
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -157,18 +158,20 @@ class QRScannerViewController: UIViewController, AVCaptureMetadataOutputObjectsD
     func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
         guard !hasScanned,
               let metadataObject = metadataObjects.first as? AVMetadataMachineReadableCodeObject,
-              let stringValue = metadataObject.stringValue,
-              stringValue.hasPrefix("ws://") else {
+              let stringValue = metadataObject.stringValue else {
             return
         }
 
-        hasScanned = true
+        switch validator.validate(stringValue) {
+        case .success(let url):
+            hasScanned = true
+            let generator = UINotificationFeedbackGenerator()
+            generator.notificationOccurred(.success)
+            captureSession?.stopRunning()
+            delegate?.didScanCode(url.absoluteString)
 
-        // Haptic feedback
-        let generator = UINotificationFeedbackGenerator()
-        generator.notificationOccurred(.success)
-
-        captureSession?.stopRunning()
-        delegate?.didScanCode(stringValue)
+        case .failure:
+            return  // Keep scanning
+        }
     }
 }
