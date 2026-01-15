@@ -172,67 +172,19 @@ class E2ETestBase: XCTestCase {
     // MARK: - Connection Methods
 
     func connectToServer() {
-        // App auto-connects on launch using SERVER_HOST env var set by test runner
-        // Wait for the auto-connect to complete, then verify
-
-        // Give auto-connect time to establish
+        // App auto-connects on launch using SERVER_HOST env var set in setUp()
+        // Wait for connection to complete
         sleep(2)
 
-        // Check if already connected (auto-connect worked)
-        // The project list shows if connected, wifi.slash icon if not
-        // Look for any project cell - this indicates we're connected and have projects
+        // Verify connected - project list shows cells when connected
         let anyProjectCell = app.cells.firstMatch
-        if anyProjectCell.waitForExistence(timeout: 5) {
-            print("✓ Auto-connected successfully, project list visible")
+        if anyProjectCell.waitForExistence(timeout: 10) {
+            print("✓ Auto-connected successfully")
             return
         }
 
-        // If not connected, fall back to manual connection via Settings
-        print("⚠️ Auto-connect didn't work, trying manual connection...")
-
-        openSettings()
-
-        sleep(1)
-
-        let serverIPField = app.textFields["Server IP Address"]
-        if !serverIPField.waitForExistence(timeout: 2) {
-            let connectionHeader = app.staticTexts["Connection"]
-            if connectionHeader.waitForExistence(timeout: 2) {
-                connectionHeader.tap()
-                sleep(1)
-            }
-        }
-
-        if serverIPField.waitForExistence(timeout: 5) {
-            serverIPField.tap()
-
-            if let existingText = serverIPField.value as? String, !existingText.isEmpty {
-                let deleteString = String(repeating: XCUIKeyboardKey.delete.rawValue, count: existingText.count)
-                serverIPField.typeText(deleteString)
-            }
-
-            serverIPField.typeText(testServerHost)
-        }
-
-        let connectButton = app.buttons["Connect"]
-        if connectButton.waitForExistence(timeout: 5) {
-            connectButton.tap()
-        }
-
-        let connectedLabel = app.staticTexts["connectionStatus"]
-        XCTAssertTrue(connectedLabel.waitForExistence(timeout: 10), "Should show connection status")
-
-        let predicate = NSPredicate(format: "label == %@", "Connected")
-        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: connectedLabel)
-        let result = XCTWaiter().wait(for: [expectation], timeout: 10)
-        XCTAssertEqual(result, .completed, "Connection status should become Connected")
-
-        let doneButton = app.buttons["Done"]
-        if doneButton.exists {
-            doneButton.tap()
-        }
-
-        sleep(1)
+        // If not connected after 10s, fail the test
+        XCTFail("Auto-connect failed - check SERVER_HOST env var and server status")
     }
 
     /// Alias for connectToServer (compatibility with IntegrationTestBase tests)

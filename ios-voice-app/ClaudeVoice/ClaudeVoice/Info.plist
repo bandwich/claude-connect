@@ -6,6 +6,8 @@
     <string>This app needs access to your microphone to capture your voice input for Claude Code.</string>
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>This app needs speech recognition to convert your voice to text for Claude Code.</string>
+    <key>NSCameraUsageDescription</key>
+    <string>Scan QR code to connect to Claude Voice server.</string>
     <key>NSLocalNetworkUsageDescription</key>
     <string>This app needs to connect to Claude Code server on your local network to send voice commands and receive audio responses.</string>
     <key>NSAppTransportSecurity</key>

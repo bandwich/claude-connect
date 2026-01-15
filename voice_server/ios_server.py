@@ -15,12 +15,9 @@ import glob
 import base64
 from typing import Optional
 
-# Add venv to path
-sys.path.insert(0, '/Users/aaron/Desktop/max/.venv/lib/python3.9/site-packages')
-
-from tts_utils import generate_tts_audio, samples_to_wav_bytes
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+from tts_utils import generate_tts_audio, samples_to_wav_bytes
 from content_models import TextBlock, ThinkingBlock, ToolUseBlock, ContentBlock, AssistantResponse
 from session_manager import SessionManager
 from tmux_controller import TmuxController
@@ -807,17 +804,22 @@ class VoiceServer:
         # Start HTTP server for permission hooks
         http_runner = await start_http_server(self.permission_handler)
 
-        import socket
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        local_ip = s.getsockname()[0]
-        s.close()
+        from qr_display import get_local_ip, print_startup_banner
 
-        print(f"Server running on ws://{local_ip}:{PORT}")
+        local_ip = get_local_ip()
+        if local_ip:
+            print_startup_banner(local_ip, PORT)
+        else:
+            print(f"WARNING: Could not detect local IP. Server running on port {PORT}")
 
         async with websockets.serve(self.handle_client, "0.0.0.0", PORT):
             await asyncio.Future()
 
 
-if __name__ == "__main__":
+def main():
+    """Entry point for voice-server command."""
     asyncio.run(VoiceServer().start())
+
+
+if __name__ == "__main__":
+    main()

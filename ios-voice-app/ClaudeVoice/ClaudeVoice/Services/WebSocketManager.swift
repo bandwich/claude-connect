@@ -57,6 +57,7 @@ class WebSocketManager: NSObject, ObservableObject {
     private var reconnectAttempts = 0
     private let maxReconnectAttempts = 5
     private var shouldReconnect = false
+    @Published var connectedURL: String? = nil
 
     override init() {
         super.init()
@@ -91,6 +92,25 @@ class WebSocketManager: NSObject, ObservableObject {
         shouldReconnect = true
         reconnectAttempts = 0
         connectToURL(url)
+    }
+
+    func connect(url: String) {
+        guard let wsURL = URL(string: url) else {
+            DispatchQueue.main.async {
+                self.connectionState = .error("Invalid URL")
+            }
+            return
+        }
+
+        // Disconnect existing connection if any
+        if webSocketTask != nil {
+            disconnect()
+        }
+
+        shouldReconnect = true
+        reconnectAttempts = 0
+        connectedURL = url
+        connectToURL(wsURL)
     }
 
     private func connectToURL(_ url: URL) {
@@ -136,14 +156,12 @@ class WebSocketManager: NSObject, ObservableObject {
 
     func disconnect() {
         shouldReconnect = false
+        connectionState = .disconnected
+        voiceState = .idle
         webSocketTask?.cancel(with: .goingAway, reason: nil)
         webSocketTask = nil
         currentURL = nil
-
-        DispatchQueue.main.async {
-            self.connectionState = .disconnected
-            self.voiceState = .idle
-        }
+        connectedURL = nil
     }
 
     func sendVoiceInput(text: String) {
@@ -166,8 +184,13 @@ class WebSocketManager: NSObject, ObservableObject {
         logToFile("🔵 sendVoiceInput: webSocketTask=\(webSocketTask != nil ? "EXISTS" : "NIL")")
 
         let wsMessage = URLSessionWebSocketTask.Message.string(jsonString)
-        webSocketTask?.send(wsMessage) { error in
+        webSocketTask?.send(wsMessage) { [weak self] error in
+            guard let self = self else { return }
             if let error = error {
+                // Don't set error state if we intentionally disconnected
+                if case .disconnected = self.connectionState {
+                    return
+                }
                 print("❌ WebSocketManager: Send FAILED: \(error.localizedDescription)")
                 self.logToFile("❌ sendVoiceInput: SEND ERROR: \(error.localizedDescription)")
                 DispatchQueue.main.async {
@@ -302,9 +325,15 @@ class WebSocketManager: NSObject, ObservableObject {
                 self.receiveMessage()
 
             case .failure(let error):
+                // Don't set error state if we intentionally disconnected
+                if case .disconnected = self.connectionState {
+                    return
+                }
                 print("WebSocket receive error: \(error.localizedDescription)")
                 self.logToFile("❌ WebSocket receive error: \(error.localizedDescription)")
-                self.connectionState = .error(error.localizedDescription)
+                DispatchQueue.main.async {
+                    self.connectionState = .error(error.localizedDescription)
+                }
             }
         }
     }
@@ -589,10 +618,10 @@ extension WebSocketManager: URLSessionWebSocketDelegate, URLSessionTaskDelegate 
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        // Called when connection fails (host unreachable, refused, timeout, etc.)
         guard let error = error else { return }
+        // Don't set error state if we intentionally disconnected
+        if case .disconnected = connectionState { return }
         print("❌ WEBSOCKET CONNECTION FAILED: \(error.localizedDescription)")
-        // Already on main thread due to delegateQueue: .main
         connectionState = .error("Connection failed")
         shouldReconnect = false
     }
