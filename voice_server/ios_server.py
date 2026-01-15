@@ -21,6 +21,7 @@ from tts_utils import generate_tts_audio, samples_to_wav_bytes
 from content_models import TextBlock, ThinkingBlock, ToolUseBlock, ContentBlock, AssistantResponse
 from session_manager import SessionManager
 from context_tracker import ContextTracker
+from usage_checker import UsageChecker
 from tmux_controller import TmuxController
 from permission_handler import PermissionHandler
 from http_server import start_http_server, set_tmux_controller, set_voice_server
@@ -213,6 +214,7 @@ class VoiceServer:
         set_tmux_controller(self.tmux)  # Enable HTTP endpoints to access tmux
         set_voice_server(self)  # Enable HTTP endpoints to access server state
         self.permission_handler = PermissionHandler()
+        self.usage_checker = UsageChecker()
         self.projects_base_path = PROJECTS_BASE_PATH
         self.active_session_id = None  # Track which session is active in tmux
         self.active_folder_name = None  # Track which project folder is active
@@ -728,6 +730,17 @@ class VoiceServer:
         self.tmux.send_input(text)
         print(f"Injected late response: {text}")
 
+    async def handle_usage_request(self, websocket):
+        """Handle usage_request - send cached immediately, then fetch fresh."""
+        # Send cached immediately if available
+        cached = self.usage_checker.get_cached()
+        if cached:
+            await websocket.send(json.dumps(cached))
+
+        # Fetch fresh in background
+        fresh = await self.usage_checker.check_usage()
+        await websocket.send(json.dumps(fresh))
+
     async def handle_message(self, websocket, message):
         """Handle incoming message with state validation"""
         try:
@@ -776,6 +789,8 @@ class VoiceServer:
                 await self.handle_read_file(websocket, data)
             elif msg_type == 'permission_response':
                 await self.handle_permission_response(data)
+            elif msg_type == 'usage_request':
+                await self.handle_usage_request(websocket)
         except Exception as e:
             print(f"Error: {e}")
 
