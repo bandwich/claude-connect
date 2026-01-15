@@ -25,22 +25,32 @@ def get_websocket_url(ip: str, port: int) -> str:
 
 
 def generate_qr_code(url: str) -> str:
-    """Generate ASCII QR code for terminal display."""
+    """Generate ASCII QR code for terminal display.
+
+    Uses ANSI background colors so line gaps don't break scanning.
+    """
+    BLACK_BG = "\033[40m"
+    WHITE_BG = "\033[47m"
+    RESET = "\033[0m"
+
     qr = qrcode.QRCode(
         version=1,
-        error_correction=qrcode.constants.ERROR_CORRECT_L,
+        error_correction=qrcode.constants.ERROR_CORRECT_M,
         box_size=1,
-        border=2,
+        border=4,
     )
     qr.add_data(url)
     qr.make(fit=True)
 
-    # Generate ASCII representation
-    from io import StringIO
-    f = StringIO()
-    qr.print_ascii(out=f)
-    f.seek(0)
-    return f.read()
+    matrix = qr.get_matrix()
+    lines = []
+    for row in matrix:
+        line = ""
+        for cell in row:
+            bg = BLACK_BG if cell else WHITE_BG
+            line += f"{bg}  "
+        lines.append(line + RESET)
+    return "\n".join(lines)
 
 
 def print_startup_banner(ip: str, port: int):

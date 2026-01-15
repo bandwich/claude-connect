@@ -11,6 +11,9 @@ VOICE_MODE_DIR="$(dirname "$SCRIPT_DIR")"
 echo "Activating virtual environment..."
 source /Users/aaron/Desktop/max/.venv/bin/activate
 
+# Set library path for zbar (required by pyzbar for QR scanning tests)
+export DYLD_LIBRARY_PATH="/opt/homebrew/lib:$DYLD_LIBRARY_PATH"
+
 # Install test dependencies if needed
 if ! python -c "import pytest" 2>/dev/null; then
     echo "Installing test dependencies..."
