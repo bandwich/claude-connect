@@ -16,7 +16,7 @@ def test_calculate_context_from_empty_file():
 
         assert result["tokens_used"] == 0
         assert result["context_percentage"] == 0.0
-        assert result["context_limit"] == 200000
+        assert result["context_limit"] == 158000
 
         os.unlink(f.name)
 
@@ -47,7 +47,7 @@ def test_calculate_context_from_transcript():
 
         # Uses last message: 150 + 50 = 200 tokens
         assert result["tokens_used"] == 200
-        assert result["context_percentage"] == 0.1  # 200/200000 * 100 = 0.1%
+        assert result["context_percentage"] == 0.13  # 200/158000 * 100 = 0.13%
 
         os.unlink(f.name)
 
@@ -78,7 +78,7 @@ def test_calculate_context_includes_cache_tokens():
 
         # 10 + 20 + 5000 + 1000 = 6030 tokens
         assert result["tokens_used"] == 6030
-        assert result["context_percentage"] == 3.02  # 6030/200000 * 100
+        assert result["context_percentage"] == 3.82  # 6030/158000 * 100
 
         os.unlink(f.name)
 

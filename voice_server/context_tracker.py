@@ -3,7 +3,9 @@
 import json
 from typing import Optional
 
-CONTEXT_LIMIT = 200000
+# Claude's effective context limit before auto-compact triggers
+# Empirically determined: 142100 tokens at 90% usage = ~158k limit
+CONTEXT_LIMIT = 158000
 
 class ContextTracker:
     """Calculates context usage from transcript files."""
