@@ -50,8 +50,8 @@ def parse_usage_output(output: str) -> dict:
             if pct_match:
                 result[current_section]["percentage"] = int(pct_match.group(1))
 
-            # Extract reset time: "Resets X:XXam/pm (Timezone)"
-            reset_match = re.search(r'Resets\s+(\d+:\d+[ap]m)\s*\(([^)]+)\)', section)
+            # Extract reset time: "Resets Xpm (Timezone)" or "Resets X:XXpm (Timezone)"
+            reset_match = re.search(r'Resets\s+(\d+(?::\d+)?[ap]m)\s*\(([^)]+)\)', section)
             if reset_match and current_section != 'week_sonnet_only':
                 result[current_section]["resets_at"] = reset_match.group(1)
                 result[current_section]["timezone"] = reset_match.group(2)

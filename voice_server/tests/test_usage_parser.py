@@ -55,3 +55,22 @@ def test_parse_with_ansi_codes():
     # Just verify ANSI stripping doesn't break parsing
     result = parse_usage_output(output_with_ansi)
     assert result is not None
+
+def test_parse_short_time_format():
+    """Handle time format without minutes (e.g., '7pm' instead of '7:59pm')."""
+    output = """
+  Current session
+  ██████                                             12% used
+  Resets 7pm (America/Los_Angeles)
+
+  Current week (all models)
+  █████████████▌                                     27% used
+  Resets 8pm (America/Los_Angeles)
+"""
+    result = parse_usage_output(output)
+
+    assert result["session"]["percentage"] == 12
+    assert result["session"]["resets_at"] == "7pm"
+    assert result["session"]["timezone"] == "America/Los_Angeles"
+    assert result["week_all_models"]["percentage"] == 27
+    assert result["week_all_models"]["resets_at"] == "8pm"
