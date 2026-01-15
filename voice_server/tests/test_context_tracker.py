@@ -21,13 +21,12 @@ def test_calculate_context_from_empty_file():
         os.unlink(f.name)
 
 def test_calculate_context_from_transcript():
-    """Transcript with usage data returns correct percentage."""
+    """Transcript with usage data uses last assistant message's tokens."""
     lines = [
         json.dumps({
             "message": {
                 "role": "user",
-                "content": "Hello",
-                "usage": {"input_tokens": 100, "output_tokens": 0}
+                "content": "Hello"
             }
         }),
         json.dumps({
@@ -46,9 +45,40 @@ def test_calculate_context_from_transcript():
         tracker = ContextTracker()
         result = tracker.calculate_context(f.name)
 
-        # 100 + 0 + 150 + 50 = 300 tokens
-        assert result["tokens_used"] == 300
-        assert result["context_percentage"] == 0.15  # 300/200000 * 100 = 0.15%
+        # Uses last message: 150 + 50 = 200 tokens
+        assert result["tokens_used"] == 200
+        assert result["context_percentage"] == 0.1  # 200/200000 * 100 = 0.1%
+
+        os.unlink(f.name)
+
+
+def test_calculate_context_includes_cache_tokens():
+    """Cache tokens are included in context calculation."""
+    lines = [
+        json.dumps({
+            "message": {
+                "role": "assistant",
+                "content": "Response",
+                "usage": {
+                    "input_tokens": 10,
+                    "output_tokens": 20,
+                    "cache_creation_input_tokens": 5000,
+                    "cache_read_input_tokens": 1000
+                }
+            }
+        })
+    ]
+
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
+        f.write("\n".join(lines))
+        f.flush()
+
+        tracker = ContextTracker()
+        result = tracker.calculate_context(f.name)
+
+        # 10 + 20 + 5000 + 1000 = 6030 tokens
+        assert result["tokens_used"] == 6030
+        assert result["context_percentage"] == 3.02  # 6030/200000 * 100
 
         os.unlink(f.name)
 

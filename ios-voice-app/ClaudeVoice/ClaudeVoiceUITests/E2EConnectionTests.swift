@@ -40,6 +40,9 @@ final class E2EConnectionTests: E2ETestBase {
         XCTAssertTrue(statusLabel.waitForExistence(timeout: 5), "Should show connection status")
         XCTAssertEqual(statusLabel.label, "Connected", "Should be connected")
 
+        // Usage section verification skipped in E2E - requestUsage spawns Claude which hangs
+        // Server-side usage handling is verified by unit tests (test_usage_handler.py)
+
         app.buttons["Done"].tap()
 
         // --- Test 2: Navigate to session and verify voice controls ---

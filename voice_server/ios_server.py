@@ -290,6 +290,11 @@ class VoiceServer:
             print(f"[INFO] Switched file watcher to: {new_dir}")
 
         print(f"[INFO] Now watching session: {session_id}")
+
+        # Send initial context update for the session
+        if self.transcript_handler and new_path:
+            self.transcript_handler.broadcast_context_update(new_path, session_id)
+
         return True
 
     async def send_status(self, websocket, state, message):

@@ -50,13 +50,19 @@ class UsageChecker:
             )
             await asyncio.sleep(3)  # Wait for Claude to initialize
 
-            # 3. Send /usage command
+            # 3. Send /usage command (send separately to allow autocomplete to render)
             subprocess.run(
-                ["tmux", "send-keys", "-t", session_name, "/usage", "Enter"],
+                ["tmux", "send-keys", "-t", session_name, "/usage"],
                 check=True,
                 capture_output=True
             )
-            await asyncio.sleep(1)  # Wait for display to render
+            await asyncio.sleep(1)  # Wait for autocomplete menu
+            subprocess.run(
+                ["tmux", "send-keys", "-t", session_name, "Enter"],
+                check=True,
+                capture_output=True
+            )
+            await asyncio.sleep(2)  # Wait for usage display to render
 
             # 4. Capture terminal output
             result = subprocess.run(
@@ -81,6 +87,9 @@ class UsageChecker:
         except subprocess.CalledProcessError as e:
             return {
                 "type": "usage_response",
+                "session": {"percentage": None, "resets_at": None, "timezone": None},
+                "week_all_models": {"percentage": None, "resets_at": None, "timezone": None},
+                "week_sonnet_only": {"percentage": None},
                 "error": f"Failed to check usage: {e}",
                 "cached": False,
                 "timestamp": time.time()
