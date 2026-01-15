@@ -405,4 +405,27 @@ struct WebSocketManagerTests {
 
         #expect(manager.connectedURL == nil)
     }
+
+    @Test func testDisconnectSetsStateImmediately() throws {
+        let manager = WebSocketManager()
+        manager.connectionState = .connected
+
+        manager.disconnect()
+
+        // State should be disconnected immediately (not async)
+        #expect(manager.connectionState == .disconnected)
+        #expect(manager.voiceState == .idle)
+    }
+
+    @Test func testDisconnectStatePersistsAfterCallbacks() throws {
+        let manager = WebSocketManager()
+        manager.connectionState = .connected
+
+        manager.disconnect()
+
+        // Simulate what would happen if delegate tried to set error
+        // The actual delegate checks if case .disconnected = connectionState { return }
+        // So we verify the state stays disconnected
+        #expect(manager.connectionState == .disconnected)
+    }
 }

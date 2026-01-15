@@ -156,15 +156,12 @@ class WebSocketManager: NSObject, ObservableObject {
 
     func disconnect() {
         shouldReconnect = false
+        connectionState = .disconnected
+        voiceState = .idle
         webSocketTask?.cancel(with: .goingAway, reason: nil)
         webSocketTask = nil
         currentURL = nil
         connectedURL = nil
-
-        DispatchQueue.main.async {
-            self.connectionState = .disconnected
-            self.voiceState = .idle
-        }
     }
 
     func sendVoiceInput(text: String) {
@@ -621,10 +618,10 @@ extension WebSocketManager: URLSessionWebSocketDelegate, URLSessionTaskDelegate 
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        // Called when connection fails (host unreachable, refused, timeout, etc.)
         guard let error = error else { return }
+        // Don't set error state if we intentionally disconnected
+        if case .disconnected = connectionState { return }
         print("❌ WEBSOCKET CONNECTION FAILED: \(error.localizedDescription)")
-        // Already on main thread due to delegateQueue: .main
         connectionState = .error("Connection failed")
         shouldReconnect = false
     }
