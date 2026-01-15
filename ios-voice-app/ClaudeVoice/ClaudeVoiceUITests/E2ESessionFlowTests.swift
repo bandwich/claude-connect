@@ -32,8 +32,9 @@ final class E2ESessionFlowTests: E2ETestBase {
         // Verify tmux is running (waitForSessionSyncComplete already checks this)
         XCTAssertTrue(verifyTmuxSessionRunning(), "Tmux session should be running")
 
-        // Skip UI element checks in SessionView - SwiftUI re-renders block XCTest
-        // Tmux running verification above confirms session is working
+        // Verify context indicator appears (server broadcasts initial context on session switch)
+        let contextIndicator = app.otherElements["contextIndicator"]
+        XCTAssertTrue(contextIndicator.waitForExistence(timeout: 10), "Context indicator should appear in session header")
 
         // Go back - use coordinate tap to avoid idle-wait issues
         let backButton = app.buttons.element(boundBy: 0)
