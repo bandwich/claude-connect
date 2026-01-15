@@ -1,9 +1,0 @@
-Metadata-Version: 2.4
-Name: claude-voice-server
-Version: 0.1.0
-Summary: Voice server for Claude Code iOS app
-Requires-Python: >=3.9
-Requires-Dist: websockets
-Requires-Dist: watchdog
-Requires-Dist: qrcode
-Requires-Dist: pydantic
