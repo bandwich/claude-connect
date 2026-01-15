@@ -44,12 +44,15 @@ class WebSocketManager: NSObject, ObservableObject {
     var onDirectoryListing: ((DirectoryListingResponse) -> Void)?
     var onFileContents: ((FileContentsResponse) -> Void)?
     var onContextUpdate: ((ContextStats) -> Void)?
+    var onUsageUpdate: ((UsageStats) -> Void)?
     @Published var pendingPermission: PermissionRequest? = nil {
         didSet {
             print("🔄 pendingPermission didSet: \(oldValue?.requestId ?? "nil") -> \(pendingPermission?.requestId ?? "nil")")
         }
     }
     @Published var contextStats: ContextStats? = nil
+    @Published var usageStats: UsageStats? = nil
+    @Published var isLoadingUsage: Bool = false
     var isPlayingAudio: Bool = false // Tracks if audio is currently playing
     private var lastContentBlocks: [ContentBlock] = []  // NEW: store for future UI
 
@@ -280,6 +283,12 @@ class WebSocketManager: NSObject, ObservableObject {
         sendJSON(message)
     }
 
+    func requestUsage() {
+        isLoadingUsage = true
+        let message = ["type": "usage_request"]
+        sendJSON(message)
+    }
+
     private func sendJSON(_ dict: [String: Any]) {
         guard let data = try? JSONSerialization.data(withJSONObject: dict),
               let jsonString = String(data: data, encoding: .utf8) else {
@@ -441,6 +450,14 @@ class WebSocketManager: NSObject, ObservableObject {
                 DispatchQueue.main.async {
                     self.contextStats = contextStats
                     self.onContextUpdate?(contextStats)
+                }
+            } else if let usageStats = try? JSONDecoder().decode(UsageStats.self, from: data),
+                      usageStats.type == "usage_response" {
+                logToFile("Decoded as UsageStats: session=\(usageStats.session.percentage ?? -1)%")
+                DispatchQueue.main.async {
+                    self.usageStats = usageStats
+                    self.isLoadingUsage = false
+                    self.onUsageUpdate?(usageStats)
                 }
             } else {
                 print("❌ Failed to decode message as any known type")
