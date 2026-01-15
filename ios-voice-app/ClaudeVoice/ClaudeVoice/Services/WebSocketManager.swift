@@ -43,11 +43,13 @@ class WebSocketManager: NSObject, ObservableObject {
     var onPermissionResolved: ((PermissionResolved) -> Void)?
     var onDirectoryListing: ((DirectoryListingResponse) -> Void)?
     var onFileContents: ((FileContentsResponse) -> Void)?
+    var onContextUpdate: ((ContextStats) -> Void)?
     @Published var pendingPermission: PermissionRequest? = nil {
         didSet {
             print("🔄 pendingPermission didSet: \(oldValue?.requestId ?? "nil") -> \(pendingPermission?.requestId ?? "nil")")
         }
     }
+    @Published var contextStats: ContextStats? = nil
     var isPlayingAudio: Bool = false // Tracks if audio is currently playing
     private var lastContentBlocks: [ContentBlock] = []  // NEW: store for future UI
 
@@ -432,6 +434,13 @@ class WebSocketManager: NSObject, ObservableObject {
                 logToFile("Decoded as FileContentsResponse: \(fileContents.path)")
                 DispatchQueue.main.async {
                     self.onFileContents?(fileContents)
+                }
+            } else if let contextStats = try? JSONDecoder().decode(ContextStats.self, from: data),
+                      contextStats.type == "context_update" {
+                logToFile("Decoded as ContextStats: \(contextStats.contextPercentage)%")
+                DispatchQueue.main.async {
+                    self.contextStats = contextStats
+                    self.onContextUpdate?(contextStats)
                 }
             } else {
                 print("❌ Failed to decode message as any known type")
