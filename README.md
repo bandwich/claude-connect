@@ -1,5 +1,4 @@
 # Claude Voice Mode
-
 claude code via iOS
 
 ## Installation
@@ -11,12 +10,10 @@ claude code via iOS
 git clone https://github.com/yourusername/claude-voice-mode.git
 cd claude-voice-mode
 
-# Create venv
+# Create venv and install
 python3 -m venv .venv
 source .venv/bin/activate
-
-# Install deps
-pip install -r requirements.txt
+pip install -e .
 ```
 
 ### iOS App
@@ -31,8 +28,9 @@ pip install -r requirements.txt
 
 ```bash
 source .venv/bin/activate
-python3 voice_server/ios_server.py
+python voice_server/ios_server.py
 ```
+
 
 ## Testing
 

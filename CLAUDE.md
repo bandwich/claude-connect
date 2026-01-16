@@ -31,23 +31,46 @@ iPhone App                         Mac Server
 ├─ WebSocket Client ──────────────►├─ Receives voice input
 ├─ Audio Player ◄──────────────────├─ Streams TTS audio (Kokoro)
 ├─ Session/Project Browser         ├─ tmux session management
-└─ Message History Display         └─ Transcript file watching
+├─ Permission Approval UI          ├─ HTTP server for hooks (port 8766)
+└─ Usage Stats Display             └─ Transcript file watching
 ```
 
 ## Project Structure
 
 ```
-ios-voice-app/ClaudeVoice/     # iOS app (Swift/SwiftUI)
-├─ Models/                     # ConnectionState, VoiceState, Message, Project, Session
-├─ Services/                   # WebSocketManager, SpeechRecognizer, AudioPlayer
-└─ Views/                      # SessionView, ProjectsListView, SessionsListView, SettingsView
-
 voice_server/                  # Python server
 ├─ ios_server.py              # Main WebSocket server
 ├─ session_manager.py         # Claude Code session management
 ├─ tts_utils.py               # Kokoro TTS integration
 ├─ tmux_controller.py         # Tmux session control
+├─ context_tracker.py         # Token usage calculation from transcripts
+├─ usage_checker.py           # On-demand /usage stats fetcher
+├─ usage_parser.py            # Parser for /usage command output
+├─ permission_handler.py      # Permission request/response handling
+├─ http_server.py             # HTTP server for Claude Code hooks
+├─ qr_display.py              # QR code generation for iOS connection
 └─ tests/                     # pytest test suite
+
+ios-voice-app/ClaudeVoice/     # iOS app (Swift/SwiftUI)
+├─ Models/
+│   ├─ ConnectionState.swift  # WebSocket connection states
+│   ├─ VoiceState.swift       # Voice interaction states
+│   ├─ Message.swift          # WebSocket message types
+│   ├─ Project.swift          # Claude Code project model
+│   ├─ Session.swift          # Claude Code session model
+│   ├─ ContextStats.swift     # Context window usage stats
+│   └─ UsageStats.swift       # Weekly/session quota stats
+├─ Services/
+│   ├─ WebSocketManager.swift # WebSocket client with reconnect
+│   ├─ SpeechRecognizer.swift # iOS Speech framework
+│   ├─ AudioPlayer.swift      # TTS audio playback
+│   └─ QRCodeValidator.swift  # QR code URL validation
+└─ Views/
+    ├─ SessionView.swift      # Main voice interaction view
+    ├─ ProjectsListView.swift # Project browser
+    ├─ SessionsListView.swift # Session browser
+    ├─ SettingsView.swift     # Connection settings + usage stats
+    └─ QRScannerView.swift    # Camera-based QR scanner
 
 tests/e2e_support/            # E2E test utilities
 └─ server_manager.py          # Server lifecycle for tests
@@ -55,11 +78,23 @@ tests/e2e_support/            # E2E test utilities
 
 ## Commands
 
+### Running
+
+```bash
+# Option 1: Direct Python
+source .venv/bin/activate
+python3 voice_server/ios_server.py
+
+# Option 2: Installed command (after pip install -e .)
+voice-server
+```
+
+Server displays QR code on startup for iOS app to scan.
+
 ### Testing
 
 See [`tests/TESTS.md`](tests/TESTS.md) for full test documentation.
 
-**Run all tests to verify functionality:**
 ```bash
 # 1. Server tests (Python)
 cd voice_server/tests && ./run_tests.sh
@@ -79,24 +114,18 @@ cd ios-voice-app/ClaudeVoice && ./run_e2e_tests.sh
 cd ios-voice-app/ClaudeVoice && ./run_e2e_tests.sh E2EPermissionTests
 ```
 
-### Running
+### Building iOS
 
 ```bash
-# Start voice server
-source .venv/bin/activate
-python3 voice_server/ios_server.py
-
-# Clean iOS build (only required after adding new files)
+# Clean build (only required after adding new files)
 cd ios-voice-app/ClaudeVoice
 xcodebuild clean -scheme ClaudeVoice
 
-# Build iOS app (simulator)
-cd ios-voice-app/ClaudeVoice
+# Build for simulator
 xcodebuild build -scheme ClaudeVoice \
   -destination 'platform=iOS Simulator,name=iPhone 16'
 
-# Build and install iOS app (on device)
-cd ios-voice-app/ClaudeVoice
+# Build and install on device
 xcodebuild -scheme ClaudeVoice -destination 'generic/platform=iOS' build && \
 DEVICE=$(xcrun devicectl list devices 2>/dev/null | grep 'available (paired)' | awk '{print $3}') && \
 xcrun devicectl device install app --device "$DEVICE" \
@@ -122,14 +151,10 @@ xcrun simctl list
 ### Analyzing Test Failures
 
 ```bash
-# Find E2E test failure reason (grep for assertion failures)
+# Find E2E test failure reason
 grep -A10 "XCTAssert\|failed\|Failed" /tmp/e2e_test.log
 
-# View Xcode test results (xcresult bundle)
-# Path is printed at end of test run, e.g.:
-# ~/Library/Developer/Xcode/DerivedData/ClaudeVoice-*/Logs/Test/*.xcresult
-
-# List available test result bundles
+# List test result bundles
 ls -la ~/Library/Developer/Xcode/DerivedData/ClaudeVoice-*/Logs/Test/
 
 # Extract test summary from xcresult
@@ -176,17 +201,32 @@ To enable remote permission control from the iOS app, add hooks to your Claude C
 
 ## WebSocket Protocol
 
-iOS → Server: `{"type": "voice_input", "text": "...", "timestamp": ...}`
-Server → iOS: `{"type": "status", "state": "idle|processing|speaking", ...}`
-Server → iOS: `{"type": "audio_chunk", "data": "<base64 WAV>", ...}`
-Server → iOS: `{"type": "projects_list", "projects": [...], ...}`
-Server → iOS: `{"type": "sessions_list", "sessions": [...], ...}`
+### iOS → Server
+```
+voice_input      {"type": "voice_input", "text": "...", "timestamp": ...}
+list_projects    {"type": "list_projects"}
+list_sessions    {"type": "list_sessions", "folder_name": "..."}
+open_session     {"type": "open_session", "folder_name": "...", "session_id": "..."}
+usage_request    {"type": "usage_request"}
+permission_response  {"type": "permission_response", "request_id": "...", "decision": "allow|deny|modify", ...}
+```
 
-## Current Feature: Session Sync
+### Server → iOS
+```
+status           {"type": "status", "state": "idle|processing|speaking", ...}
+audio_chunk      {"type": "audio_chunk", "data": "<base64 WAV>", ...}
+projects_list    {"type": "projects_list", "projects": [...]}
+sessions_list    {"type": "sessions_list", "sessions": [...]}
+context_update   {"type": "context_update", "session_id": "...", "context_percentage": ..., "tokens_used": ...}
+usage_response   {"type": "usage_response", "session": {...}, "week_all_models": {...}, ...}
+permission_request  {"type": "permission_request", "request_id": "...", "prompt_type": "bash|edit|...", ...}
+```
 
-The app displays Claude Code projects and sessions, allowing users to:
-- Browse projects (from `~/.claude/projects/`)
-- View sessions per project
-- See message history for each session
-- Open/resume sessions in tmux
+## Key Features
 
+- **Voice Interaction**: Speak commands, hear Claude's responses via Kokoro TTS
+- **Session Browser**: Browse projects from `~/.claude/projects/`, view sessions, resume in tmux
+- **Remote Permissions**: Approve/deny Claude Code permission prompts from iOS
+- **Context Tracking**: Real-time context window usage displayed in session header
+- **Usage Stats**: View session/weekly quotas in Settings (fetched via /usage command)
+- **QR Connect**: Scan QR code displayed by server to connect iOS app

@@ -12,6 +12,10 @@ dependencies = [
     "watchdog",
     "qrcode",
     "pydantic",
+    # TTS (Kokoro)
+    "kokoro>=0.3",
+    "soundfile>=0.12",
+    "numpy>=1.20",
 ]
 
 [project.scripts]

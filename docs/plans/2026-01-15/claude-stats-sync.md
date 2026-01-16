@@ -1357,6 +1357,58 @@ CHECKPOINT: If any tests fail, debug before considering the feature complete.
 
 ---
 
+## Task 7: Fix Context Percentage Discrepancy (Follow-up)
+
+**Status:** Not started - requires investigation
+
+**Problem:**
+iOS app shows ~30% context remaining, but Claude terminal shows ~10% remaining for the same session. This is a ~20% discrepancy.
+
+**Investigation Findings:**
+
+From transcript analysis of session `7a790403-38da-4d94-b9a0-6734ad7baf98`:
+```
+Last message usage:
+- input_tokens: 8
+- output_tokens: 343
+- cache_creation_input_tokens: 357
+- cache_read_input_tokens: 140,455
+
+Our calculation: 142,093 tokens = 71% used (29% remaining)
+Claude shows: ~90% used (10% remaining)
+```
+
+**Possible Causes:**
+
+1. **Auto-compact threshold differs from context limit**
+   - Claude might trigger auto-compact at 180K, not 200K
+   - "Context left until auto compact" suggests a separate threshold
+
+2. **Token counting methodology differs**
+   - We sum: input + output + cache_creation + cache_read
+   - Claude might count differently (e.g., only input context, not output)
+   - System prompt overhead might not appear in usage stats
+
+3. **CONTEXT_LIMIT is wrong**
+   - Hardcoded 200,000 may not match Claude's actual limit for Opus 4.5
+   - Different plans/models may have different limits
+
+**Proposed Investigation Steps:**
+
+1. Check Claude documentation/API for actual context limits per model
+2. Compare token counts at session start vs end to understand growth pattern
+3. Test with fresh session: calculate our percentage, compare to Claude's display
+4. Consider fetching context limit dynamically from Claude if possible
+
+**Proposed Fixes (choose after investigation):**
+
+Option A: Adjust CONTEXT_LIMIT to match auto-compact threshold (~180K?)
+Option B: Change calculation to only count input-side tokens (cache_read + cache_creation + input)
+Option C: Add calibration factor based on empirical testing
+Option D: Fetch/parse context info from Claude directly (like /usage does for quotas)
+
+---
+
 **Plan complete and saved to `docs/plans/2026-01-15/claude-stats-sync.md`.**
 
 When ready to implement, run /execute-plan which will:
