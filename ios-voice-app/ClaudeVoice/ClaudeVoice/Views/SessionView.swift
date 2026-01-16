@@ -143,6 +143,11 @@ struct SessionView: View {
             }
         }
         .onAppear(perform: setupView)
+        .onDisappear {
+            // Stop recording and audio when navigating away
+            speechRecognizer.stopRecording()
+            audioPlayer.stop()
+        }
         .onChange(of: webSocketManager.connectionState) { _, newState in
             // Retry sync when connection is established (for resumed sessions)
             if case .connected = newState, !session.isNewSession {
