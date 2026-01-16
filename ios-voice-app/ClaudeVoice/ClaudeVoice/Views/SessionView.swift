@@ -16,6 +16,7 @@ struct SessionView: View {
     @State private var isSyncing = false
     @State private var syncError: String? = nil
     @State private var branchName: String = "main"  // Placeholder for now
+    @State private var contextPercentage: Double? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -90,13 +91,29 @@ struct SessionView: View {
             breadcrumb: "/\(project.name)",
             onBack: { selectedSessionBinding = nil }
         ) {
-            HStack(spacing: 4) {
-                Image(systemName: "arrow.triangle.branch")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                Text(branchName)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+            HStack(spacing: 12) {
+                // Context indicator
+                if let pct = contextPercentage {
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(contextColor(pct))
+                            .frame(width: 8, height: 8)
+                        Text("\(Int(100 - pct))%")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .accessibilityIdentifier("contextIndicator")
+                }
+
+                // Branch name
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.triangle.branch")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text(branchName)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
             }
         }
         .enableSwipeBack()
@@ -274,6 +291,14 @@ struct SessionView: View {
                 messages.append(message)
             }
         }
+
+        // Subscribe to context updates
+        webSocketManager.onContextUpdate = { stats in
+            // Only update if this is for our session
+            if stats.sessionId == session.id || (session.isNewSession && webSocketManager.activeSessionId == nil) {
+                self.contextPercentage = stats.contextPercentage
+            }
+        }
     }
 
     private func syncSession() {
@@ -319,6 +344,17 @@ struct SessionView: View {
             } catch {
                 print("Failed to start recording: \(error)")
             }
+        }
+    }
+
+    private func contextColor(_ percentage: Double) -> Color {
+        let remaining = 100 - percentage
+        if remaining > 50 {
+            return .green
+        } else if remaining > 20 {
+            return .yellow
+        } else {
+            return .red
         }
     }
 

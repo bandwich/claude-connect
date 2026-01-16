@@ -20,6 +20,8 @@ from watchdog.events import FileSystemEventHandler
 from tts_utils import generate_tts_audio, samples_to_wav_bytes
 from content_models import TextBlock, ThinkingBlock, ToolUseBlock, ContentBlock, AssistantResponse
 from session_manager import SessionManager
+from context_tracker import ContextTracker
+from usage_checker import UsageChecker
 from tmux_controller import TmuxController
 from permission_handler import PermissionHandler
 from http_server import start_http_server, set_tmux_controller, set_voice_server
@@ -57,6 +59,7 @@ class TranscriptHandler(FileSystemEventHandler):
         self.last_modified = 0
         self.processed_line_count = 0
         self.expected_session_file = None  # Only process events from this file
+        self.context_tracker = ContextTracker()
 
     def on_modified(self, event):
         if event.is_directory or not event.src_path.endswith('.jsonl'):
@@ -107,6 +110,10 @@ class TranscriptHandler(FileSystemEventHandler):
                         self.server.send_idle_to_all_clients(),
                         self.loop
                     )
+
+            # Broadcast context update after processing
+            if self.server.active_session_id:
+                self.broadcast_context_update(event.src_path, self.server.active_session_id)
         except Exception as e:
             print(f"Error processing transcript: {e}")
             import traceback
@@ -159,6 +166,17 @@ class TranscriptHandler(FileSystemEventHandler):
 
         return all_blocks
 
+    def broadcast_context_update(self, filepath: str, session_id: str):
+        """Calculate and broadcast context usage for the session."""
+        context_data = self.context_tracker.calculate_context(filepath)
+        context_data["type"] = "context_update"
+        context_data["session_id"] = session_id
+
+        asyncio.run_coroutine_threadsafe(
+            self.server.broadcast_message(context_data),
+            self.loop
+        )
+
     def set_session_file(self, file_path: Optional[str]):
         """Set the expected session file and initialize line count.
 
@@ -196,6 +214,7 @@ class VoiceServer:
         set_tmux_controller(self.tmux)  # Enable HTTP endpoints to access tmux
         set_voice_server(self)  # Enable HTTP endpoints to access server state
         self.permission_handler = PermissionHandler()
+        self.usage_checker = UsageChecker()
         self.projects_base_path = PROJECTS_BASE_PATH
         self.active_session_id = None  # Track which session is active in tmux
         self.active_folder_name = None  # Track which project folder is active
@@ -271,6 +290,11 @@ class VoiceServer:
             print(f"[INFO] Switched file watcher to: {new_dir}")
 
         print(f"[INFO] Now watching session: {session_id}")
+
+        # Send initial context update for the session
+        if self.transcript_handler and new_path:
+            self.transcript_handler.broadcast_context_update(new_path, session_id)
+
         return True
 
     async def send_status(self, websocket, state, message):
@@ -403,6 +427,15 @@ class VoiceServer:
                 await self.send_status(websocket, "idle", "Ready")
             except Exception:
                 pass  # Client may have disconnected, that's OK
+
+    async def broadcast_message(self, message: dict):
+        """Broadcast a JSON message to all connected clients."""
+        message_json = json.dumps(message)
+        for websocket in list(self.clients):
+            try:
+                await websocket.send(message_json)
+            except Exception:
+                pass
 
     async def handle_list_projects(self, websocket):
         """Handle list_projects request"""
@@ -702,6 +735,17 @@ class VoiceServer:
         self.tmux.send_input(text)
         print(f"Injected late response: {text}")
 
+    async def handle_usage_request(self, websocket):
+        """Handle usage_request - send cached immediately, then fetch fresh."""
+        # Send cached immediately if available
+        cached = self.usage_checker.get_cached()
+        if cached:
+            await websocket.send(json.dumps(cached))
+
+        # Fetch fresh in background
+        fresh = await self.usage_checker.check_usage()
+        await websocket.send(json.dumps(fresh))
+
     async def handle_message(self, websocket, message):
         """Handle incoming message with state validation"""
         try:
@@ -750,6 +794,8 @@ class VoiceServer:
                 await self.handle_read_file(websocket, data)
             elif msg_type == 'permission_response':
                 await self.handle_permission_response(data)
+            elif msg_type == 'usage_request':
+                await self.handle_usage_request(websocket)
         except Exception as e:
             print(f"Error: {e}")
 
