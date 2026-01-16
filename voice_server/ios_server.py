@@ -795,7 +795,7 @@ class VoiceServer:
         except Exception as e:
             print(f"Error: {e}")
 
-    async def handle_client(self, websocket, path):
+    async def handle_client(self, websocket, path=None):
         """Handle client connection"""
         self.clients.add(websocket)
         self.permission_handler.websocket_clients.add(websocket)
