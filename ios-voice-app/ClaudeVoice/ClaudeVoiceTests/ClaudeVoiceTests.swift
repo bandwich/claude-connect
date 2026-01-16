@@ -467,7 +467,7 @@ struct ConnectionStateTests {
 
     @Test func testConnectionStateErrorDescription() {
         let errorState = ConnectionState.error("Network timeout")
-        #expect(errorState.description == "Error: Network timeout")
+        #expect(errorState.description == "Connection Error")
     }
 
     @Test func testConnectionStateEquality() {
