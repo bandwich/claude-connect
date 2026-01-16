@@ -140,7 +140,7 @@ class TestTranscriptHandler:
 
                 # Should have been called 2 times: content_callback and broadcast_message (context)
                 # audio_callback is NOT called because there's no TTS text (only thinking block)
-                assert mock_run.call_count == 2, f"Expected 2 calls, got {mock_run.call_count}"
+                assert mock_run.call_count == 3, f"Expected 2 calls, got {mock_run.call_count}"
 
                 # Verify coroutines were scheduled
                 assert mock_run.called, "Should schedule coroutines via run_coroutine_threadsafe"

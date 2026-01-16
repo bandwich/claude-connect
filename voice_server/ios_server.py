@@ -17,14 +17,14 @@ from typing import Optional
 
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
-from .tts_utils import generate_tts_audio, samples_to_wav_bytes
-from .content_models import TextBlock, ThinkingBlock, ToolUseBlock, ContentBlock, AssistantResponse
-from .session_manager import SessionManager
-from .context_tracker import ContextTracker
-from .usage_checker import UsageChecker
-from .tmux_controller import TmuxController
-from .permission_handler import PermissionHandler
-from .http_server import start_http_server, set_tmux_controller, set_voice_server
+from voice_server.tts_utils import generate_tts_audio, samples_to_wav_bytes
+from voice_server.content_models import TextBlock, ThinkingBlock, ToolUseBlock, ContentBlock, AssistantResponse
+from voice_server.session_manager import SessionManager
+from voice_server.context_tracker import ContextTracker
+from voice_server.usage_checker import UsageChecker
+from voice_server.tmux_controller import TmuxController
+from voice_server.permission_handler import PermissionHandler
+from voice_server.http_server import start_http_server, set_tmux_controller, set_voice_server
 
 # Configuration
 PORT = 8765
@@ -96,6 +96,13 @@ class TranscriptHandler(FileSystemEventHandler):
                 if text:
                     asyncio.run_coroutine_threadsafe(
                         self.audio_callback(text),
+                        self.loop
+                    )
+                else:
+                    # No TTS text (e.g., only thinking/tool_use blocks)
+                    # Send idle status to reset client's outputState
+                    asyncio.run_coroutine_threadsafe(
+                        self.server.send_idle_to_all_clients(),
                         self.loop
                     )
 
@@ -839,7 +846,7 @@ class VoiceServer:
         # Start HTTP server for permission hooks
         http_runner = await start_http_server(self.permission_handler)
 
-        from .qr_display import get_local_ip, print_startup_banner
+        from voice_server.qr_display import get_local_ip, print_startup_banner
 
         local_ip = get_local_ip()
         if local_ip:
