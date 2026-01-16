@@ -77,11 +77,6 @@ class TranscriptHandler(FileSystemEventHandler):
             if os.path.realpath(event.src_path) != os.path.realpath(self.expected_session_file):
                 return
 
-        current_time = time.time()
-        if current_time - self.last_modified < 0.05:
-            return
-        self.last_modified = current_time
-
         try:
             new_blocks = self.extract_new_assistant_content(event.src_path)
 
@@ -101,13 +96,6 @@ class TranscriptHandler(FileSystemEventHandler):
                 if text:
                     asyncio.run_coroutine_threadsafe(
                         self.audio_callback(text),
-                        self.loop
-                    )
-                else:
-                    # No TTS text (e.g., only thinking/tool_use blocks)
-                    # Send idle status to reset client's outputState
-                    asyncio.run_coroutine_threadsafe(
-                        self.server.send_idle_to_all_clients(),
                         self.loop
                     )
 
@@ -375,10 +363,11 @@ class VoiceServer:
             self.last_voice_input = text
 
             print(f"[{time.strftime('%H:%M:%S')}] Sending to terminal...")
-            try:
-                await self.send_status(websocket, "processing", "Sending to Claude...")
-            except Exception:
-                pass  # WebSocket may have closed, that's OK
+            for client in list(self.clients):
+                try:
+                    await self.send_status(client, "processing", "Sending to Claude...")
+                except Exception:
+                    pass
 
             await self.send_to_terminal(text)
             print(f"[{time.strftime('%H:%M:%S')}] Sent to terminal successfully")

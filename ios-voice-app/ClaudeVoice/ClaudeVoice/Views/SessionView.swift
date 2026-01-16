@@ -160,6 +160,7 @@ struct SessionView: View {
     private var canRecord: Bool {
         guard isSessionSynced else { return false }
         guard webSocketManager.outputState.canSendVoiceInput else { return false }
+        guard webSocketManager.voiceState == .idle else { return false }
         if case .connected = webSocketManager.connectionState {
             return speechRecognizer.isAuthorized && !audioPlayer.isPlaying
         }
