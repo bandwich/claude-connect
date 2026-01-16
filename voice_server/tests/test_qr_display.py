@@ -1,4 +1,4 @@
-from qr_display import get_local_ip, generate_qr_code, get_websocket_url
+from voice_server.qr_display import get_local_ip, generate_qr_code, get_websocket_url
 
 class TestQRDisplay:
     def test_get_local_ip_returns_valid_ip(self):

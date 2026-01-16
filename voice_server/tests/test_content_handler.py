@@ -1,11 +1,8 @@
-import sys
-import os
 import json
 import asyncio
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from ios_server import VoiceServer
-from content_models import AssistantResponse, TextBlock
+from voice_server.ios_server import VoiceServer
+from voice_server.content_models import AssistantResponse, TextBlock
 import pytest
 
 

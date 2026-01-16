@@ -3,7 +3,7 @@ import pytest
 import json
 import tempfile
 import os
-from context_tracker import ContextTracker
+from voice_server.context_tracker import ContextTracker
 
 def test_calculate_context_from_empty_file():
     """Empty transcript returns 0% context usage."""

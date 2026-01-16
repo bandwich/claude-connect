@@ -3,7 +3,7 @@
 
 import json
 from aiohttp import web
-from .permission_handler import PermissionHandler
+from voice_server.permission_handler import PermissionHandler
 
 HTTP_PORT = 8766
 

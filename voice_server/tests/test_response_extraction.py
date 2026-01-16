@@ -1,11 +1,9 @@
-import sys
-import os
 import json
+import os
 import tempfile
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from ios_server import TranscriptHandler
-from content_models import TextBlock, ThinkingBlock
+from voice_server.ios_server import TranscriptHandler
+from voice_server.content_models import TextBlock, ThinkingBlock
 
 
 def test_extract_incremental_blocks():

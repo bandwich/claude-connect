@@ -4,7 +4,7 @@ import asyncio
 import subprocess
 import time
 from typing import Optional
-from .usage_parser import parse_usage_output
+from voice_server.usage_parser import parse_usage_output
 
 class UsageChecker:
     """Spawns Claude Code to fetch /usage stats on demand."""
