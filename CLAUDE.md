@@ -95,7 +95,7 @@ source .venv/bin/activate
 python3 voice_server/ios_server.py
 
 # Option 2: Installed command (after pip install -e .)
-voice-server
+claude-connect
 ```
 
 Server displays QR code on startup for iOS app to scan.

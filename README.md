@@ -5,15 +5,30 @@
 ### Server (Mac)
 
 ```bash
-# Clone repo
-git clone https://github.com/bandwich/claude-voice-mode.git
-cd claude-voice-mode
+# Clone and install
+git clone https://github.com/bandwich/hands-free.git
+cd hands-free
+./install.sh
+```
 
-# Create venv and install
+This installs system dependencies (tmux, zbar) and the `claude-connect` CLI globally via pipx.
+
+<details>
+<summary>Manual installation</summary>
+
+```bash
+# Install system dependencies
+brew install tmux zbar
+
+# Option 1: Global install via pipx (recommended)
+pipx install /path/to/hands-free
+
+# Option 2: Development install
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
 ```
+</details>
 
 ### iOS App
 
@@ -23,12 +38,11 @@ pip install -e .
 
 ## Usage
 
-### Start server
-
 ```bash
-source .venv/bin/activate
-python voice_server/ios_server.py
+claude-connect
 ```
+
+Server displays a QR code on startup for the app to scan.
 
 
 ## Testing
