@@ -33,3 +33,8 @@ build/
 *.ipa
 *.dSYM.zip
 *.dSYM
+
+# Test logs
+tests/unit_test_logs/
+tests/server_test_logs/
+tests/e2e_test_logs/
