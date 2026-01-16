@@ -1,6 +1,6 @@
 # voice_server/tests/test_usage_parser.py
 import pytest
-from usage_parser import parse_usage_output
+from voice_server.usage_parser import parse_usage_output
 
 SAMPLE_OUTPUT = """
   Settings:  Status   Config   Usage  (←/→ or tab to cycle)

@@ -10,10 +10,7 @@ import os
 from unittest.mock import Mock, patch, MagicMock
 import sys
 
-# Add voice-mode directory to path
-sys.path.insert(0, '/Users/aaron/.claude/voice-mode')
-
-from tts_utils import (
+from voice_server.tts_utils import (
     generate_tts_audio,
     save_wav,
     chunk_audio,
@@ -24,7 +21,7 @@ from tts_utils import (
 class TestGenerateTTSAudio:
     """Tests for generate_tts_audio function"""
 
-    @patch('tts_utils.KPipeline')
+    @patch('voice_server.tts_utils.KPipeline')
     def test_generate_tts_audio(self, mock_pipeline_class):
         """Test basic TTS generation returns valid numpy array"""
         # Setup mock
@@ -44,7 +41,7 @@ class TestGenerateTTSAudio:
         mock_pipeline_class.assert_called_once_with(lang_code="en-us")
         mock_pipeline.assert_called_once_with("Hello world", voice="af_heart")
 
-    @patch('tts_utils.KPipeline')
+    @patch('voice_server.tts_utils.KPipeline')
     def test_generate_tts_audio_empty_text(self, mock_pipeline_class):
         """Test with empty string"""
         mock_chunk = Mock()
@@ -59,7 +56,7 @@ class TestGenerateTTSAudio:
         assert isinstance(result, np.ndarray)
         assert len(result) == 0
 
-    @patch('tts_utils.KPipeline')
+    @patch('voice_server.tts_utils.KPipeline')
     def test_generate_tts_audio_multiple_chunks(self, mock_pipeline_class):
         """Test concatenation of multiple audio chunks"""
         mock_chunk1 = Mock()
@@ -81,7 +78,7 @@ class TestGenerateTTSAudio:
 class TestSaveWav:
     """Tests for save_wav function"""
 
-    @patch('tts_utils.sf.write')
+    @patch('voice_server.tts_utils.sf.write')
     def test_save_wav(self, mock_write):
         """Test WAV file creation"""
         samples = np.array([0.1, 0.2, 0.3])
@@ -91,7 +88,7 @@ class TestSaveWav:
 
         mock_write.assert_called_once_with(filepath, samples, 24000)
 
-    @patch('tts_utils.sf.write')
+    @patch('voice_server.tts_utils.sf.write')
     def test_save_wav_custom_sample_rate(self, mock_write):
         """Test with custom sample rate"""
         samples = np.array([0.1, 0.2, 0.3])

@@ -4,7 +4,7 @@ import asyncio
 import subprocess
 import time
 from typing import Optional
-from usage_parser import parse_usage_output
+from voice_server.usage_parser import parse_usage_output
 
 class UsageChecker:
     """Spawns Claude Code to fetch /usage stats on demand."""
@@ -22,6 +22,55 @@ class UsageChecker:
                 "cache_age_seconds": time.time() - self.cache_timestamp
             }
         return None
+
+    def _capture_pane(self, session_name: str) -> str:
+        """Capture tmux pane content."""
+        result = subprocess.run(
+            ["tmux", "capture-pane", "-t", session_name, "-p"],
+            capture_output=True,
+            text=True
+        )
+        return result.stdout
+
+    async def _wait_for_content(self, session_name: str, marker: str, timeout: float = 15.0) -> bool:
+        """Poll until marker appears in pane content."""
+        start = time.time()
+        while time.time() - start < timeout:
+            content = self._capture_pane(session_name)
+            if marker in content:
+                return True
+            await asyncio.sleep(0.3)
+        return False
+
+    async def _wait_for_ready(self, session_name: str, timeout: float = 15.0) -> bool:
+        """Poll until Claude is ready for input, handling trust dialog if needed."""
+        start = time.time()
+        trust_handled = False
+
+        while time.time() - start < timeout:
+            content = self._capture_pane(session_name)
+
+            # Check for trust dialog first
+            if not trust_handled and "Do you trust the files" in content:
+                subprocess.run(
+                    ["tmux", "send-keys", "-t", session_name, "Enter"],
+                    check=True,
+                    capture_output=True
+                )
+                trust_handled = True
+                await asyncio.sleep(0.3)
+                continue
+
+            # Check for ready prompt - look for the input prompt line
+            # The prompt shows as "❯" at the start of an input line
+            # But trust dialog also has "❯ 1. Yes" so we need to be specific
+            if "Try \"" in content and "❯" in content:
+                # This is the actual prompt with hint text like 'Try "how do I..."'
+                return True
+
+            await asyncio.sleep(0.3)
+
+        return False
 
     async def check_usage(self) -> dict:
         """Spawn Claude Code, run /usage, parse output, return stats.
@@ -42,35 +91,35 @@ class UsageChecker:
                 capture_output=True
             )
 
-            # 2. Start Claude Code
+            # 2. Start Claude Code and wait for prompt
             subprocess.run(
                 ["tmux", "send-keys", "-t", session_name, "claude", "Enter"],
                 check=True,
                 capture_output=True
             )
-            await asyncio.sleep(3)  # Wait for Claude to initialize
 
-            # 3. Send /usage command (send separately to allow autocomplete to render)
+            # Wait for either trust dialog or ready prompt
+            if not await self._wait_for_ready(session_name, timeout=15.0):
+                raise RuntimeError("Claude Code did not start in time")
+
+            # 3. Send /usage command (send text and Enter separately for reliability)
             subprocess.run(
                 ["tmux", "send-keys", "-t", session_name, "/usage"],
                 check=True,
                 capture_output=True
             )
-            await asyncio.sleep(1)  # Wait for autocomplete menu
+            await asyncio.sleep(0.5)
             subprocess.run(
                 ["tmux", "send-keys", "-t", session_name, "Enter"],
                 check=True,
                 capture_output=True
             )
-            await asyncio.sleep(2)  # Wait for usage display to render
+            # Wait for usage display to render (look for "% used" marker)
+            if not await self._wait_for_content(session_name, "% used", timeout=10.0):
+                raise RuntimeError("Usage display did not render in time")
 
             # 4. Capture terminal output
-            result = subprocess.run(
-                ["tmux", "capture-pane", "-t", session_name, "-p"],
-                capture_output=True,
-                text=True
-            )
-            raw_output = result.stdout
+            raw_output = self._capture_pane(session_name)
 
             # 5. Parse the output
             usage_data = parse_usage_output(raw_output)
@@ -84,7 +133,8 @@ class UsageChecker:
 
             return usage_data
 
-        except subprocess.CalledProcessError as e:
+        except (subprocess.CalledProcessError, RuntimeError) as e:
+            print(f"usage_checker error: {e}")
             return {
                 "type": "usage_response",
                 "session": {"percentage": None, "resets_at": None, "timezone": None},

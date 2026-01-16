@@ -11,9 +11,7 @@ import time
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-
-from tmux_controller import TmuxController
+from voice_server.tmux_controller import TmuxController
 
 
 # Use a test-specific session name to avoid conflicts with real sessions

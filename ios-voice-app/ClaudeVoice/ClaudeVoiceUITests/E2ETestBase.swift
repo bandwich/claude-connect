@@ -164,9 +164,12 @@ class E2ETestBase: XCTestCase {
     /// Open settings by tapping the settings button
     func openSettings() {
         let settingsButton = app.buttons["settingsButton"]
-        if settingsButton.waitForExistence(timeout: 5) {
-            tapByCoordinate(settingsButton)
-        }
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 5), "Settings button should exist")
+        tapByCoordinate(settingsButton)
+
+        // Wait for settings sheet to appear (Done button indicates sheet is open)
+        let doneButton = app.buttons["Done"]
+        XCTAssertTrue(doneButton.waitForExistence(timeout: 5), "Settings sheet should appear after tap")
     }
 
     // MARK: - Connection Methods

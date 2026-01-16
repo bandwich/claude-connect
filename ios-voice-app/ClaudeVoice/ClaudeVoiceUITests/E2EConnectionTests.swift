@@ -29,23 +29,41 @@ final class E2EConnectionTests: E2ETestBase {
         app.buttons["Done"].tap()
     }
 
-    /// Tests connection and voice controls
+    /// Tests connection, usage display, and voice controls
     func test_connection_and_voice_controls() throws {
         // --- Test 1: Verify connected via settings ---
         let settingsButton = app.buttons["settingsButton"]
         XCTAssertTrue(settingsButton.waitForExistence(timeout: 5), "Settings button should exist")
         tapByCoordinate(settingsButton)
 
+        // Wait for settings sheet to appear (Done button indicates sheet is open)
+        let doneButton = app.buttons["Done"]
+        XCTAssertTrue(doneButton.waitForExistence(timeout: 5), "Settings sheet should appear")
+
         let statusLabel = app.staticTexts["connectionStatus"]
         XCTAssertTrue(statusLabel.waitForExistence(timeout: 5), "Should show connection status")
         XCTAssertEqual(statusLabel.label, "Connected", "Should be connected")
 
-        // Usage section verification skipped in E2E - requestUsage spawns Claude which hangs
-        // Server-side usage handling is verified by unit tests (test_usage_handler.py)
+        // --- Test 2: Verify usage section loads with real data ---
+        // Wait for usage data to load (look for "Current Session" text)
+        let currentSessionLabel = app.staticTexts["Current Session"]
+        XCTAssertTrue(currentSessionLabel.waitForExistence(timeout: 20), "Current Session label should appear (usage data loaded)")
+
+        // Verify all usage rows exist
+        let weekAllModelsLabel = app.staticTexts["This Week (All Models)"]
+        XCTAssertTrue(weekAllModelsLabel.waitForExistence(timeout: 5), "Week All Models label should appear")
+
+        let weekSonnetLabel = app.staticTexts["This Week (Sonnet)"]
+        XCTAssertTrue(weekSonnetLabel.waitForExistence(timeout: 5), "Week Sonnet label should appear")
+
+        // Verify percentages are displayed (look for "%" text)
+        // Should see percentage values like "42%" for each usage row
+        let percentageTexts = app.staticTexts.matching(NSPredicate(format: "label CONTAINS '%'"))
+        XCTAssertGreaterThanOrEqual(percentageTexts.count, 3, "Should display percentage for each usage row")
 
         app.buttons["Done"].tap()
 
-        // --- Test 2: Navigate to session and verify voice controls ---
+        // --- Test 3: Navigate to session and verify voice controls ---
         navigateToTestSession(resume: true)  // Resume pre-created session
         XCTAssertTrue(waitForVoiceState("Idle", timeout: 10), "Should be in Idle state")
 

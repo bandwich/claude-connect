@@ -74,12 +74,12 @@ struct SessionView: View {
                 } else {
                     // Normal state - show mic
                     Button(action: toggleRecording) {
-                        Image(systemName: speechRecognizer.isRecording ? "mic.fill" : "mic")
+                        Image(systemName: speechRecognizer.isRecording ? "stop.fill" : "mic")
                             .font(.system(size: 32))
                             .foregroundColor(micColor)
                     }
                     .accessibilityLabel(speechRecognizer.isRecording ? "Stop" : "Tap to Talk")
-                    .disabled(!canRecord)
+                    .disabled(!speechRecognizer.isRecording && !canRecord)
                 }
             }
             .frame(height: 100)
@@ -143,6 +143,11 @@ struct SessionView: View {
             }
         }
         .onAppear(perform: setupView)
+        .onDisappear {
+            // Stop recording and audio when navigating away
+            speechRecognizer.stopRecording()
+            audioPlayer.stop()
+        }
         .onChange(of: webSocketManager.connectionState) { _, newState in
             // Retry sync when connection is established (for resumed sessions)
             if case .connected = newState, !session.isNewSession {
@@ -153,8 +158,9 @@ struct SessionView: View {
     }
 
     private var micColor: Color {
+        if speechRecognizer.isRecording { return .red }
         if !canRecord { return .gray }
-        return speechRecognizer.isRecording ? .red : .primary
+        return .primary
     }
 
     private var canRecord: Bool {

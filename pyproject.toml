@@ -8,10 +8,11 @@ version = "0.1.0"
 description = "Voice server for Claude Code iOS app"
 requires-python = ">=3.9"
 dependencies = [
-    "websockets",
-    "watchdog",
-    "qrcode",
-    "pydantic",
+    "websockets>=10.0",
+    "watchdog>=3.0",
+    "qrcode>=7.0",
+    "pydantic>=2.0",
+    "aiohttp>=3.9.0",
     # TTS (Kokoro)
     "kokoro>=0.3",
     "soundfile>=0.12",
@@ -19,7 +20,7 @@ dependencies = [
 ]
 
 [project.scripts]
-voice-server = "voice_server.ios_server:main"
+claude-connect = "voice_server.ios_server:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

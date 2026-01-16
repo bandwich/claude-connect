@@ -7,7 +7,7 @@ import os
 import subprocess
 
 # Import shared TTS utilities
-from tts_utils import generate_tts_audio, save_wav
+from voice_server.tts_utils import generate_tts_audio, save_wav
 
 LOG_FILE = '/tmp/voice_debug.log'
 

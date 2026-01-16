@@ -1,12 +1,7 @@
 import pytest
-import sys
-import os
 import time
 
-# Add voice_server directory to path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
-from content_models import TextBlock, ThinkingBlock, ToolUseBlock, AssistantResponse
+from voice_server.content_models import TextBlock, ThinkingBlock, ToolUseBlock, AssistantResponse
 
 
 def test_text_block_valid():

@@ -14,11 +14,7 @@ import base64
 from aiohttp import web
 import logging
 
-# Add paths
-sys.path.insert(0, '/Users/aaron/Desktop/max/.venv/lib/python3.9/site-packages')
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from tts_utils import samples_to_wav_bytes
+from voice_server.tts_utils import samples_to_wav_bytes
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from integration_tests.test_config import *

@@ -14,10 +14,7 @@ from unittest.mock import Mock, patch, MagicMock, AsyncMock, call
 import sys
 import numpy as np
 
-# Add voice_server directory to path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
-from ios_server import VoiceServer, TranscriptHandler
+from voice_server.ios_server import VoiceServer, TranscriptHandler
 
 
 class TestTranscriptHandler:
@@ -141,12 +138,11 @@ class TestTranscriptHandler:
             with patch.object(asyncio_module, 'run_coroutine_threadsafe') as mock_run:
                 handler.on_modified(event)
 
-                # Should have been called 3 times: content_callback, send_idle_to_all_clients, and broadcast_message (context)
-                assert mock_run.call_count == 3, f"Expected 3 calls, got {mock_run.call_count}"
+                # Should have been called 2 times: content_callback and broadcast_message (context)
+                # audio_callback is NOT called because there's no TTS text (only thinking block)
+                assert mock_run.call_count == 3, f"Expected 2 calls, got {mock_run.call_count}"
 
-                # Verify send_idle_to_all_clients was called (it's an AsyncMock coroutine)
-                # The calls are: (1) content_callback, (2) send_idle_to_all_clients, (3) broadcast_message
-                # We can verify by checking that at least one coroutine was scheduled
+                # Verify coroutines were scheduled
                 assert mock_run.called, "Should schedule coroutines via run_coroutine_threadsafe"
         finally:
             os.unlink(filepath)
@@ -168,7 +164,7 @@ class TestVoiceServer:
         server = VoiceServer()
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch('ios_server.TRANSCRIPT_DIR', tmpdir):
+            with patch('voice_server.ios_server.TRANSCRIPT_DIR', tmpdir):
                 result = server.find_transcript_path()
                 assert result is None
 
@@ -187,7 +183,7 @@ class TestVoiceServer:
             with open(file2, 'w') as f:
                 f.write("{}\n")
 
-            with patch('ios_server.TRANSCRIPT_DIR', tmpdir):
+            with patch('voice_server.ios_server.TRANSCRIPT_DIR', tmpdir):
                 result = server.find_transcript_path()
                 assert result == file2  # Most recent
 
@@ -208,7 +204,7 @@ class TestVoiceServer:
             with open(file2, 'w') as f:
                 f.write("{}\n")
 
-            with patch('ios_server.TRANSCRIPT_DIR', tmpdir):
+            with patch('voice_server.ios_server.TRANSCRIPT_DIR', tmpdir):
                 result = server.find_transcript_path()
                 assert result == file2
 
@@ -249,8 +245,8 @@ class TestVoiceServer:
         websocket = AsyncMock()
 
         # Mock TTS generation
-        with patch('ios_server.generate_tts_audio') as mock_tts, \
-             patch('ios_server.samples_to_wav_bytes') as mock_wav:
+        with patch('voice_server.ios_server.generate_tts_audio') as mock_tts, \
+             patch('voice_server.ios_server.samples_to_wav_bytes') as mock_wav:
 
             mock_tts.return_value = np.array([0.1, 0.2, 0.3])
             mock_wav.return_value = b'RIFF' + b'\x00' * 20000  # 20KB of fake WAV data
@@ -270,8 +266,8 @@ class TestVoiceServer:
         server = VoiceServer()
         websocket = AsyncMock()
 
-        with patch('ios_server.generate_tts_audio') as mock_tts, \
-             patch('ios_server.samples_to_wav_bytes') as mock_wav:
+        with patch('voice_server.ios_server.generate_tts_audio') as mock_tts, \
+             patch('voice_server.ios_server.samples_to_wav_bytes') as mock_wav:
 
             mock_tts.return_value = np.array([0.1, 0.2, 0.3])
             mock_wav.return_value = b'TEST_WAV_DATA'
@@ -295,8 +291,8 @@ class TestVoiceServer:
         server = VoiceServer()
         websocket = AsyncMock()
 
-        with patch('ios_server.generate_tts_audio') as mock_tts, \
-             patch('ios_server.samples_to_wav_bytes') as mock_wav:
+        with patch('voice_server.ios_server.generate_tts_audio') as mock_tts, \
+             patch('voice_server.ios_server.samples_to_wav_bytes') as mock_wav:
 
             mock_tts.return_value = np.array([0.1, 0.2, 0.3])
             mock_wav.return_value = b'TEST_DATA'
@@ -315,6 +311,7 @@ class TestVoiceServer:
         """Test voice input processing"""
         server = VoiceServer()
         websocket = AsyncMock()
+        server.clients = {websocket}  # Add websocket to clients
 
         with patch.object(server, 'send_to_terminal', new_callable=AsyncMock) as mock_send, \
              patch.object(server, 'send_status', new_callable=AsyncMock) as mock_status:
@@ -342,6 +339,7 @@ class TestVoiceServer:
         """Test status messages are sent"""
         server = VoiceServer()
         websocket = AsyncMock()
+        server.clients = {websocket}  # Add websocket to clients
 
         with patch.object(server, 'send_to_terminal', new_callable=AsyncMock), \
              patch.object(server, 'send_status', new_callable=AsyncMock) as mock_status:

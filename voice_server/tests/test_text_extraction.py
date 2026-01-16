@@ -1,9 +1,5 @@
-import sys
-import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-
-from content_models import TextBlock, ThinkingBlock, ToolUseBlock
-from ios_server import extract_text_for_tts
+from voice_server.content_models import TextBlock, ThinkingBlock, ToolUseBlock
+from voice_server.ios_server import extract_text_for_tts
 
 
 def test_extract_text_from_text_blocks():

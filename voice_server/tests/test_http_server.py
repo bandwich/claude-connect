@@ -8,10 +8,8 @@ from aiohttp.test_utils import AioHTTPTestCase, unittest_run_loop
 import sys
 import os
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
-from http_server import create_http_app
-from permission_handler import PermissionHandler
+from voice_server.http_server import create_http_app
+from voice_server.permission_handler import PermissionHandler
 
 
 class TestHTTPServer(AioHTTPTestCase):

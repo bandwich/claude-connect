@@ -9,10 +9,8 @@ import time
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-
 from watchdog.observers import Observer
-from ios_server import TranscriptHandler
+from voice_server.ios_server import TranscriptHandler
 
 
 class TestTranscriptHandlerRealFiles:

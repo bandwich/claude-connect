@@ -8,10 +8,7 @@ import sys
 import os
 import numpy as np
 
-sys.path.insert(0, '/Users/aaron/Desktop/max/.venv/lib/python3.9/site-packages')
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from tts_utils import save_wav
+from voice_server.tts_utils import save_wav
 
 def generate_test_audio():
     """Generate test audio file (6 seconds, 440Hz tone)"""

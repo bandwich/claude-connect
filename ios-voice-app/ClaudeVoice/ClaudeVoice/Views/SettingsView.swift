@@ -171,12 +171,7 @@ struct SettingsView: View {
                                 } else {
                                     HStack {
                                         Spacer()
-                                        if webSocketManager.isLoadingUsage {
-                                            ProgressView()
-                                        } else {
-                                            Text("Tap refresh to load usage")
-                                                .foregroundColor(.secondary)
-                                        }
+                                        ProgressView()
                                         Spacer()
                                     }
                                     .padding()
@@ -216,6 +211,12 @@ struct SettingsView: View {
             .onAppear {
                 // Auto-fetch usage when settings opens (if connected)
                 if case .connected = webSocketManager.connectionState {
+                    webSocketManager.requestUsage()
+                }
+            }
+            .onChange(of: webSocketManager.connectionState) { _, newState in
+                // Fetch usage when connection is established (e.g., after QR scan)
+                if case .connected = newState {
                     webSocketManager.requestUsage()
                 }
             }
