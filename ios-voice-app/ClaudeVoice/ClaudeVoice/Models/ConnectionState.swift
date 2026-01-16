@@ -14,8 +14,8 @@ enum ConnectionState: Equatable {
             return "Connecting..."
         case .connected:
             return "Connected"
-        case .error(let message):
-            return "Error: \(message)"
+        case .error:
+            return "Connection Error"
         }
     }
 }
