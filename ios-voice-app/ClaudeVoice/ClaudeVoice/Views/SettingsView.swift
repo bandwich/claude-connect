@@ -171,12 +171,7 @@ struct SettingsView: View {
                                 } else {
                                     HStack {
                                         Spacer()
-                                        if webSocketManager.isLoadingUsage {
-                                            ProgressView()
-                                        } else {
-                                            Text("Tap refresh to load usage")
-                                                .foregroundColor(.secondary)
-                                        }
+                                        ProgressView()
                                         Spacer()
                                     }
                                     .padding()
