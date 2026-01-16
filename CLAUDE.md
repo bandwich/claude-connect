@@ -2,20 +2,29 @@
 
 **MUST FOLLOW - NO EXCEPTIONS:**
 
-When running E2E tests or long-running commands:
-- Your ENTIRE response must be ONLY the Bash tool call
+When running ANY tests (server tests, E2E tests, unit tests) or long-running commands:
+- ALWAYS use `run_in_background: true` parameter
 - NO text before the tool call
 - NO text after the tool call
 - NO timeout parameter
-- NO piping through tee or other commands
-- Just the raw command
+- NO piping through head/tail/tee or other commands
+- Check results later with `tail /path/to/output_file`
 
 WRONG:
-> "Let me run the test now."
-> [tool call]
+```
+"Let me run the tests."
+[Bash command without run_in_background]
+```
+
+WRONG:
+```
+[Bash with: ./run_tests.sh 2>&1 | head -100]
+```
 
 RIGHT:
-> [tool call only, nothing else]
+```
+[Bash tool call ONLY with run_in_background: true, nothing else in response]
+```
 
 ---
 
