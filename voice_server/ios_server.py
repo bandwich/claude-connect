@@ -738,7 +738,7 @@ class VoiceServer:
         if cached:
             await websocket.send(json.dumps(cached))
 
-        # Fetch fresh in background
+        # Fetch fresh
         fresh = await self.usage_checker.check_usage()
         await websocket.send(json.dumps(fresh))
 

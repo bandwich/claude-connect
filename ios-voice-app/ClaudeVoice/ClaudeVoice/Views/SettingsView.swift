@@ -214,6 +214,12 @@ struct SettingsView: View {
                     webSocketManager.requestUsage()
                 }
             }
+            .onChange(of: webSocketManager.connectionState) { _, newState in
+                // Fetch usage when connection is established (e.g., after QR scan)
+                if case .connected = newState {
+                    webSocketManager.requestUsage()
+                }
+            }
         }
     }
 
