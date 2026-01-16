@@ -1,5 +1,4 @@
-# Claude Voice Mode
-claude code via iOS
+# Claude Code via iOS
 
 ## Installation
 
@@ -7,7 +6,7 @@ claude code via iOS
 
 ```bash
 # Clone repo
-git clone https://github.com/yourusername/claude-voice-mode.git
+git clone https://github.com/bandwich/claude-voice-mode.git
 cd claude-voice-mode
 
 # Create venv and install
