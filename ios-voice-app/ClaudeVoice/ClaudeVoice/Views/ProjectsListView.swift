@@ -81,19 +81,17 @@ struct ProjectsListView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .principal) {
-                HStack {
-                    Text("Projects")
-                        .font(.title2)
-                        .fontWeight(.medium)
-                    Spacer()
-                    Button(action: { showingSettings = true }) {
-                        Image(systemName: "gearshape.fill")
-                            .foregroundColor(.secondary)
-                    }
-                    .accessibilityIdentifier("settingsButton")
+            ToolbarItem(placement: .navigationBarLeading) {
+                Text("Projects")
+                    .font(.title2)
+                    .fontWeight(.medium)
+            }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(action: { showingSettings = true }) {
+                    Image(systemName: "gearshape.fill")
+                        .foregroundColor(.secondary)
                 }
-                .frame(maxWidth: .infinity)
+                .accessibilityIdentifier("settingsButton")
             }
         }
         .preferredColorScheme(.light)
