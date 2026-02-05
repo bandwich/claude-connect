@@ -50,7 +50,7 @@ private struct LeadingNavContent: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
-            .frame(maxWidth: 200, alignment: .leading)
+            .frame(alignment: .leading)
         }
         .padding(.bottom, 8)
     }
