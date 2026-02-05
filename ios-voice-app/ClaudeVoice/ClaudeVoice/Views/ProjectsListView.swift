@@ -79,20 +79,22 @@ struct ProjectsListView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
+        .navigationBarHidden(true)
+        .safeAreaInset(edge: .top) {
+            HStack {
                 Text("Projects")
                     .font(.title2)
                     .fontWeight(.medium)
-            }
-            ToolbarItem(placement: .navigationBarTrailing) {
+                Spacer()
                 Button(action: { showingSettings = true }) {
                     Image(systemName: "gearshape.fill")
                         .foregroundColor(.secondary)
                 }
                 .accessibilityIdentifier("settingsButton")
             }
+            .padding(.horizontal)
+            .padding(.vertical, 12)
+            .background(Color(.systemBackground))
         }
         .preferredColorScheme(.light)
         .sheet(isPresented: $showingSettings) {

@@ -10,49 +10,30 @@ struct CustomNavigationBarInline<TrailingContent: View>: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .navigationBarBackButtonHidden(true)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    LeadingNavContent(title: title, breadcrumb: breadcrumb, onBack: onBack)
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    VStack(spacing: 4) {
-                        trailingContent()
-                        Spacer()
-                            .frame(height: 20)
+            .navigationBarHidden(true)
+            .safeAreaInset(edge: .top) {
+                HStack(spacing: 8) {
+                    Button(action: onBack) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(.secondary)
                     }
-                    .padding(.bottom, 8)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(breadcrumb)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text(title)
+                            .font(.headline)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    Spacer()
+                    trailingContent()
                 }
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+                .background(Color(.systemBackground))
             }
-    }
-}
-
-// Extracted to prevent closure re-creation
-private struct LeadingNavContent: View {
-    let title: String
-    let breadcrumb: String
-    let onBack: () -> Void
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Button(action: onBack) {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(.secondary)
-            }
-            VStack(alignment: .leading, spacing: 4) {
-                Text(breadcrumb)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                Text(title)
-                    .font(.headline)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            .frame(alignment: .leading)
-        }
-        .padding(.bottom, 8)
     }
 }
 
@@ -65,32 +46,31 @@ struct CustomNavigationBarTrailing<TrailingContent: View>: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .navigationBarBackButtonHidden(true)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    HStack(spacing: 12) {
-                        Button(action: onBack) {
-                            Image(systemName: "chevron.left")
-                                .font(.system(size: 16, weight: .semibold))
+            .navigationBarHidden(true)
+            .safeAreaInset(edge: .top) {
+                HStack(spacing: 12) {
+                    Button(action: onBack) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(.secondary)
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        if let breadcrumb = breadcrumb {
+                            Text(breadcrumb)
+                                .font(.caption)
                                 .foregroundColor(.secondary)
                         }
-                        VStack(alignment: .leading, spacing: 4) {
-                            if let breadcrumb = breadcrumb {
-                                Text(breadcrumb)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                            Text(title)
-                                .font(.headline)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                        }
+                        Text(title)
+                            .font(.headline)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                     }
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
+                    Spacer()
                     trailingContent()
                 }
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+                .background(Color(.systemBackground))
             }
     }
 }
