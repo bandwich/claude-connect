@@ -128,17 +128,17 @@ cd ios-voice-app/ClaudeVoice && ./run_e2e_tests.sh E2EPermissionTests
 ```bash
 # Clean build (only required after adding new files)
 cd ios-voice-app/ClaudeVoice
-xcodebuild clean -scheme ClaudeVoice
+xcodebuild clean -target ClaudeVoice
 
 # Build for simulator
 xcodebuild build -scheme ClaudeVoice \
   -destination 'platform=iOS Simulator,name=iPhone 16'
 
-# Build and install on device
-xcodebuild -scheme ClaudeVoice -destination 'generic/platform=iOS' build && \
+# Build and install on device (use -target, not -scheme, for device builds)
+xcodebuild -target ClaudeVoice -sdk iphoneos build && \
 DEVICE=$(xcrun devicectl list devices 2>/dev/null | grep 'available (paired)' | awk '{print $3}') && \
 xcrun devicectl device install app --device "$DEVICE" \
-  ~/Library/Developer/Xcode/DerivedData/ClaudeVoice-*/Build/Products/Debug-iphoneos/ClaudeVoice.app
+  ios-voice-app/ClaudeVoice/build/Release-iphoneos/ClaudeVoice.app
 ```
 
 ### Debugging
