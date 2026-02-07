@@ -542,6 +542,129 @@ class TestReadFile:
             assert response["error"] == "binary_file"
 
     @pytest.mark.asyncio
+    async def test_read_file_returns_image_data_for_png(self):
+        """read_file should return base64-encoded image data for PNG files"""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = os.path.join(tmpdir, "test.png")
+            # Write minimal PNG bytes (1x1 red pixel)
+            import base64
+            png_bytes = base64.b64decode(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg=="
+            )
+            with open(file_path, "wb") as f:
+                f.write(png_bytes)
+
+            mock_ws = AsyncMock()
+            sent_messages = []
+            mock_ws.send = AsyncMock(side_effect=lambda msg: sent_messages.append(msg))
+
+            await server.handle_read_file(mock_ws, {"path": file_path})
+
+            response = json.loads(sent_messages[0])
+            assert response["type"] == "file_contents"
+            assert response["path"] == file_path
+            assert "image_data" in response
+            assert response["image_format"] == "png"
+            assert response["file_size"] == len(png_bytes)
+            # Should NOT have contents or error fields
+            assert "contents" not in response
+            assert "error" not in response
+
+    @pytest.mark.asyncio
+    async def test_read_file_returns_image_data_for_jpg(self):
+        """read_file should return base64-encoded image data for JPG files"""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = os.path.join(tmpdir, "photo.jpg")
+            with open(file_path, "wb") as f:
+                f.write(b'\xff\xd8\xff\xe0' + b'\x00' * 100)  # JPEG header + padding
+
+            mock_ws = AsyncMock()
+            sent_messages = []
+            mock_ws.send = AsyncMock(side_effect=lambda msg: sent_messages.append(msg))
+
+            await server.handle_read_file(mock_ws, {"path": file_path})
+
+            response = json.loads(sent_messages[0])
+            assert response["type"] == "file_contents"
+            assert "image_data" in response
+            assert response["image_format"] == "jpg"
+
+    @pytest.mark.asyncio
+    async def test_read_file_rejects_oversized_image(self):
+        """read_file should return error for images over 10MB"""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = os.path.join(tmpdir, "huge.png")
+            with open(file_path, "wb") as f:
+                f.write(b'\x00' * (11 * 1024 * 1024))  # 11MB
+
+            mock_ws = AsyncMock()
+            sent_messages = []
+            mock_ws.send = AsyncMock(side_effect=lambda msg: sent_messages.append(msg))
+
+            await server.handle_read_file(mock_ws, {"path": file_path})
+
+            response = json.loads(sent_messages[0])
+            assert response["type"] == "file_contents"
+            assert response["error"] == "file_too_large"
+            assert response["file_size"] == 11 * 1024 * 1024
+
+    @pytest.mark.asyncio
+    async def test_read_file_svg_returns_text(self):
+        """read_file should return SVG as text content (not image_data)"""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = os.path.join(tmpdir, "icon.svg")
+            with open(file_path, "w") as f:
+                f.write('<svg xmlns="http://www.w3.org/2000/svg"><circle r="10"/></svg>')
+
+            mock_ws = AsyncMock()
+            sent_messages = []
+            mock_ws.send = AsyncMock(side_effect=lambda msg: sent_messages.append(msg))
+
+            await server.handle_read_file(mock_ws, {"path": file_path})
+
+            response = json.loads(sent_messages[0])
+            assert response["type"] == "file_contents"
+            assert "contents" in response
+            assert "image_data" not in response
+
+    @pytest.mark.asyncio
+    async def test_read_file_non_image_binary_still_returns_error(self):
+        """read_file should still return binary_file error for non-image binary files"""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = os.path.join(tmpdir, "data.bin")
+            with open(file_path, "wb") as f:
+                f.write(bytes([0x00, 0x01, 0xFF, 0xFE]))
+
+            mock_ws = AsyncMock()
+            sent_messages = []
+            mock_ws.send = AsyncMock(side_effect=lambda msg: sent_messages.append(msg))
+
+            await server.handle_read_file(mock_ws, {"path": file_path})
+
+            response = json.loads(sent_messages[0])
+            assert response["error"] == "binary_file"
+
+    @pytest.mark.asyncio
     async def test_read_file_message_routing(self):
         """read_file message type should route to handler"""
         from ios_server import VoiceServer
