@@ -21,7 +21,7 @@ from typing import Optional
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from voice_server.tts_utils import generate_tts_audio, samples_to_wav_bytes
-from voice_server.content_models import TextBlock, ThinkingBlock, ToolUseBlock, ContentBlock, AssistantResponse
+from voice_server.content_models import TextBlock, ThinkingBlock, ToolUseBlock, ToolResultBlock, ContentBlock, AssistantResponse
 from voice_server.session_manager import SessionManager
 from voice_server.context_tracker import ContextTracker
 from voice_server.usage_checker import UsageChecker
@@ -120,7 +120,7 @@ class TranscriptHandler(FileSystemEventHandler):
             traceback.print_exc()
 
     def extract_new_assistant_content(self, filepath) -> list[ContentBlock]:
-        """Extract assistant content from lines not yet processed"""
+        """Extract assistant content and tool results from lines not yet processed"""
         all_blocks = []
 
         with open(filepath, 'r') as f:
@@ -156,6 +156,22 @@ class TranscriptHandler(FileSystemEventHandler):
                                         all_blocks.append(ToolUseBlock(**block))
                                 except Exception:
                                     continue
+
+                elif role == 'user':
+                    content = msg.get('content', entry.get('content', ''))
+                    if isinstance(content, list):
+                        for block in content:
+                            if isinstance(block, dict) and block.get('type') == 'tool_result':
+                                try:
+                                    all_blocks.append(ToolResultBlock(
+                                        type="tool_result",
+                                        tool_use_id=block.get('tool_use_id', ''),
+                                        content=block.get('content', '') if isinstance(block.get('content', ''), str) else str(block.get('content', '')),
+                                        is_error=block.get('is_error', False)
+                                    ))
+                                except Exception:
+                                    continue
+
             except json.JSONDecodeError:
                 continue
 
