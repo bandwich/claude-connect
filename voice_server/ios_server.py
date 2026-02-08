@@ -500,7 +500,8 @@ class VoiceServer:
                 {
                     "role": m.role,
                     "content": m.content,
-                    "timestamp": m.timestamp
+                    "timestamp": m.timestamp,
+                    **({"content_blocks": m.content_blocks} if m.content_blocks else {})
                 }
                 for m in messages
             ]

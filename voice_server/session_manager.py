@@ -31,6 +31,7 @@ class SessionMessage:
     role: str
     content: str
     timestamp: float
+    content_blocks: list = None  # Raw block dicts for structured messages
 
 
 class SessionManager:
@@ -243,7 +244,7 @@ class SessionManager:
         return title, message_count, last_timestamp
 
     def get_session_history(self, folder_name: str, session_id: str) -> list[SessionMessage]:
-        """Get all messages from a session
+        """Get all messages from a session with structured content blocks.
 
         Args:
             folder_name: The actual folder name in projects_dir (not encoded path)
@@ -268,34 +269,73 @@ class SessionManager:
 
                     content = msg.get('content', entry.get('content', ''))
 
-                    # Flatten assistant content blocks to text
-                    if isinstance(content, list):
-                        text_parts = []
-                        for block in content:
-                            if isinstance(block, dict) and block.get('type') == 'text':
-                                text_parts.append(block.get('text', ''))
-                        content = ' '.join(text_parts)
-
-                    # Skip empty messages (thinking-only, tool_use, tool_result, etc.)
-                    if not content or not content.strip():
-                        continue
-
-                    # Skip skill expansions (injected by Claude Code, not actual user input)
-                    if role == 'user' and content.strip().startswith('Base directory for this skill:'):
-                        continue
-
                     timestamp_str = entry.get('timestamp', '')
                     try:
                         from datetime import datetime
                         timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00')).timestamp()
-                    except:
+                    except Exception:
                         timestamp = 0.0
 
-                    messages.append(SessionMessage(
-                        role=role,
-                        content=content,
-                        timestamp=timestamp
-                    ))
+                    if isinstance(content, list):
+                        # Check if this is a tool_result message
+                        has_tool_result = any(
+                            isinstance(b, dict) and b.get('type') == 'tool_result'
+                            for b in content
+                        )
+
+                        if has_tool_result:
+                            # Emit each tool_result as a separate message
+                            for block in content:
+                                if isinstance(block, dict) and block.get('type') == 'tool_result':
+                                    messages.append(SessionMessage(
+                                        role="tool_result",
+                                        content=block.get('content', '') if isinstance(block.get('content', ''), str) else str(block.get('content', '')),
+                                        timestamp=timestamp,
+                                        content_blocks=[block]
+                                    ))
+                            continue
+
+                        # Assistant message with structured blocks
+                        text_parts = []
+                        for block in content:
+                            if isinstance(block, dict) and block.get('type') == 'text':
+                                text_parts.append(block.get('text', ''))
+                        flat_content = ' '.join(text_parts)
+
+                        # Check if there are non-text blocks worth keeping
+                        has_tool_use = any(
+                            isinstance(b, dict) and b.get('type') == 'tool_use'
+                            for b in content
+                        )
+
+                        if not flat_content and not has_tool_use:
+                            continue  # Skip thinking-only messages
+
+                        # Skip skill expansions
+                        if role == 'user' and flat_content.strip().startswith('Base directory for this skill:'):
+                            continue
+
+                        messages.append(SessionMessage(
+                            role=role,
+                            content=flat_content,
+                            timestamp=timestamp,
+                            content_blocks=content if has_tool_use else None
+                        ))
+                    else:
+                        # Simple string content
+                        if not content or not content.strip():
+                            continue
+
+                        # Skip skill expansions
+                        if role == 'user' and content.strip().startswith('Base directory for this skill:'):
+                            continue
+
+                        messages.append(SessionMessage(
+                            role=role,
+                            content=content,
+                            timestamp=timestamp,
+                            content_blocks=None
+                        ))
                 except json.JSONDecodeError:
                     continue
 
