@@ -189,8 +189,15 @@ struct SessionView: View {
 
         // Load message history and sync (skip for new sessions - no history yet)
         if !session.isNewSession {
-            webSocketManager.onSessionHistoryReceived = { messages in
-                self.messages = messages
+            webSocketManager.onSessionHistoryReceived = { richMessages in
+                self.messages = richMessages.compactMap { msg in
+                    guard msg.role != "tool_result" else { return nil }
+                    return SessionHistoryMessage(
+                        role: msg.role,
+                        content: msg.content,
+                        timestamp: msg.timestamp
+                    )
+                }
             }
             webSocketManager.requestSessionHistory(folderName: project.folderName, sessionId: session.id)
 
@@ -281,6 +288,8 @@ struct SessionView: View {
                 case .thinking:
                     break
                 case .toolUse:
+                    break
+                case .toolResult:
                     break
                 }
             }

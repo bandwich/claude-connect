@@ -71,12 +71,27 @@ struct ToolUseBlock: Codable {
     let input: [String: AnyCodable]
 }
 
+struct ToolResultBlock: Codable {
+    let type: String
+    let toolUseId: String
+    let content: String
+    let isError: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case toolUseId = "tool_use_id"
+        case content
+        case isError = "is_error"
+    }
+}
+
 // MARK: - Content Block Enum
 
 enum ContentBlock: Codable {
     case text(TextBlock)
     case thinking(ThinkingBlock)
     case toolUse(ToolUseBlock)
+    case toolResult(ToolResultBlock)
 
     enum CodingKeys: String, CodingKey {
         case type
@@ -93,6 +108,8 @@ enum ContentBlock: Codable {
             self = .thinking(try ThinkingBlock(from: decoder))
         case "tool_use":
             self = .toolUse(try ToolUseBlock(from: decoder))
+        case "tool_result":
+            self = .toolResult(try ToolResultBlock(from: decoder))
         default:
             throw DecodingError.dataCorrupted(
                 DecodingError.Context(
@@ -110,6 +127,8 @@ enum ContentBlock: Codable {
         case .thinking(let block):
             try block.encode(to: encoder)
         case .toolUse(let block):
+            try block.encode(to: encoder)
+        case .toolResult(let block):
             try block.encode(to: encoder)
         }
     }
