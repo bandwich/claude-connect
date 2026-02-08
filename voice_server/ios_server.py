@@ -4,6 +4,9 @@ iOS Voice Mode Server
 WebSocket server that bridges iOS app with Claude Code
 """
 
+import sys
+sys.dont_write_bytecode = True
+
 import asyncio
 import websockets
 import json
@@ -882,7 +885,7 @@ class VoiceServer:
         else:
             print(f"WARNING: Could not detect local IP. Server running on port {PORT}")
 
-        async with websockets.serve(self.handle_client, "0.0.0.0", PORT):
+        async with websockets.serve(self.handle_client, "0.0.0.0", PORT, max_size=20 * 1024 * 1024):
             await asyncio.Future()
 
 

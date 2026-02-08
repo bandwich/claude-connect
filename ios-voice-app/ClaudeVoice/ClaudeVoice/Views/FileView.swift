@@ -13,7 +13,6 @@ struct FileView: View {
     @State private var error: String?
     @State private var fileSize: Int?
     @State private var isLoading = true
-    @State private var imageScale: CGFloat = 1.0
 
     var fileName: String {
         (filePath as NSString).lastPathComponent
@@ -38,29 +37,11 @@ struct FileView: View {
                 .padding()
                 Spacer()
             } else if let imageData = imageData, let uiImage = UIImage(data: imageData) {
-                GeometryReader { geometry in
-                    ScrollView([.horizontal, .vertical]) {
-                        Image(uiImage: uiImage)
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .scaleEffect(imageScale)
-                            .frame(
-                                width: geometry.size.width * imageScale,
-                                height: (geometry.size.width * imageScale) * (uiImage.size.height / uiImage.size.width)
-                            )
-                            .gesture(
-                                MagnificationGesture()
-                                    .onChanged { value in
-                                        imageScale = max(0.5, min(value, 5.0))
-                                    }
-                            )
-                            .onTapGesture(count: 2) {
-                                withAnimation {
-                                    imageScale = imageScale > 1.0 ? 1.0 : 2.0
-                                }
-                            }
-                    }
-                }
+                Image(uiImage: uiImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding()
             } else if let contents = contents {
                 GeometryReader { geometry in
                     ScrollView([.horizontal, .vertical]) {
@@ -81,6 +62,7 @@ struct FileView: View {
         ) {
             EmptyView()
         }
+        .enableSwipeBack()
         .onAppear {
             loadFile()
         }
