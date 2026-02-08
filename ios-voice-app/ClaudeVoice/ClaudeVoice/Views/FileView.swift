@@ -1,13 +1,17 @@
 // ios-voice-app/ClaudeVoice/ClaudeVoice/Views/FileView.swift
 import SwiftUI
 
+private let imageCache = NSCache<NSString, NSData>()
+
 struct FileView: View {
     @ObservedObject var webSocketManager: WebSocketManager
     let filePath: String
     @Binding var selectedFilePathBinding: String?
 
     @State private var contents: String?
+    @State private var imageData: Data?
     @State private var error: String?
+    @State private var fileSize: Int?
     @State private var isLoading = true
 
     var fileName: String {
@@ -16,7 +20,6 @@ struct FileView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // File content
             if isLoading {
                 Spacer()
                 ProgressView("Loading...")
@@ -24,13 +27,21 @@ struct FileView: View {
             } else if let error = error {
                 Spacer()
                 VStack(spacing: 12) {
-                    Image(systemName: "doc.questionmark")
+                    Image(systemName: errorIcon)
                         .font(.system(size: 48))
                         .foregroundColor(.secondary)
-                    Text(error == "binary_file" ? "Cannot view contents" : "Error: \(error)")
+                    Text(errorMessage)
                         .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
                 }
+                .padding()
                 Spacer()
+            } else if let imageData = imageData, let uiImage = UIImage(data: imageData) {
+                Image(uiImage: uiImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding()
             } else if let contents = contents {
                 GeometryReader { geometry in
                     ScrollView([.horizontal, .vertical]) {
@@ -51,18 +62,57 @@ struct FileView: View {
         ) {
             EmptyView()
         }
+        .enableSwipeBack()
         .onAppear {
             loadFile()
         }
     }
 
+    private var errorIcon: String {
+        switch error {
+        case "file_too_large": return "exclamationmark.triangle"
+        case "binary_file": return "doc.questionmark"
+        default: return "doc.questionmark"
+        }
+    }
+
+    private var errorMessage: String {
+        switch error {
+        case "file_too_large":
+            let mb = (fileSize ?? 0) / (1024 * 1024)
+            return "File too large to preview (\(mb) MB)"
+        case "binary_file":
+            return "Cannot view contents"
+        default:
+            return "Error: \(error ?? "Unknown")"
+        }
+    }
+
     private func loadFile() {
+        // Check NSCache first
+        let cacheKey = filePath as NSString
+        if let cachedData = imageCache.object(forKey: cacheKey) {
+            self.imageData = cachedData as Data
+            self.isLoading = false
+            return
+        }
+
+        requestFromServer()
+    }
+
+    private func requestFromServer() {
         webSocketManager.onFileContents = { response in
             guard response.path == filePath else { return }
             isLoading = false
 
             if let err = response.error {
                 error = err
+                fileSize = response.fileSize
+            } else if let base64String = response.imageData,
+                      let data = Data(base64Encoded: base64String) {
+                imageData = data
+                // Cache the image data
+                imageCache.setObject(data as NSData, forKey: filePath as NSString)
             } else {
                 contents = response.contents
             }
@@ -82,14 +132,12 @@ struct FileContentView: View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(lines, id: \.number) { line in
                 HStack(alignment: .top, spacing: 0) {
-                    // Line number
                     Text("\(line.number)")
                         .font(.system(.caption, design: .monospaced))
                         .foregroundColor(.secondary)
                         .frame(width: 40, alignment: .trailing)
                         .padding(.trailing, 8)
 
-                    // Line content
                     Text(line.text.isEmpty ? " " : line.text)
                         .font(.system(.caption, design: .monospaced))
                         .foregroundColor(.primary)

@@ -4,6 +4,9 @@ iOS Voice Mode Server
 WebSocket server that bridges iOS app with Claude Code
 """
 
+import sys
+sys.dont_write_bytecode = True
+
 import asyncio
 import websockets
 import json
@@ -30,6 +33,8 @@ from voice_server.http_server import start_http_server, set_tmux_controller, set
 PORT = 8765
 TRANSCRIPT_DIR = os.path.expanduser("~/.claude/projects/")
 PROJECTS_BASE_PATH = os.path.expanduser("~/Desktop/code")
+IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.ico'}
+MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10MB
 
 
 def extract_text_for_tts(content_blocks: list[ContentBlock]) -> str:
@@ -625,7 +630,7 @@ class VoiceServer:
         await websocket.send(json.dumps(response))
 
     async def handle_read_file(self, websocket, data):
-        """Handle read_file request - returns file contents as text"""
+        """Handle read_file request - returns file contents as text, or base64 for images"""
         path = data.get("path", "")
 
         if not path or not os.path.isfile(path):
@@ -637,6 +642,32 @@ class VoiceServer:
             await websocket.send(json.dumps(response))
             return
 
+        ext = os.path.splitext(path)[1].lower()
+
+        # Image files: base64-encode (except SVG which is text)
+        if ext in IMAGE_EXTENSIONS:
+            file_size = os.path.getsize(path)
+            if file_size > MAX_IMAGE_SIZE:
+                response = {
+                    "type": "file_contents",
+                    "path": path,
+                    "error": "file_too_large",
+                    "file_size": file_size
+                }
+            else:
+                with open(path, 'rb') as f:
+                    image_bytes = f.read()
+                response = {
+                    "type": "file_contents",
+                    "path": path,
+                    "image_data": base64.b64encode(image_bytes).decode('utf-8'),
+                    "image_format": ext.lstrip('.'),
+                    "file_size": file_size
+                }
+            await websocket.send(json.dumps(response))
+            return
+
+        # Text files: read as UTF-8
         try:
             with open(path, 'r', encoding='utf-8') as f:
                 contents = f.read()
@@ -854,7 +885,7 @@ class VoiceServer:
         else:
             print(f"WARNING: Could not detect local IP. Server running on port {PORT}")
 
-        async with websockets.serve(self.handle_client, "0.0.0.0", PORT):
+        async with websockets.serve(self.handle_client, "0.0.0.0", PORT, max_size=20 * 1024 * 1024):
             await asyncio.Future()
 
 

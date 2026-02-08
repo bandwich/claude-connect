@@ -21,4 +21,14 @@ struct FileContentsResponse: Codable {
     let path: String
     let contents: String?
     let error: String?
+    let imageData: String?     // base64-encoded image bytes
+    let imageFormat: String?   // "png", "jpg", etc.
+    let fileSize: Int?         // file size in bytes
+
+    enum CodingKeys: String, CodingKey {
+        case type, path, contents, error
+        case imageData = "image_data"
+        case imageFormat = "image_format"
+        case fileSize = "file_size"
+    }
 }

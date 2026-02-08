@@ -90,15 +90,16 @@ tests/e2e_support/            # E2E test utilities
 ### Running
 
 ```bash
-# Option 1: Direct Python
-source .venv/bin/activate
-python3 voice_server/ios_server.py
-
-# Option 2: Installed command (after pip install -e .)
+# Global command (installed via pipx)
 claude-connect
 ```
 
 Server displays QR code on startup for iOS app to scan.
+
+**After changing server code**, reinstall so `claude-connect` picks up changes:
+```bash
+pipx install --force /Users/aaron/Desktop/max
+```
 
 ### Testing
 
@@ -135,9 +136,12 @@ xcodebuild build -scheme ClaudeVoice \
   -destination 'platform=iOS Simulator,name=iPhone 16'
 
 # Build and install on device (use -target, not -scheme, for device builds)
-xcodebuild -target ClaudeVoice -sdk iphoneos build && \
-DEVICE=$(xcrun devicectl list devices 2>/dev/null | grep 'available (paired)' | awk '{print $3}') && \
-xcrun devicectl device install app --device "$DEVICE" \
+# Step 1: Build
+xcodebuild -target ClaudeVoice -sdk iphoneos build
+# Step 2: List devices, read the device ID from output
+xcrun devicectl list devices
+# Step 3: Install using the device ID from step 2
+xcrun devicectl device install app --device "<DEVICE_ID>" \
   ios-voice-app/ClaudeVoice/build/Release-iphoneos/ClaudeVoice.app
 ```
 
