@@ -287,11 +287,29 @@ class SessionManager:
                             # Emit each tool_result as a separate message
                             for block in content:
                                 if isinstance(block, dict) and block.get('type') == 'tool_result':
+                                    raw_content = block.get('content', '')
+                                    # Normalize content to string (can be a list of text blocks)
+                                    if isinstance(raw_content, list):
+                                        str_content = '\n'.join(
+                                            b.get('text', '') for b in raw_content
+                                            if isinstance(b, dict) and b.get('type') == 'text'
+                                        )
+                                    elif isinstance(raw_content, str):
+                                        str_content = raw_content
+                                    else:
+                                        str_content = str(raw_content)
+                                    # Build normalized block for iOS decoding
+                                    normalized_block = {
+                                        'type': 'tool_result',
+                                        'tool_use_id': block.get('tool_use_id', ''),
+                                        'content': str_content,
+                                        'is_error': block.get('is_error', False),
+                                    }
                                     messages.append(SessionMessage(
                                         role="tool_result",
-                                        content=block.get('content', '') if isinstance(block.get('content', ''), str) else str(block.get('content', '')),
+                                        content=str_content,
                                         timestamp=timestamp,
-                                        content_blocks=[block]
+                                        content_blocks=[normalized_block]
                                     ))
                             continue
 
