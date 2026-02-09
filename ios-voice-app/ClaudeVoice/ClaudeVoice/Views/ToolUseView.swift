@@ -27,7 +27,7 @@ struct ToolUseView: View {
                     Button {
                         withAnimation { isExpanded.toggle() }
                     } label: {
-                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }

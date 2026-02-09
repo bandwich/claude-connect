@@ -150,7 +150,10 @@ class TranscriptHandler(FileSystemEventHandler):
                                 block_type = block.get('type')
                                 try:
                                     if block_type == 'text':
-                                        all_blocks.append(TextBlock(**block))
+                                        text = block.get('text', '').strip()
+                                        if not text:
+                                            continue
+                                        all_blocks.append(TextBlock(type="text", text=text))
                                     elif block_type == 'thinking':
                                         all_blocks.append(ThinkingBlock(**block))
                                     elif block_type == 'tool_use':
