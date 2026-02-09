@@ -34,6 +34,10 @@ class SessionMessage:
     content_blocks: list = None  # Raw block dicts for structured messages
 
 
+# Internal tool names that are bookkeeping, not shown in terminal UI
+HIDDEN_TOOLS = {'TaskCreate', 'TaskUpdate', 'TaskGet', 'TaskList', 'TaskStop'}
+
+
 class SessionManager:
     """Manages reading Claude Code projects and sessions from disk"""
 
@@ -256,6 +260,7 @@ class SessionManager:
             return []
 
         messages = []
+        hidden_tool_ids = set()  # Track tool_use IDs for hidden tools
 
         with open(filepath, 'r') as f:
             for line in f:
@@ -284,9 +289,12 @@ class SessionManager:
                         )
 
                         if has_tool_result:
-                            # Emit each tool_result as a separate message
+                            # Emit each tool_result as a separate message (skip hidden tools)
                             for block in content:
                                 if isinstance(block, dict) and block.get('type') == 'tool_result':
+                                    # Skip results for hidden tools
+                                    if block.get('tool_use_id', '') in hidden_tool_ids:
+                                        continue
                                     raw_content = block.get('content', '')
                                     # Normalize content to string (can be a list of text blocks)
                                     if isinstance(raw_content, list):
@@ -312,6 +320,17 @@ class SessionManager:
                                         content_blocks=[normalized_block]
                                     ))
                             continue
+
+                        # Track and filter hidden tool_use blocks
+                        for block in content:
+                            if isinstance(block, dict) and block.get('type') == 'tool_use':
+                                if block.get('name', '') in HIDDEN_TOOLS:
+                                    hidden_tool_ids.add(block.get('id', ''))
+                        content = [
+                            b for b in content
+                            if not (isinstance(b, dict) and b.get('type') == 'tool_use'
+                                    and b.get('name', '') in HIDDEN_TOOLS)
+                        ]
 
                         # Assistant message with structured blocks
                         text_parts = []

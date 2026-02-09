@@ -22,7 +22,7 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from voice_server.tts_utils import generate_tts_audio, samples_to_wav_bytes
 from voice_server.content_models import TextBlock, ThinkingBlock, ToolUseBlock, ToolResultBlock, ContentBlock, AssistantResponse
-from voice_server.session_manager import SessionManager
+from voice_server.session_manager import SessionManager, HIDDEN_TOOLS
 from voice_server.context_tracker import ContextTracker
 from voice_server.usage_checker import UsageChecker
 from voice_server.tmux_controller import TmuxController
@@ -65,6 +65,7 @@ class TranscriptHandler(FileSystemEventHandler):
         self.processed_line_count = 0
         self.expected_session_file = None  # Only process events from this file
         self.context_tracker = ContextTracker()
+        self.hidden_tool_ids = set()  # Track IDs of hidden tool_use blocks
 
     def on_modified(self, event):
         if event.is_directory or not event.src_path.endswith('.jsonl'):
@@ -153,6 +154,9 @@ class TranscriptHandler(FileSystemEventHandler):
                                     elif block_type == 'thinking':
                                         all_blocks.append(ThinkingBlock(**block))
                                     elif block_type == 'tool_use':
+                                        if block.get('name', '') in HIDDEN_TOOLS:
+                                            self.hidden_tool_ids.add(block.get('id', ''))
+                                            continue
                                         all_blocks.append(ToolUseBlock(**block))
                                 except Exception:
                                     continue
@@ -162,6 +166,8 @@ class TranscriptHandler(FileSystemEventHandler):
                     if isinstance(content, list):
                         for block in content:
                             if isinstance(block, dict) and block.get('type') == 'tool_result':
+                                if block.get('tool_use_id', '') in self.hidden_tool_ids:
+                                    continue
                                 try:
                                     all_blocks.append(ToolResultBlock(
                                         type="tool_result",
@@ -200,6 +206,7 @@ class TranscriptHandler(FileSystemEventHandler):
         number of lines in the file, so only NEW content triggers callbacks.
         """
         self.expected_session_file = file_path
+        self.hidden_tool_ids = set()  # Reset on session switch
         if file_path and os.path.exists(file_path):
             with open(file_path, 'r') as f:
                 self.processed_line_count = sum(1 for _ in f)
