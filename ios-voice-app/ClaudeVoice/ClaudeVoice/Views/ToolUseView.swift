@@ -173,7 +173,15 @@ struct ToolUseView: View {
         case "Bash":
             return stringInput("command")
         case "Read":
-            return stringInput("file_path")
+            guard let path = stringInput("file_path") else { return nil }
+            let filename = (path as NSString).lastPathComponent
+            if let offset = tool.input["offset"]?.value as? Int,
+               let limit = tool.input["limit"]?.value as? Int {
+                return "\(filename):\(offset)-\(offset + limit - 1)"
+            } else if let offset = tool.input["offset"]?.value as? Int {
+                return "\(filename):\(offset)+"
+            }
+            return filename
         case "Edit":
             return stringInput("file_path")
         case "Write":
@@ -188,7 +196,9 @@ struct ToolUseView: View {
         case "Glob":
             return stringInput("pattern")
         case "Task":
-            return stringInput("prompt") ?? stringInput("description")
+            let agentType = stringInput("subagent_type") ?? "Agent"
+            let desc = stringInput("description") ?? ""
+            return desc.isEmpty ? agentType : "\(agentType): \(desc)"
         case "TaskOutput":
             return stringInput("task_id")
         default:
