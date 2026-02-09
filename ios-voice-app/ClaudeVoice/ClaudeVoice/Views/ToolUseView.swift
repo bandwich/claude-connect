@@ -17,6 +17,7 @@ struct ToolUseView: View {
 
     /// Whether the result content has more lines than maxPreviewLines
     private var resultHasTruncatableContent: Bool {
+        guard !shouldHideResult else { return false }
         guard let result = result else { return false }
         let content = displayContent(for: result)
         return content.components(separatedBy: "\n").count > maxPreviewLines
