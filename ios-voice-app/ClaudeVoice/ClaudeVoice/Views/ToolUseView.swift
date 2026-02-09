@@ -11,6 +11,10 @@ struct ToolUseView: View {
         tool.name == "TaskOutput"
     }
 
+    private var shouldHideResult: Bool {
+        ["Task", "Read", "Grep", "Glob"].contains(tool.name)
+    }
+
     /// Whether the result content has more lines than maxPreviewLines
     private var resultHasTruncatableContent: Bool {
         guard let result = result else { return false }
@@ -56,7 +60,28 @@ struct ToolUseView: View {
             }
 
             // Tool result
-            if let result = result {
+            if shouldHideResult {
+                if result != nil {
+                    HStack(spacing: 4) {
+                        Image(systemName: "checkmark")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        Text("Done")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.top, 2)
+                } else {
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .scaleEffect(0.7)
+                        Text("Running...")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(8)
+                }
+            } else if let result = result {
                 resultView(result)
             } else {
                 // Pending result
