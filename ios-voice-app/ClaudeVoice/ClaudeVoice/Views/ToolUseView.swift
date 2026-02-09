@@ -11,9 +11,16 @@ struct ToolUseView: View {
         tool.name == "TaskOutput"
     }
 
+    /// Whether the result content has more lines than maxPreviewLines
+    private var resultHasTruncatableContent: Bool {
+        guard let result = result else { return false }
+        let content = displayContent(for: result)
+        return content.components(separatedBy: "\n").count > maxPreviewLines
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header: icon + tool name + chevron for TaskOutput
+            // Header: icon + tool name + chevron for expand/collapse
             HStack(spacing: 6) {
                 Image(systemName: toolIcon)
                     .font(.caption)
@@ -22,7 +29,7 @@ struct ToolUseView: View {
                     .font(.caption.bold())
                     .foregroundColor(.secondary)
 
-                if isTaskOutput, result != nil {
+                if resultHasTruncatableContent {
                     Spacer()
                     Button {
                         withAnimation { isExpanded.toggle() }
