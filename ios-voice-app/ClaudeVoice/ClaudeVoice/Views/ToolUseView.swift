@@ -11,8 +11,13 @@ struct ToolUseView: View {
         tool.name == "TaskOutput"
     }
 
+    private var shouldHideResult: Bool {
+        ["Task", "Read", "Grep", "Glob"].contains(tool.name)
+    }
+
     /// Whether the result content has more lines than maxPreviewLines
     private var resultHasTruncatableContent: Bool {
+        guard !shouldHideResult else { return false }
         guard let result = result else { return false }
         let content = displayContent(for: result)
         return content.components(separatedBy: "\n").count > maxPreviewLines
@@ -56,7 +61,28 @@ struct ToolUseView: View {
             }
 
             // Tool result
-            if let result = result {
+            if shouldHideResult {
+                if result != nil {
+                    HStack(spacing: 4) {
+                        Image(systemName: "checkmark")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        Text("Done")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.top, 2)
+                } else {
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .scaleEffect(0.7)
+                        Text("Running...")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(8)
+                }
+            } else if let result = result {
                 resultView(result)
             } else {
                 // Pending result
@@ -173,7 +199,15 @@ struct ToolUseView: View {
         case "Bash":
             return stringInput("command")
         case "Read":
-            return stringInput("file_path")
+            guard let path = stringInput("file_path") else { return nil }
+            let filename = (path as NSString).lastPathComponent
+            if let offset = tool.input["offset"]?.value as? Int,
+               let limit = tool.input["limit"]?.value as? Int {
+                return "\(filename):\(offset)-\(offset + limit - 1)"
+            } else if let offset = tool.input["offset"]?.value as? Int {
+                return "\(filename):\(offset)+"
+            }
+            return filename
         case "Edit":
             return stringInput("file_path")
         case "Write":
@@ -188,7 +222,9 @@ struct ToolUseView: View {
         case "Glob":
             return stringInput("pattern")
         case "Task":
-            return stringInput("prompt") ?? stringInput("description")
+            let agentType = stringInput("subagent_type") ?? "Agent"
+            let desc = stringInput("description") ?? ""
+            return desc.isEmpty ? agentType : "\(agentType): \(desc)"
         case "TaskOutput":
             return stringInput("task_id")
         default:

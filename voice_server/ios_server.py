@@ -172,10 +172,20 @@ class TranscriptHandler(FileSystemEventHandler):
                                 if block.get('tool_use_id', '') in self.hidden_tool_ids:
                                     continue
                                 try:
+                                    raw_content = block.get('content', '')
+                                    if isinstance(raw_content, str):
+                                        content_str = raw_content
+                                    elif isinstance(raw_content, list):
+                                        content_str = '\n'.join(
+                                            b.get('text', '') for b in raw_content
+                                            if isinstance(b, dict) and b.get('type') == 'text'
+                                        )
+                                    else:
+                                        content_str = str(raw_content)
                                     all_blocks.append(ToolResultBlock(
                                         type="tool_result",
                                         tool_use_id=block.get('tool_use_id', ''),
-                                        content=block.get('content', '') if isinstance(block.get('content', ''), str) else str(block.get('content', '')),
+                                        content=content_str,
                                         is_error=block.get('is_error', False)
                                     ))
                                 except Exception:

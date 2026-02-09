@@ -292,3 +292,46 @@ def test_extract_skips_non_tool_result_user_messages():
         assert isinstance(blocks[0], TextBlock)
     finally:
         os.unlink(temp_path)
+
+
+def test_extract_tool_result_with_list_content():
+    """tool_result with list content should join text blocks, not str() the list"""
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
+        f.write(json.dumps({
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {"type": "tool_use", "id": "toolu_01XYZ", "name": "Task", "input": {"prompt": "do stuff"}}
+                ]
+            }
+        }) + "\n")
+        f.write(json.dumps({
+            "message": {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "toolu_01XYZ",
+                        "content": [
+                            {"type": "text", "text": "First part of result."},
+                            {"type": "text", "text": "Second part of result."}
+                        ]
+                    }
+                ]
+            }
+        }) + "\n")
+        temp_path = f.name
+
+    try:
+        mock_server = type('obj', (), {'last_voice_input': 'test'})()
+        handler = TranscriptHandler(None, None, None, mock_server)
+
+        blocks = handler.extract_new_assistant_content(temp_path)
+        assert len(blocks) == 2
+        result_block = blocks[1]
+        assert isinstance(result_block, ToolResultBlock)
+        # Should be joined text, not "[{'type': 'text', ..."
+        assert result_block.content == "First part of result.\nSecond part of result."
+        assert "[{" not in result_block.content
+    finally:
+        os.unlink(temp_path)

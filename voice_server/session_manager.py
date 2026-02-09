@@ -336,8 +336,8 @@ class SessionManager:
                         text_parts = []
                         for block in content:
                             if isinstance(block, dict) and block.get('type') == 'text':
-                                text_parts.append(block.get('text', ''))
-                        flat_content = ' '.join(text_parts)
+                                text_parts.append(block.get('text', '').strip())
+                        flat_content = ' '.join(text_parts).strip()
 
                         # Check if there are non-text blocks worth keeping
                         has_tool_use = any(
