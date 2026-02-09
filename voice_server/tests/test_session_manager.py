@@ -208,3 +208,55 @@ class TestSessionManager:
         assert "voice/server" not in p.path  # Should NOT have slash here
         assert p.name == "voice_server"
         assert p.folder_name == "-Users-aaron-Desktop-max-voice-server"
+
+    def test_get_session_history_includes_content_blocks(self, tmp_path):
+        """get_session_history should return content_blocks for structured messages"""
+        from session_manager import SessionManager
+
+        folder = tmp_path / "-test-project"
+        folder.mkdir(parents=True)
+
+        session_file = folder / "test-session.jsonl"
+        lines = [
+            json.dumps({"message": {"role": "user", "content": "list files"}, "timestamp": "2026-01-01T00:00:00Z"}),
+            json.dumps({"message": {"role": "assistant", "content": [
+                {"type": "text", "text": "Let me check."},
+                {"type": "tool_use", "id": "toolu_01A", "name": "Bash", "input": {"command": "ls"}}
+            ]}, "timestamp": "2026-01-01T00:00:01Z"}),
+            json.dumps({"message": {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "toolu_01A", "content": "file1.txt\nfile2.txt", "is_error": False}
+            ]}, "timestamp": "2026-01-01T00:00:02Z"}),
+            json.dumps({"message": {"role": "assistant", "content": [
+                {"type": "text", "text": "Here are your files."}
+            ]}, "timestamp": "2026-01-01T00:00:03Z"}),
+        ]
+        session_file.write_text("\n".join(lines) + "\n")
+
+        manager = SessionManager(projects_dir=str(tmp_path))
+        messages = manager.get_session_history("-test-project", "test-session")
+
+        # Should have 4 messages: user text, assistant with blocks, tool_result, assistant text
+        assert len(messages) == 4
+
+        # First: user text
+        assert messages[0].role == "user"
+        assert messages[0].content == "list files"
+        assert messages[0].content_blocks is None
+
+        # Second: assistant with tool_use
+        assert messages[1].role == "assistant"
+        assert messages[1].content == "Let me check."
+        assert messages[1].content_blocks is not None
+        assert len(messages[1].content_blocks) == 2
+        assert messages[1].content_blocks[0]["type"] == "text"
+        assert messages[1].content_blocks[1]["type"] == "tool_use"
+
+        # Third: tool_result
+        assert messages[2].role == "tool_result"
+        assert messages[2].content == "file1.txt\nfile2.txt"
+        assert messages[2].content_blocks is not None
+        assert messages[2].content_blocks[0]["tool_use_id"] == "toolu_01A"
+
+        # Fourth: assistant text
+        assert messages[3].role == "assistant"
+        assert messages[3].content == "Here are your files."

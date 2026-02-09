@@ -31,6 +31,11 @@ class SessionMessage:
     role: str
     content: str
     timestamp: float
+    content_blocks: list = None  # Raw block dicts for structured messages
+
+
+# Internal tool names that are bookkeeping, not shown in terminal UI
+HIDDEN_TOOLS = {'TaskCreate', 'TaskUpdate', 'TaskGet', 'TaskList', 'TaskStop'}
 
 
 class SessionManager:
@@ -243,7 +248,7 @@ class SessionManager:
         return title, message_count, last_timestamp
 
     def get_session_history(self, folder_name: str, session_id: str) -> list[SessionMessage]:
-        """Get all messages from a session
+        """Get all messages from a session with structured content blocks.
 
         Args:
             folder_name: The actual folder name in projects_dir (not encoded path)
@@ -255,6 +260,7 @@ class SessionManager:
             return []
 
         messages = []
+        hidden_tool_ids = set()  # Track tool_use IDs for hidden tools
 
         with open(filepath, 'r') as f:
             for line in f:
@@ -268,34 +274,109 @@ class SessionManager:
 
                     content = msg.get('content', entry.get('content', ''))
 
-                    # Flatten assistant content blocks to text
-                    if isinstance(content, list):
-                        text_parts = []
-                        for block in content:
-                            if isinstance(block, dict) and block.get('type') == 'text':
-                                text_parts.append(block.get('text', ''))
-                        content = ' '.join(text_parts)
-
-                    # Skip empty messages (thinking-only, tool_use, tool_result, etc.)
-                    if not content or not content.strip():
-                        continue
-
-                    # Skip skill expansions (injected by Claude Code, not actual user input)
-                    if role == 'user' and content.strip().startswith('Base directory for this skill:'):
-                        continue
-
                     timestamp_str = entry.get('timestamp', '')
                     try:
                         from datetime import datetime
                         timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00')).timestamp()
-                    except:
+                    except Exception:
                         timestamp = 0.0
 
-                    messages.append(SessionMessage(
-                        role=role,
-                        content=content,
-                        timestamp=timestamp
-                    ))
+                    if isinstance(content, list):
+                        # Check if this is a tool_result message
+                        has_tool_result = any(
+                            isinstance(b, dict) and b.get('type') == 'tool_result'
+                            for b in content
+                        )
+
+                        if has_tool_result:
+                            # Emit each tool_result as a separate message (skip hidden tools)
+                            for block in content:
+                                if isinstance(block, dict) and block.get('type') == 'tool_result':
+                                    # Skip results for hidden tools
+                                    if block.get('tool_use_id', '') in hidden_tool_ids:
+                                        continue
+                                    raw_content = block.get('content', '')
+                                    # Normalize content to string (can be a list of text blocks)
+                                    if isinstance(raw_content, list):
+                                        str_content = '\n'.join(
+                                            b.get('text', '') for b in raw_content
+                                            if isinstance(b, dict) and b.get('type') == 'text'
+                                        )
+                                    elif isinstance(raw_content, str):
+                                        str_content = raw_content
+                                    else:
+                                        str_content = str(raw_content)
+                                    # Build normalized block for iOS decoding
+                                    normalized_block = {
+                                        'type': 'tool_result',
+                                        'tool_use_id': block.get('tool_use_id', ''),
+                                        'content': str_content,
+                                        'is_error': block.get('is_error', False),
+                                    }
+                                    messages.append(SessionMessage(
+                                        role="tool_result",
+                                        content=str_content,
+                                        timestamp=timestamp,
+                                        content_blocks=[normalized_block]
+                                    ))
+                            continue
+
+                        # Track and filter hidden tool_use blocks
+                        for block in content:
+                            if isinstance(block, dict) and block.get('type') == 'tool_use':
+                                if block.get('name', '') in HIDDEN_TOOLS:
+                                    hidden_tool_ids.add(block.get('id', ''))
+                        content = [
+                            b for b in content
+                            if not (isinstance(b, dict) and b.get('type') == 'tool_use'
+                                    and b.get('name', '') in HIDDEN_TOOLS)
+                        ]
+
+                        # Assistant message with structured blocks
+                        text_parts = []
+                        for block in content:
+                            if isinstance(block, dict) and block.get('type') == 'text':
+                                text_parts.append(block.get('text', ''))
+                        flat_content = ' '.join(text_parts)
+
+                        # Check if there are non-text blocks worth keeping
+                        has_tool_use = any(
+                            isinstance(b, dict) and b.get('type') == 'tool_use'
+                            for b in content
+                        )
+
+                        if not flat_content.strip() and not has_tool_use:
+                            continue  # Skip thinking-only or whitespace-only messages
+
+                        # Skip skill expansions
+                        if role == 'user' and flat_content.strip().startswith('Base directory for this skill:'):
+                            continue
+
+                        messages.append(SessionMessage(
+                            role=role,
+                            content=flat_content,
+                            timestamp=timestamp,
+                            content_blocks=content if has_tool_use else None
+                        ))
+                    else:
+                        # Simple string content
+                        if not content or not content.strip():
+                            continue
+
+                        # Skip skill expansions and system-injected messages
+                        if role == 'user':
+                            stripped = content.strip()
+                            if stripped.startswith('Base directory for this skill:'):
+                                continue
+                            if stripped.startswith('<task-notification'):
+                                continue
+
+                        messages.append(SessionMessage(
+                            role=role,
+                            content=content,
+                            timestamp=timestamp,
+                            content_blocks=None
+                        ))
                 except json.JSONDecodeError:
                     continue
 

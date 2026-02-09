@@ -10,7 +10,7 @@ struct SessionView: View {
     let session: Session
     @Binding var selectedSessionBinding: Session?  // Use binding to avoid closure recreation
 
-    @State private var messages: [SessionHistoryMessage] = []
+    @State private var items: [ConversationItem] = []
     @State private var currentTranscript = ""
     @State private var isInitialLoad = true
     @State private var isSyncing = false
@@ -24,26 +24,30 @@ struct SessionView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
-                        ForEach(messages) { message in
-                            MessageBubble(message: message)
-                                .id(message.id)
+                        ForEach(items) { item in
+                            switch item {
+                            case .textMessage(let message):
+                                MessageBubble(message: message)
+                                    .id(item.id)
+                            case .toolUse(_, let tool, let result):
+                                ToolUseView(tool: tool, result: result)
+                                    .id(item.id)
+                            }
                         }
                     }
                     .padding()
                 }
-                .onChange(of: messages.count) { _, _ in
-                    guard let lastMessage = messages.last else { return }
+                .onChange(of: items.count) { _, _ in
+                    guard let lastItem = items.last else { return }
 
                     if isInitialLoad {
-                        // Initial load: scroll instantly without animation
                         isInitialLoad = false
                         DispatchQueue.main.async {
-                            proxy.scrollTo(lastMessage.id, anchor: .bottom)
+                            proxy.scrollTo(lastItem.id, anchor: .bottom)
                         }
                     } else {
-                        // New messages during session: animate
                         withAnimation {
-                            proxy.scrollTo(lastMessage.id, anchor: .bottom)
+                            proxy.scrollTo(lastItem.id, anchor: .bottom)
                         }
                     }
                 }
@@ -119,27 +123,25 @@ struct SessionView: View {
         .enableSwipeBack()
         .sheet(item: $webSocketManager.pendingPermission) { request in
             PermissionPromptView(request: request) { response in
-                // Add permission response to message history
                 let decisionText = response.decision == .allow ? "✓ Allowed" : "✗ Denied"
                 let responseMessage = SessionHistoryMessage(
                     role: "assistant",
                     content: "\(decisionText): \(permissionDescription(for: request))",
                     timestamp: response.timestamp
                 )
-                messages.append(responseMessage)
+                items.append(.textMessage(responseMessage))
 
                 webSocketManager.sendPermissionResponse(response)
             }
         }
         .onChange(of: webSocketManager.pendingPermission) { _, newValue in
-            // Add permission request to message history when it arrives
             if let request = newValue {
                 let requestMessage = SessionHistoryMessage(
                     role: "assistant",
                     content: "⏳ Permission requested: \(permissionDescription(for: request))",
                     timestamp: request.timestamp
                 )
-                messages.append(requestMessage)
+                items.append(.textMessage(requestMessage))
             }
         }
         .onAppear(perform: setupView)
@@ -189,8 +191,58 @@ struct SessionView: View {
 
         // Load message history and sync (skip for new sessions - no history yet)
         if !session.isNewSession {
-            webSocketManager.onSessionHistoryReceived = { messages in
-                self.messages = messages
+            webSocketManager.onSessionHistoryReceived = { richMessages in
+                var newItems: [ConversationItem] = []
+                for msg in richMessages {
+                    if msg.role == "tool_result" {
+                        // Find matching tool_use and update it with result
+                        if let blocks = msg.contentBlocks,
+                           let block = blocks.first,
+                           let toolUseId = block.toolUseId {
+                            let resultBlock = ToolResultBlock(
+                                type: "tool_result",
+                                toolUseId: toolUseId,
+                                content: block.content ?? msg.content,
+                                isError: block.isError
+                            )
+                            if let idx = newItems.firstIndex(where: {
+                                if case .toolUse(let tid, _, _) = $0 { return tid == toolUseId }
+                                return false
+                            }) {
+                                if case .toolUse(let tid, let tool, _) = newItems[idx] {
+                                    newItems[idx] = .toolUse(toolId: tid, tool: tool, result: resultBlock)
+                                }
+                            }
+                        }
+                    } else if let blocks = msg.contentBlocks {
+                        // Assistant message with structured blocks
+                        for block in blocks {
+                            if block.type == "text", let text = block.text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                newItems.append(.textMessage(SessionHistoryMessage(
+                                    role: msg.role,
+                                    content: text,
+                                    timestamp: msg.timestamp
+                                )))
+                            } else if block.type == "tool_use", let id = block.id, let name = block.name {
+                                let toolBlock = ToolUseBlock(
+                                    type: "tool_use",
+                                    id: id,
+                                    name: name,
+                                    input: block.input ?? [:]
+                                )
+                                newItems.append(.toolUse(toolId: id, tool: toolBlock, result: nil))
+                            }
+                        }
+                    } else if !msg.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        // Simple text message (skip empty/whitespace-only)
+                        newItems.append(.textMessage(SessionHistoryMessage(
+                            role: msg.role,
+                            content: msg.content,
+                            timestamp: msg.timestamp
+                        )))
+                    }
+                }
+                self.items = newItems
             }
             webSocketManager.requestSessionHistory(folderName: project.folderName, sessionId: session.id)
 
@@ -217,13 +269,12 @@ struct SessionView: View {
         speechRecognizer.onFinalTranscription = { text in
             currentTranscript = text
 
-            // Add user message to list immediately
             let userMessage = SessionHistoryMessage(
                 role: "user",
                 content: text,
                 timestamp: Date().timeIntervalSince1970
             )
-            messages.append(userMessage)
+            items.append(.textMessage(userMessage))
 
             webSocketManager.sendVoiceInput(text: text)
 
@@ -258,44 +309,43 @@ struct SessionView: View {
         // Subscribe to real-time assistant responses
         webSocketManager.onAssistantResponse = { [self] response in
             // Filter: only accept messages for the current session
-            // For new sessions (id is empty), accept messages with no session_id
-            // For resumed sessions, the session_id must match
             if session.isNewSession {
-                // New session: accept messages with nil sessionId
-                if response.sessionId != nil {
-                    return  // Message is for a different session
-                }
+                if response.sessionId != nil { return }
             } else {
-                // Resumed session: sessionId must match
-                if response.sessionId != session.id {
-                    return  // Message is for a different session
-                }
+                if response.sessionId != session.id { return }
             }
 
-            // Extract text from content blocks
-            var textContent = ""
             for block in response.contentBlocks {
                 switch block {
                 case .text(let textBlock):
-                    textContent += textBlock.text
+                    guard !textBlock.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+                    let message = SessionHistoryMessage(
+                        role: "assistant",
+                        content: textBlock.text,
+                        timestamp: response.timestamp
+                    )
+                    DispatchQueue.main.async {
+                        items.append(.textMessage(message))
+                    }
                 case .thinking:
                     break
-                case .toolUse:
-                    break
+                case .toolUse(let toolBlock):
+                    DispatchQueue.main.async {
+                        items.append(.toolUse(toolId: toolBlock.id, tool: toolBlock, result: nil))
+                    }
+                case .toolResult(let resultBlock):
+                    DispatchQueue.main.async {
+                        // Find matching tool_use and update with result
+                        if let idx = items.firstIndex(where: {
+                            if case .toolUse(let tid, _, _) = $0 { return tid == resultBlock.toolUseId }
+                            return false
+                        }) {
+                            if case .toolUse(let tid, let tool, _) = items[idx] {
+                                items[idx] = .toolUse(toolId: tid, tool: tool, result: resultBlock)
+                            }
+                        }
+                    }
                 }
-            }
-
-            guard !textContent.isEmpty else { return }
-
-            // Create message and append to list
-            let message = SessionHistoryMessage(
-                role: "assistant",
-                content: textContent,
-                timestamp: response.timestamp
-            )
-
-            DispatchQueue.main.async {
-                messages.append(message)
             }
         }
 

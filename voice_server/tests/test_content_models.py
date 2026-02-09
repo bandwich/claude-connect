@@ -1,7 +1,7 @@
 import pytest
 import time
 
-from voice_server.content_models import TextBlock, ThinkingBlock, ToolUseBlock, AssistantResponse
+from voice_server.content_models import TextBlock, ThinkingBlock, ToolUseBlock, ToolResultBlock, AssistantResponse
 
 
 def test_text_block_valid():
@@ -67,6 +67,34 @@ def test_tool_use_block_nested_input():
     )
     assert block.input["nested"]["key"] == "value"
     assert block.input["list"] == [1, 2, 3]
+
+
+def test_tool_result_block_creation():
+    """ToolResultBlock should be creatable with expected fields"""
+    block = ToolResultBlock(
+        type="tool_result",
+        tool_use_id="toolu_01ABC",
+        content="file1.txt\nfile2.txt",
+        is_error=False
+    )
+    assert block.type == "tool_result"
+    assert block.tool_use_id == "toolu_01ABC"
+    assert block.content == "file1.txt\nfile2.txt"
+    assert block.is_error is False
+
+
+def test_tool_result_block_serialization():
+    """ToolResultBlock should serialize to JSON with snake_case fields"""
+    block = ToolResultBlock(
+        type="tool_result",
+        tool_use_id="toolu_01ABC",
+        content="output",
+        is_error=True
+    )
+    data = block.model_dump()
+    assert data["type"] == "tool_result"
+    assert data["tool_use_id"] == "toolu_01ABC"
+    assert data["is_error"] is True
 
 
 def test_assistant_response_with_text_blocks():

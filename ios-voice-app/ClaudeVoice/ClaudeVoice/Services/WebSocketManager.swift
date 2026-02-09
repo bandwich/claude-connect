@@ -36,7 +36,7 @@ class WebSocketManager: NSObject, ObservableObject {
     var onAssistantResponse: ((AssistantResponseMessage) -> Void)?  // NEW
     var onProjectsReceived: (([Project]) -> Void)?
     var onSessionsReceived: (([Session]) -> Void)?
-    var onSessionHistoryReceived: (([SessionHistoryMessage]) -> Void)?
+    var onSessionHistoryReceived: (([SessionHistoryMessageRich]) -> Void)?
     var onSessionActionResult: ((SessionActionResponse) -> Void)?
     var onConnectionStatusReceived: ((ConnectionStatus) -> Void)?
     var onPermissionRequest: ((PermissionRequest) -> Void)?
@@ -582,6 +582,9 @@ class WebSocketManager: NSObject, ObservableObject {
                 print("  Block \(index): tool_use - \(toolBlock.name)")
                 logToFile("  Block \(index): tool_use - \(toolBlock.name)")
                 DispatchQueue.main.async { self.outputState = .usingTool(toolBlock.name) }
+            case .toolResult(let resultBlock):
+                print("  Block \(index): tool_result - \(resultBlock.toolUseId)")
+                logToFile("  Block \(index): tool_result - \(resultBlock.toolUseId)")
             }
         }
 

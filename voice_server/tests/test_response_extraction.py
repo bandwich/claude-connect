@@ -3,7 +3,7 @@ import os
 import tempfile
 
 from voice_server.ios_server import TranscriptHandler
-from voice_server.content_models import TextBlock, ThinkingBlock
+from voice_server.content_models import TextBlock, ThinkingBlock, ToolUseBlock, ToolResultBlock
 
 
 def test_extract_incremental_blocks():
@@ -186,5 +186,109 @@ def test_state_resets_on_new_voice_input():
         assert blocks[0].text == "first answer"
         assert blocks[1].text == "second answer"
 
+    finally:
+        os.unlink(temp_path)
+
+
+def test_extract_tool_result_from_user_message():
+    """Should extract tool_result blocks from user messages in transcript"""
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
+        # Assistant message with tool_use
+        f.write(json.dumps({
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {"type": "tool_use", "id": "toolu_01ABC", "name": "Bash", "input": {"command": "ls -la"}}
+                ]
+            }
+        }) + "\n")
+        # User message with tool_result
+        f.write(json.dumps({
+            "message": {
+                "role": "user",
+                "content": [
+                    {"type": "tool_result", "tool_use_id": "toolu_01ABC", "content": "file1.txt\nfile2.txt", "is_error": False}
+                ]
+            }
+        }) + "\n")
+        temp_path = f.name
+
+    try:
+        mock_server = type('obj', (), {'last_voice_input': 'test'})()
+        handler = TranscriptHandler(None, None, None, mock_server)
+
+        blocks = handler.extract_new_assistant_content(temp_path)
+        assert len(blocks) == 2
+        assert isinstance(blocks[0], ToolUseBlock)
+        assert isinstance(blocks[1], ToolResultBlock)
+        assert blocks[1].tool_use_id == "toolu_01ABC"
+        assert blocks[1].content == "file1.txt\nfile2.txt"
+    finally:
+        os.unlink(temp_path)
+
+
+def test_extract_parallel_tool_results():
+    """Should extract multiple tool_results from a single user message"""
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
+        # Assistant with 2 parallel tool_uses
+        f.write(json.dumps({
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {"type": "tool_use", "id": "toolu_01A", "name": "Grep", "input": {"pattern": "foo"}},
+                    {"type": "tool_use", "id": "toolu_01B", "name": "Grep", "input": {"pattern": "bar"}}
+                ]
+            }
+        }) + "\n")
+        # User message with both results
+        f.write(json.dumps({
+            "message": {
+                "role": "user",
+                "content": [
+                    {"type": "tool_result", "tool_use_id": "toolu_01A", "content": "match1"},
+                    {"type": "tool_result", "tool_use_id": "toolu_01B", "content": "match2"}
+                ]
+            }
+        }) + "\n")
+        temp_path = f.name
+
+    try:
+        mock_server = type('obj', (), {'last_voice_input': 'test'})()
+        handler = TranscriptHandler(None, None, None, mock_server)
+
+        blocks = handler.extract_new_assistant_content(temp_path)
+        assert len(blocks) == 4  # 2 tool_use + 2 tool_result
+        assert isinstance(blocks[2], ToolResultBlock)
+        assert isinstance(blocks[3], ToolResultBlock)
+        assert blocks[2].tool_use_id == "toolu_01A"
+        assert blocks[3].tool_use_id == "toolu_01B"
+    finally:
+        os.unlink(temp_path)
+
+
+def test_extract_skips_non_tool_result_user_messages():
+    """Should not extract regular user text messages"""
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
+        f.write(json.dumps({
+            "message": {
+                "role": "user",
+                "content": "just a regular user message"
+            }
+        }) + "\n")
+        f.write(json.dumps({
+            "message": {
+                "role": "assistant",
+                "content": [{"type": "text", "text": "hello"}]
+            }
+        }) + "\n")
+        temp_path = f.name
+
+    try:
+        mock_server = type('obj', (), {'last_voice_input': 'test'})()
+        handler = TranscriptHandler(None, None, None, mock_server)
+
+        blocks = handler.extract_new_assistant_content(temp_path)
+        assert len(blocks) == 1  # Only the text block
+        assert isinstance(blocks[0], TextBlock)
     finally:
         os.unlink(temp_path)

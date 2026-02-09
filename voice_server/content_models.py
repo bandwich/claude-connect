@@ -20,7 +20,14 @@ class ToolUseBlock(BaseModel):
     input: Dict[str, Any]
 
 
-ContentBlock = Union[TextBlock, ThinkingBlock, ToolUseBlock]
+class ToolResultBlock(BaseModel):
+    type: Literal["tool_result"]
+    tool_use_id: str
+    content: str = ""
+    is_error: bool = False
+
+
+ContentBlock = Union[TextBlock, ThinkingBlock, ToolUseBlock, ToolResultBlock]
 
 
 class AssistantResponse(BaseModel):
