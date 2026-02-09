@@ -38,3 +38,9 @@ build/
 tests/unit_test_logs/
 tests/server_test_logs/
 tests/e2e_test_logs/
+
+# UI screenshots
+ui/
+
+# Claude Code local settings
+.claude/settings.local.json
