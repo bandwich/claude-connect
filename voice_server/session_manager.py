@@ -344,9 +344,13 @@ class SessionManager:
                         if not content or not content.strip():
                             continue
 
-                        # Skip skill expansions
-                        if role == 'user' and content.strip().startswith('Base directory for this skill:'):
-                            continue
+                        # Skip skill expansions and system-injected messages
+                        if role == 'user':
+                            stripped = content.strip()
+                            if stripped.startswith('Base directory for this skill:'):
+                                continue
+                            if stripped.startswith('<task-notification'):
+                                continue
 
                         messages.append(SessionMessage(
                             role=role,
