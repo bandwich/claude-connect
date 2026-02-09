@@ -7,9 +7,13 @@ struct ToolUseView: View {
 
     private let maxPreviewLines = 20
 
+    private var isTaskOutput: Bool {
+        tool.name == "TaskOutput"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header: icon + tool name
+            // Header: icon + tool name + chevron for TaskOutput
             HStack(spacing: 6) {
                 Image(systemName: toolIcon)
                     .font(.caption)
@@ -17,6 +21,17 @@ struct ToolUseView: View {
                 Text(tool.name)
                     .font(.caption.bold())
                     .foregroundColor(.secondary)
+
+                if isTaskOutput, result != nil {
+                    Spacer()
+                    Button {
+                        withAnimation { isExpanded.toggle() }
+                    } label: {
+                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
             }
             .padding(.bottom, 4)
 
@@ -53,11 +68,36 @@ struct ToolUseView: View {
         .cornerRadius(10)
     }
 
+    /// Extract display content from tool result, parsing <output> tags for TaskOutput
+    private func displayContent(for result: ToolResultBlock) -> String {
+        if isTaskOutput {
+            return extractOutputContent(from: result.content)
+        }
+        return result.content
+    }
+
+    /// Extract content between <output> and </output> tags
+    private func extractOutputContent(from content: String) -> String {
+        guard let startRange = content.range(of: "<output>") else {
+            return content
+        }
+        let afterStart = content[startRange.upperBound...]
+        if let endRange = afterStart.range(of: "</output>") {
+            let extracted = String(afterStart[..<endRange.lowerBound])
+            // Trim leading/trailing newlines from the extracted content
+            return extracted.trimmingCharacters(in: .newlines)
+        }
+        // No closing tag - return everything after <output>
+        return String(afterStart).trimmingCharacters(in: .newlines)
+    }
+
     @ViewBuilder
     private func resultView(_ result: ToolResultBlock) -> some View {
-        let lines = result.content.components(separatedBy: "\n")
-        let needsTruncation = lines.count > maxPreviewLines && !isExpanded
-        let displayLines = needsTruncation ? Array(lines.prefix(maxPreviewLines)) : lines
+        let content = displayContent(for: result)
+        let lines = content.components(separatedBy: "\n")
+        let needsTruncation = lines.count > maxPreviewLines
+        let showTruncated = needsTruncation && !isExpanded
+        let displayLines = showTruncated ? Array(lines.prefix(maxPreviewLines)) : lines
         let displayText = displayLines.joined(separator: "\n")
 
         VStack(alignment: .leading, spacing: 4) {
@@ -70,19 +110,36 @@ struct ToolUseView: View {
                 .cornerRadius(6)
 
             if needsTruncation {
-                Button {
-                    withAnimation { isExpanded = true }
-                } label: {
-                    HStack {
-                        Spacer()
-                        Image(systemName: "chevron.down")
-                            .font(.caption2)
-                        Text("Show \(lines.count - maxPreviewLines) more lines")
-                            .font(.caption2)
-                        Spacer()
+                if !isExpanded {
+                    Button {
+                        withAnimation { isExpanded = true }
+                    } label: {
+                        HStack {
+                            Spacer()
+                            Image(systemName: "chevron.down")
+                                .font(.caption2)
+                            Text("Show \(lines.count - maxPreviewLines) more lines")
+                                .font(.caption2)
+                            Spacer()
+                        }
+                        .foregroundColor(.accentColor)
+                        .padding(.top, 2)
                     }
-                    .foregroundColor(.accentColor)
-                    .padding(.top, 2)
+                } else {
+                    Button {
+                        withAnimation { isExpanded = false }
+                    } label: {
+                        HStack {
+                            Spacer()
+                            Image(systemName: "chevron.up")
+                                .font(.caption2)
+                            Text("Hide")
+                                .font(.caption2)
+                            Spacer()
+                        }
+                        .foregroundColor(.accentColor)
+                        .padding(.top, 2)
+                    }
                 }
             }
         }
@@ -97,6 +154,7 @@ struct ToolUseView: View {
         case "Grep": return "magnifyingglass"
         case "Glob": return "folder.badge.magnifyingglass"
         case "Task": return "arrow.triangle.branch"
+        case "TaskOutput": return "arrow.triangle.branch"
         case "WebSearch": return "globe"
         case "WebFetch": return "globe"
         default: return "wrench"
@@ -124,6 +182,8 @@ struct ToolUseView: View {
             return stringInput("pattern")
         case "Task":
             return stringInput("prompt") ?? stringInput("description")
+        case "TaskOutput":
+            return stringInput("task_id")
         default:
             for (_, value) in tool.input {
                 if let str = value.value as? String, !str.isEmpty {
