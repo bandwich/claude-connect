@@ -260,3 +260,27 @@ class TestSessionManager:
         # Fourth: assistant text
         assert messages[3].role == "assistant"
         assert messages[3].content == "Here are your files."
+
+    def test_get_session_history_strips_text_newlines(self, tmp_path):
+        """Text blocks with leading/trailing newlines should be stripped in history"""
+        from session_manager import SessionManager
+
+        project_dir = tmp_path / "-Users-test-project"
+        project_dir.mkdir()
+
+        session_file = project_dir / "sess123.jsonl"
+        session_file.write_text(
+            json.dumps({
+                "message": {"role": "assistant", "content": [
+                    {"type": "text", "text": "\n\nHello, how can I help?"}
+                ]},
+                "timestamp": "2026-01-01T10:00:00Z"
+            }) + "\n"
+        )
+
+        manager = SessionManager(projects_dir=str(tmp_path))
+        messages = manager.get_session_history("-Users-test-project", "sess123")
+
+        assert len(messages) == 1
+        assert messages[0].content == "Hello, how can I help?"
+        assert not messages[0].content.startswith("\n")
