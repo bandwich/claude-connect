@@ -217,7 +217,7 @@ struct SessionView: View {
                     } else if let blocks = msg.contentBlocks {
                         // Assistant message with structured blocks
                         for block in blocks {
-                            if block.type == "text", let text = block.text, !text.isEmpty {
+                            if block.type == "text", let text = block.text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                                 newItems.append(.textMessage(SessionHistoryMessage(
                                     role: msg.role,
                                     content: text,
@@ -233,8 +233,8 @@ struct SessionView: View {
                                 newItems.append(.toolUse(toolId: id, tool: toolBlock, result: nil))
                             }
                         }
-                    } else {
-                        // Simple text message
+                    } else if !msg.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        // Simple text message (skip empty/whitespace-only)
                         newItems.append(.textMessage(SessionHistoryMessage(
                             role: msg.role,
                             content: msg.content,
@@ -318,7 +318,7 @@ struct SessionView: View {
             for block in response.contentBlocks {
                 switch block {
                 case .text(let textBlock):
-                    guard !textBlock.text.isEmpty else { continue }
+                    guard !textBlock.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
                     let message = SessionHistoryMessage(
                         role: "assistant",
                         content: textBlock.text,

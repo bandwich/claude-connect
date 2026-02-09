@@ -308,8 +308,8 @@ class SessionManager:
                             for b in content
                         )
 
-                        if not flat_content and not has_tool_use:
-                            continue  # Skip thinking-only messages
+                        if not flat_content.strip() and not has_tool_use:
+                            continue  # Skip thinking-only or whitespace-only messages
 
                         # Skip skill expansions
                         if role == 'user' and flat_content.strip().startswith('Base directory for this skill:'):
