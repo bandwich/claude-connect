@@ -1,5 +1,5 @@
 from voice_server.content_models import TextBlock, ThinkingBlock, ToolUseBlock
-from voice_server.ios_server import extract_text_for_tts
+from voice_server.ios_server import extract_text_for_tts, strip_markdown_for_speech
 
 
 def test_extract_text_from_text_blocks():
@@ -48,3 +48,39 @@ def test_extract_text_no_text_blocks():
     ]
     result = extract_text_for_tts(blocks)
     assert result == ""
+
+
+def test_strip_markdown_bold():
+    assert strip_markdown_for_speech("This is **bold** text") == "This is bold text"
+
+
+def test_strip_markdown_italic():
+    assert strip_markdown_for_speech("This is *italic* text") == "This is italic text"
+
+
+def test_strip_markdown_bold_italic():
+    assert strip_markdown_for_speech("This is ***bold italic*** text") == "This is bold italic text"
+
+
+def test_strip_markdown_inline_code():
+    assert strip_markdown_for_speech("Run `npm install` now") == "Run npm install now"
+
+
+def test_strip_markdown_links():
+    assert strip_markdown_for_speech("See [this page](https://example.com) for details") == "See this page for details"
+
+
+def test_strip_markdown_headings():
+    assert strip_markdown_for_speech("### Section Title") == "Section Title"
+    assert strip_markdown_for_speech("# Top Level") == "Top Level"
+
+
+def test_strip_markdown_plain_text_unchanged():
+    assert strip_markdown_for_speech("No markdown here") == "No markdown here"
+
+
+def test_extract_text_strips_markdown():
+    """Test that extract_text_for_tts strips markdown from text blocks"""
+    blocks = [TextBlock(type="text", text="This is **bold** and *italic*")]
+    result = extract_text_for_tts(blocks)
+    assert result == "This is bold and italic"

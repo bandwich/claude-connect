@@ -462,7 +462,7 @@ struct MessageBubble: View {
                 Text(message.content)
                     .foregroundColor(.primary)
             } else {
-                Text(message.content)
+                Text(markdownString(message.content))
                     .padding(12)
                     .background(Color(.systemGray5))
                     .cornerRadius(12)
@@ -470,5 +470,23 @@ struct MessageBubble: View {
             }
         }
         .accessibilityIdentifier("messageBubble")
+    }
+
+    private func markdownString(_ text: String) -> AttributedString {
+        var s = text
+        // ## heading → **heading**
+        s = s.replacingOccurrences(of: #"(?m)^#{1,6}\s+(.+)$"#, with: "**$1**", options: .regularExpression)
+        let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        guard var result = try? AttributedString(markdown: s, options: options) else {
+            return AttributedString(text)
+        }
+        // Scale down code spans: monospace at ~85% of body size
+        let codeSize = UIFont.preferredFont(forTextStyle: .body).pointSize * 0.85
+        for run in result.runs {
+            if run.inlinePresentationIntent?.contains(.code) == true {
+                result[run.range].font = .system(size: codeSize, design: .monospaced)
+            }
+        }
+        return result
     }
 }

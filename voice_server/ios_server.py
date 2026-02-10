@@ -37,12 +37,27 @@ IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.ico'}
 MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10MB
 
 
+def strip_markdown_for_speech(text: str) -> str:
+    """Strip markdown formatting so TTS doesn't speak asterisks, backticks, etc."""
+    import re
+    s = text
+    # Bold/italic: **text** or *text* or ***text***
+    s = re.sub(r'\*{1,3}(.+?)\*{1,3}', r'\1', s)
+    # Inline code: `text`
+    s = re.sub(r'`([^`]+)`', r'\1', s)
+    # Links: [text](url) → text
+    s = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', s)
+    # Heading prefixes: ### text → text
+    s = re.sub(r'^#{1,6}\s+', '', s, flags=re.MULTILINE)
+    return s
+
+
 def extract_text_for_tts(content_blocks: list[ContentBlock]) -> str:
-    """Extract only text blocks for TTS (maintains current behavior)"""
+    """Extract only text blocks for TTS, with markdown stripped"""
     text_parts = []
     for block in content_blocks:
         if isinstance(block, TextBlock):
-            text_parts.append(block.text)
+            text_parts.append(strip_markdown_for_speech(block.text))
     return ' '.join(text_parts).strip()
 
 
