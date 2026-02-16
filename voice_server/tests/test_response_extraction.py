@@ -380,6 +380,27 @@ def test_extract_user_text_from_list_with_text_blocks():
         os.unlink(temp_path)
 
 
+def test_extract_strips_tool_use_suffix_from_interrupt():
+    """[Request interrupted by user for tool use] should become [Request interrupted by user]"""
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
+        f.write(json.dumps({
+            "type": "user",
+            "message": {"role": "user", "content": [
+                {"type": "text", "text": "[Request interrupted by user for tool use]"}
+            ]}
+        }) + "\n")
+        temp_path = f.name
+
+    try:
+        mock_server = type('obj', (), {'last_voice_input': None})()
+        handler = TranscriptHandler(None, None, None, mock_server)
+        blocks, user_texts = handler.extract_new_content(temp_path)
+        assert len(user_texts) == 1
+        assert user_texts[0] == "[Request interrupted by user]"
+    finally:
+        os.unlink(temp_path)
+
+
 def test_extract_image_source_rewrites_to_filename():
     """[Image: source: /path/to/file.png] should become [Image: file.png]"""
     with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:

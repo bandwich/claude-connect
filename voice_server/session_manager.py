@@ -10,12 +10,15 @@ from typing import Optional
 
 IMAGE_SOURCE_RE = re.compile(r'^\[Image: source: (.+)\]$')
 
-def rewrite_image_source(text: str) -> str:
-    """Rewrite [Image: source: /path/to/file.png] to [Image: file.png]"""
-    m = IMAGE_SOURCE_RE.match(text.strip())
+def rewrite_user_text(text: str) -> str:
+    """Clean up user text for display: rewrite image sources, strip suffixes."""
+    stripped = text.strip()
+    m = IMAGE_SOURCE_RE.match(stripped)
     if m:
         return f"[Image: {os.path.basename(m.group(1))}]"
-    return text
+    if stripped.startswith('[Request interrupted by user'):
+        return "[Request interrupted by user]"
+    return stripped
 
 
 @dataclass
@@ -353,7 +356,7 @@ class SessionManager:
                         text_parts = []
                         for block in content:
                             if isinstance(block, dict) and block.get('type') == 'text':
-                                text_parts.append(rewrite_image_source(block.get('text', '').strip()))
+                                text_parts.append(rewrite_user_text(block.get('text', '').strip()))
                         flat_content = ' '.join(text_parts).strip()
 
                         # Check if there are non-text blocks worth keeping
@@ -390,7 +393,7 @@ class SessionManager:
 
                         messages.append(SessionMessage(
                             role=role,
-                            content=rewrite_image_source(content),
+                            content=rewrite_user_text(content),
                             timestamp=timestamp,
                             content_blocks=None
                         ))

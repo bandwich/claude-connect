@@ -64,13 +64,18 @@ def extract_text_for_tts(content_blocks: list[ContentBlock]) -> str:
 
 IMAGE_SOURCE_RE = re.compile(r'^\[Image: source: (.+)\]$')
 
-def rewrite_image_source(text: str) -> str:
-    """Rewrite [Image: source: /path/to/file.png] to [Image: file.png]"""
-    m = IMAGE_SOURCE_RE.match(text.strip())
+def rewrite_user_text(text: str) -> str:
+    """Clean up user text for display: rewrite image sources, strip suffixes."""
+    stripped = text.strip()
+    # [Image: source: /path/to/file.png] -> [Image: file.png]
+    m = IMAGE_SOURCE_RE.match(stripped)
     if m:
         filename = os.path.basename(m.group(1))
         return f"[Image: {filename}]"
-    return text
+    # Strip "for tool use" suffix from interrupt messages
+    if stripped.startswith('[Request interrupted by user'):
+        return "[Request interrupted by user]"
+    return stripped
 
 
 class TranscriptHandler(FileSystemEventHandler):
@@ -252,7 +257,7 @@ class TranscriptHandler(FileSystemEventHandler):
                                             continue
                                         if text.startswith('<task-notification'):
                                             continue
-                                        user_texts.append(rewrite_image_source(text))
+                                        user_texts.append(rewrite_user_text(text))
                                     # Skip image blocks (base64 data) silently
                     elif isinstance(content, str) and content.strip():
                         stripped = content.strip()
@@ -261,7 +266,7 @@ class TranscriptHandler(FileSystemEventHandler):
                         elif stripped.startswith('<task-notification'):
                             pass
                         else:
-                            user_texts.append(rewrite_image_source(stripped))
+                            user_texts.append(rewrite_user_text(stripped))
 
             except json.JSONDecodeError:
                 continue
