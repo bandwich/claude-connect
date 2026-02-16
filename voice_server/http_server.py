@@ -57,6 +57,7 @@ def create_http_app(permission_handler: PermissionHandler) -> web.Application:
             "tool_input": payload.get("tool_input", {}),
             "context": payload.get("context"),
             "question": payload.get("question"),
+            "permission_suggestions": payload.get("permission_suggestions"),
             "timestamp": payload.get("timestamp", 0),
         }
 
@@ -78,6 +79,12 @@ def create_http_app(permission_handler: PermissionHandler) -> web.Application:
                 }
             }
         }
+
+        # Forward updatedPermissions if iOS sent them (for "always allow")
+        updated_perms = response.get("updated_permissions")
+        if updated_perms:
+            hook_response["hookSpecificOutput"]["decision"]["updatedPermissions"] = updated_perms
+
         return web.json_response(hook_response)
 
     async def handle_permission_resolved(request: web.Request) -> web.Response:
