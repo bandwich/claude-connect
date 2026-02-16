@@ -243,68 +243,52 @@ class TestVoiceServer:
         """Test audio streaming with chunking"""
         server = VoiceServer()
         websocket = AsyncMock()
+        cancel_event = asyncio.Event()
 
-        # Mock TTS generation
-        with patch('voice_server.ios_server.generate_tts_audio') as mock_tts, \
-             patch('voice_server.ios_server.samples_to_wav_bytes') as mock_wav:
+        wav_bytes = b'RIFF' + b'\x00' * 20000  # 20KB of fake WAV data
+        result = await server.stream_audio(websocket, wav_bytes, cancel_event)
 
-            mock_tts.return_value = np.array([0.1, 0.2, 0.3])
-            mock_wav.return_value = b'RIFF' + b'\x00' * 20000  # 20KB of fake WAV data
-
-            await server.stream_audio(websocket, "Hello")
-
-            # Verify TTS was called
-            mock_tts.assert_called_once_with("Hello", voice="af_heart")
-            mock_wav.assert_called_once()
-
-            # Verify chunks were sent
-            assert websocket.send.call_count > 0
+        assert result is True
+        # Verify chunks were sent
+        assert websocket.send.call_count > 0
 
     @pytest.mark.asyncio
     async def test_stream_audio_chunk_format(self):
         """Verify chunk message structure"""
         server = VoiceServer()
         websocket = AsyncMock()
+        cancel_event = asyncio.Event()
 
-        with patch('voice_server.ios_server.generate_tts_audio') as mock_tts, \
-             patch('voice_server.ios_server.samples_to_wav_bytes') as mock_wav:
+        wav_bytes = b'TEST_WAV_DATA'
+        await server.stream_audio(websocket, wav_bytes, cancel_event)
 
-            mock_tts.return_value = np.array([0.1, 0.2, 0.3])
-            mock_wav.return_value = b'TEST_WAV_DATA'
+        # Get first chunk
+        first_call = websocket.send.call_args_list[0][0][0]
+        chunk_data = json.loads(first_call)
 
-            await server.stream_audio(websocket, "Hello")
-
-            # Get first chunk
-            first_call = websocket.send.call_args_list[0][0][0]
-            chunk_data = json.loads(first_call)
-
-            assert chunk_data["type"] == "audio_chunk"
-            assert chunk_data["format"] == "wav"
-            assert chunk_data["sample_rate"] == 24000
-            assert "chunk_index" in chunk_data
-            assert "total_chunks" in chunk_data
-            assert "data" in chunk_data
+        assert chunk_data["type"] == "audio_chunk"
+        assert chunk_data["format"] == "wav"
+        assert chunk_data["sample_rate"] == 24000
+        assert "chunk_index" in chunk_data
+        assert "total_chunks" in chunk_data
+        assert "data" in chunk_data
 
     @pytest.mark.asyncio
     async def test_stream_audio_base64_encoding(self):
         """Verify data is valid base64"""
         server = VoiceServer()
         websocket = AsyncMock()
+        cancel_event = asyncio.Event()
 
-        with patch('voice_server.ios_server.generate_tts_audio') as mock_tts, \
-             patch('voice_server.ios_server.samples_to_wav_bytes') as mock_wav:
+        wav_bytes = b'TEST_DATA'
+        await server.stream_audio(websocket, wav_bytes, cancel_event)
 
-            mock_tts.return_value = np.array([0.1, 0.2, 0.3])
-            mock_wav.return_value = b'TEST_DATA'
+        first_call = websocket.send.call_args_list[0][0][0]
+        chunk_data = json.loads(first_call)
 
-            await server.stream_audio(websocket, "Hello")
-
-            first_call = websocket.send.call_args_list[0][0][0]
-            chunk_data = json.loads(first_call)
-
-            # Should be able to decode base64
-            decoded = base64.b64decode(chunk_data["data"])
-            assert isinstance(decoded, bytes)
+        # Should be able to decode base64
+        decoded = base64.b64decode(chunk_data["data"])
+        assert isinstance(decoded, bytes)
 
     @pytest.mark.asyncio
     async def test_handle_voice_input(self):
@@ -351,40 +335,30 @@ class TestVoiceServer:
 
     @pytest.mark.asyncio
     async def test_handle_claude_response(self):
-        """Test Claude response handling"""
+        """Test Claude response queues text for TTS"""
         server = VoiceServer()
-        client1 = AsyncMock()
-        client2 = AsyncMock()
-        server.clients = {client1, client2}
-        server.waiting_for_response = True  # Simulate waiting for response
+        server.tts_queue = asyncio.Queue()
 
-        with patch.object(server, 'stream_audio', new_callable=AsyncMock) as mock_stream, \
-             patch.object(server, 'send_status', new_callable=AsyncMock) as mock_status:
+        await server.handle_claude_response("Hello from Claude")
 
-            await server.handle_claude_response("Hello from Claude")
-
-            # Should stream to all clients
-            assert mock_stream.call_count == 2
-            assert mock_status.call_count == 4  # 2 clients × 2 status updates (speaking, idle)
+        # Should queue text instead of streaming directly
+        assert not server.tts_queue.empty()
+        text = server.tts_queue.get_nowait()
+        assert text == "Hello from Claude"
 
     @pytest.mark.asyncio
     async def test_handle_claude_response_multiple_clients(self):
-        """Test broadcasting to multiple websockets"""
+        """Test multiple responses are queued"""
         server = VoiceServer()
-        client1 = AsyncMock()
-        client2 = AsyncMock()
-        server.clients = {client1, client2}
-        server.waiting_for_response = True  # Simulate waiting for response
+        server.tts_queue = asyncio.Queue()
 
-        with patch.object(server, 'stream_audio', new_callable=AsyncMock) as mock_stream, \
-             patch.object(server, 'send_status', new_callable=AsyncMock):
+        await server.handle_claude_response("First message")
+        await server.handle_claude_response("Second message")
 
-            await server.handle_claude_response("Test message")
-
-            # Verify both clients received stream
-            calls = [call[0][0] for call in mock_stream.call_args_list]
-            assert client1 in calls
-            assert client2 in calls
+        # Both should be queued
+        assert server.tts_queue.qsize() == 2
+        assert server.tts_queue.get_nowait() == "First message"
+        assert server.tts_queue.get_nowait() == "Second message"
 
     @pytest.mark.asyncio
     async def test_handle_message_valid_json(self):

@@ -333,6 +333,11 @@ class VoiceServer:
         self.projects_base_path = PROJECTS_BASE_PATH
         self.active_session_id = None  # Track which session is active in tmux
         self.active_folder_name = None  # Track which project folder is active
+        # TTS queue: serializes audio generation/streaming (created in start())
+        self.tts_queue = None
+        self.tts_cancel = None
+        self.tts_active = False
+        self._tts_worker_task = None
 
     def find_transcript_path(self):
         """Find the transcript file to watch.
@@ -444,20 +449,18 @@ class VoiceServer:
         result = self.tmux.send_input(text)
         print(f"[DEBUG] send_input returned: {result}")
 
-    async def stream_audio(self, websocket, text):
-        """Generate TTS and stream audio to client"""
+    async def stream_audio(self, websocket, wav_bytes, cancel_event):
+        """Stream pre-generated WAV audio to client. Returns False if cancelled."""
         try:
-            print(f"[{time.strftime('%H:%M:%S')}] Generating TTS audio for text: '{text[:50]}...'")
-            samples = generate_tts_audio(text, voice="af_heart")
-            print(f"[{time.strftime('%H:%M:%S')}] TTS generated {len(samples)} samples")
-            wav_bytes = samples_to_wav_bytes(samples)
-            print(f"[{time.strftime('%H:%M:%S')}] WAV bytes: {len(wav_bytes)} bytes")
-
             chunk_size = 8192
             total_chunks = (len(wav_bytes) + chunk_size - 1) // chunk_size
             print(f"Streaming {total_chunks} audio chunks...")
 
             for i in range(0, len(wav_bytes), chunk_size):
+                if cancel_event.is_set():
+                    print(f"[TTS] Streaming cancelled at chunk {i // chunk_size}/{total_chunks}")
+                    return False
+
                 chunk = wav_bytes[i:i+chunk_size]
                 await websocket.send(json.dumps({
                     "type": "audio_chunk",
@@ -470,11 +473,13 @@ class VoiceServer:
                 await asyncio.sleep(0.01)
 
             print(f"Finished streaming {total_chunks} chunks")
+            return True
 
         except Exception as e:
             print(f"Error streaming audio: {e}")
             import traceback
             traceback.print_exc()
+            return False
 
     async def handle_voice_input(self, websocket, data):
         """Handle voice input from iOS"""
@@ -533,19 +538,92 @@ class VoiceServer:
                 print(f"Error sending user message: {e}")
 
     async def handle_claude_response(self, text):
-        """Handle Claude's response - generate and stream TTS audio"""
-        print(f"[{time.strftime('%H:%M:%S')}] Claude response received: '{text[:100]}...'")
+        """Handle Claude's response - queue text for TTS"""
+        print(f"[{time.strftime('%H:%M:%S')}] Claude response queued for TTS: '{text[:100]}...'")
+        await self.tts_queue.put(text)
 
-        # NOTE: With streaming, this is called multiple times (once per text block)
-        # Don't check/reset waiting_for_response here - let reset happen on new voice input
+    async def _tts_worker(self):
+        """Background worker that processes TTS requests one at a time.
 
+        Drains the queue to keep only the latest message.
+        Cancels in-progress TTS when new messages arrive.
+        """
+        while True:
+            try:
+                # Wait for a TTS request
+                text = await self.tts_queue.get()
+
+                # Drain queue — keep only the latest
+                while not self.tts_queue.empty():
+                    try:
+                        text = self.tts_queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        break
+
+                # If there's active TTS, cancel it and wait
+                was_interrupted = False
+                if self.tts_active:
+                    print(f"[TTS] Cancelling current TTS for new message")
+                    self.tts_cancel.set()
+                    await self._send_stop_audio()
+                    while self.tts_active:
+                        await asyncio.sleep(0.05)
+                    was_interrupted = True
+
+                # Reset cancel event
+                self.tts_cancel.clear()
+                self.tts_active = True
+
+                # Short gap after interruption
+                if was_interrupted:
+                    await asyncio.sleep(0.5)
+                    # Check if newer message arrived during the gap
+                    if not self.tts_queue.empty():
+                        self.tts_active = False
+                        continue
+
+                try:
+                    # Generate TTS in executor (blocking call)
+                    print(f"[TTS] Generating audio for: '{text[:50]}...'")
+                    loop = asyncio.get_running_loop()
+                    samples = await loop.run_in_executor(
+                        None, lambda: generate_tts_audio(text, voice="af_heart")
+                    )
+
+                    # Check for cancellation after generation
+                    if self.tts_cancel.is_set():
+                        print(f"[TTS] Cancelled after generation")
+                        continue
+
+                    wav_bytes = samples_to_wav_bytes(samples)
+
+                    # Stream to all clients
+                    for websocket in list(self.clients):
+                        await self.send_status(websocket, "speaking", "Playing response")
+                        completed = await self.stream_audio(websocket, wav_bytes, self.tts_cancel)
+                        if completed:
+                            await self.send_status(websocket, "idle", "Ready")
+
+                finally:
+                    self.tts_active = False
+
+            except asyncio.CancelledError:
+                self.tts_active = False
+                raise
+            except Exception as e:
+                self.tts_active = False
+                print(f"[TTS] Worker error: {e}")
+                import traceback
+                traceback.print_exc()
+
+    async def _send_stop_audio(self):
+        """Send stop_audio message to all connected clients."""
+        message = json.dumps({"type": "stop_audio"})
         for websocket in list(self.clients):
-            print(f"[{time.strftime('%H:%M:%S')}] Sending 'speaking' status to client")
-            await self.send_status(websocket, "speaking", "Playing response")
-            print(f"[{time.strftime('%H:%M:%S')}] Streaming audio to client...")
-            await self.stream_audio(websocket, text)
-            print(f"[{time.strftime('%H:%M:%S')}] Audio streaming complete, sending 'idle' status")
-            await self.send_status(websocket, "idle", "Ready")
+            try:
+                await websocket.send(message)
+            except Exception:
+                pass
 
     async def send_idle_to_all_clients(self):
         """Send idle status to all connected clients.
@@ -1008,6 +1086,13 @@ class VoiceServer:
             self.observer = Observer()
             self.observer.schedule(self.transcript_handler, os.path.dirname(self.transcript_path))
             self.observer.start()
+
+        # Initialize TTS queue (requires running event loop)
+        self.tts_queue = asyncio.Queue()
+        self.tts_cancel = asyncio.Event()
+
+        # Start TTS worker
+        self._tts_worker_task = asyncio.create_task(self._tts_worker())
 
         # Start HTTP server for permission hooks
         http_runner = await start_http_server(self.permission_handler)
