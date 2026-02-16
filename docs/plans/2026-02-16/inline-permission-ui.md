@@ -1161,6 +1161,24 @@ Expected: All PASS.
 
 **CHECKPOINT:** This must work live before merging. If the card doesn't appear or responses don't flow back, debug the WebSocket message path.
 
+---
+
+### Known Issues (from live testing 2026-02-16)
+
+**Bash permissions work end-to-end.** The inline card appears, options render, tapping Yes/No collapses the card, and Claude Code proceeds.
+
+**Edit permissions show "Running..." instead of the inline card.** The PermissionRequest hook fires and POSTs to the server, but the iOS app doesn't render the permission card — it only shows the "Running..." status. This needs debugging:
+- Verify the WebSocketManager is decoding the permission_request message (not silently failing on the new `permissionSuggestions` field or some other decode issue)
+- Check if another message type is matching before PermissionRequest in the decode chain
+- Add logging to the WebSocketManager decode path to see what's happening
+- The Edit payload includes `context` with `file_path`/`old_content`/`new_content` — verify this decodes correctly with the PermissionRequest struct
+
+**Other fixes applied during testing:**
+- `localhost` → `127.0.0.1` in hooks (fixed intermittent DNS resolution failures causing hooks to fall back to terminal)
+- Removed separate health check from permission_hook.sh (unnecessary, just POST directly)
+- Added reconnect persistence: server re-sends pending permission_requests when iOS app reconnects
+- Fixed "Answered in terminal" overwriting app-resolved cards (only set if not already resolved)
+
 **Step 5: Commit**
 
 ```bash

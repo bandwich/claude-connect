@@ -971,6 +971,7 @@ class VoiceServer:
         try:
             await self.send_status(websocket, "idle", "Connected")
             await self.send_connection_status(websocket)
+            await self.permission_handler.send_pending_to_client(websocket)
             async for message in websocket:
                 print(f"Received message: {message[:100]}...")
                 await self.handle_message(websocket, message)

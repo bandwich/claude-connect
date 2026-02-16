@@ -374,10 +374,10 @@ struct SessionView: View {
             }
         }
 
-        // Handle permission resolved from terminal
+        // Handle permission resolved from terminal (only if not already resolved from app)
         webSocketManager.onPermissionResolved = { resolved in
             DispatchQueue.main.async {
-                if resolved.answeredIn == "terminal" {
+                if resolved.answeredIn == "terminal" && permissionResolutions[resolved.requestId] == nil {
                     permissionResolutions[resolved.requestId] = PermissionCardResolution(
                         allowed: true,
                         summary: "Answered in terminal"
