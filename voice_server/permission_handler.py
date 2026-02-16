@@ -15,11 +15,13 @@ class PermissionHandler:
         self.permission_responses: dict[str, dict] = {}
         self.websocket_clients: set = set()
         self.timed_out_requests: set[str] = set()
+        self.latest_request_id: Optional[str] = None
 
     def register_request(self, request_id: str) -> asyncio.Event:
         """Register a new permission request and return an Event to wait on"""
         event = asyncio.Event()
         self.pending_permissions[request_id] = event
+        self.latest_request_id = request_id
         return event
 
     def resolve_request(self, request_id: str, decision: dict) -> bool:

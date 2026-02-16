@@ -87,7 +87,9 @@ def create_http_app(permission_handler: PermissionHandler) -> web.Application:
         except json.JSONDecodeError:
             return web.json_response({"error": "Invalid JSON"}, status=400)
 
-        request_id = payload.get("request_id", "")
+        # PostToolUse payload from Claude Code won't have our server-generated
+        # request_id, so fall back to the latest pending request
+        request_id = payload.get("request_id", "") or permission_handler.latest_request_id or ""
 
         await permission_handler.broadcast({
             "type": "permission_resolved",
@@ -96,6 +98,8 @@ def create_http_app(permission_handler: PermissionHandler) -> web.Application:
         })
 
         permission_handler.cleanup_request(request_id)
+        if request_id == permission_handler.latest_request_id:
+            permission_handler.latest_request_id = None
 
         return web.json_response({"status": "ok"})
 

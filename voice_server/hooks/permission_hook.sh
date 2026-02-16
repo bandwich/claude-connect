@@ -9,7 +9,7 @@ SERVER_URL="${VOICE_SERVER_URL:-http://localhost:8766}"
 
 # Check if server is running - exit immediately if not
 # Use /dev/null for stdin since we haven't consumed it yet
-if ! curl -s --max-time 0.5 "${SERVER_URL}/health" >/dev/null 2>&1; then
+if ! curl -s --max-time 2 "${SERVER_URL}/health" >/dev/null 2>&1; then
     # Server not running - fall back to terminal silently
     cat >/dev/null  # Consume stdin to avoid broken pipe
     exit 2

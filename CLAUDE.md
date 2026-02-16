@@ -201,13 +201,25 @@ To enable remote permission control from the iOS app, add hooks to your Claude C
   "hooks": {
     "PermissionRequest": [
       {
-        "command": "/path/to/max/voice_server/hooks/permission_hook.sh",
-        "timeout": 185000
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/path/to/max/voice_server/hooks/permission_hook.sh",
+            "timeout": 185
+          }
+        ]
       }
     ],
     "PostToolUse": [
       {
-        "command": "/path/to/max/voice_server/hooks/post_tool_hook.sh"
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/path/to/max/voice_server/hooks/post_tool_hook.sh"
+          }
+        ]
       }
     ]
   }
