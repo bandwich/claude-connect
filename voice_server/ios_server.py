@@ -511,6 +511,22 @@ class VoiceServer:
             except Exception as e:
                 print(f"Error sending content: {e}")
 
+    async def handle_user_message(self, text: str):
+        """Send user text message to iOS clients (for terminal-typed input)"""
+        message = {
+            "type": "user_message",
+            "role": "user",
+            "content": text,
+            "timestamp": time.time(),
+            "session_id": self.active_session_id,
+        }
+
+        for websocket in list(self.clients):
+            try:
+                await websocket.send(json.dumps(message))
+            except Exception as e:
+                print(f"Error sending user message: {e}")
+
     async def handle_claude_response(self, text):
         """Handle Claude's response - generate and stream TTS audio"""
         print(f"[{time.strftime('%H:%M:%S')}] Claude response received: '{text[:100]}...'")
@@ -977,7 +993,8 @@ class VoiceServer:
                 self.handle_content_response,  # New: content callback
                 self.handle_claude_response,   # Existing: audio callback
                 self.loop,
-                self
+                self,
+                user_callback=self.handle_user_message,
             )
             # Set expected session file (initializes line count from existing content)
             self.transcript_handler.set_session_file(self.transcript_path)
