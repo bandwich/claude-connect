@@ -45,6 +45,7 @@ class WebSocketManager: NSObject, ObservableObject {
     var onFileContents: ((FileContentsResponse) -> Void)?
     var onContextUpdate: ((ContextStats) -> Void)?
     var onUsageUpdate: ((UsageStats) -> Void)?
+    var onUserMessage: ((UserMessage) -> Void)?
     @Published var pendingPermission: PermissionRequest? = nil {
         didSet {
             print("🔄 pendingPermission didSet: \(oldValue?.requestId ?? "nil") -> \(pendingPermission?.requestId ?? "nil")")
@@ -459,6 +460,12 @@ class WebSocketManager: NSObject, ObservableObject {
                     self.isLoadingUsage = false
                     self.onUsageUpdate?(usageStats)
                 }
+            } else if let userMessage = try? JSONDecoder().decode(UserMessage.self, from: data),
+                      userMessage.type == "user_message" {
+                logToFile("✅ Decoded as UserMessage: \(userMessage.content.prefix(50))")
+                DispatchQueue.main.async {
+                    self.onUserMessage?(userMessage)
+                }
             } else {
                 print("❌ Failed to decode message as any known type")
                 print("   Raw data: \(String(data: data, encoding: .utf8) ?? "N/A")")
@@ -585,6 +592,9 @@ class WebSocketManager: NSObject, ObservableObject {
             case .toolResult(let resultBlock):
                 print("  Block \(index): tool_result - \(resultBlock.toolUseId)")
                 logToFile("  Block \(index): tool_result - \(resultBlock.toolUseId)")
+            case .unknown:
+                print("  Block \(index): unknown type (skipped)")
+                logToFile("  Block \(index): unknown type")
             }
         }
 

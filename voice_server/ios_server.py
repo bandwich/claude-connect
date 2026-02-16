@@ -10,6 +10,7 @@ sys.dont_write_bytecode = True
 import asyncio
 import websockets
 import json
+import re
 import sys
 import os
 import subprocess
@@ -61,6 +62,22 @@ def extract_text_for_tts(content_blocks: list[ContentBlock]) -> str:
     return ' '.join(text_parts).strip()
 
 
+IMAGE_SOURCE_RE = re.compile(r'^\[Image: source: (.+)\]$')
+
+def rewrite_user_text(text: str) -> str:
+    """Clean up user text for display: rewrite image sources, strip suffixes."""
+    stripped = text.strip()
+    # [Image: source: /path/to/file.png] -> [Image: file.png]
+    m = IMAGE_SOURCE_RE.match(stripped)
+    if m:
+        filename = os.path.basename(m.group(1))
+        return f"[Image: {filename}]"
+    # Strip "for tool use" suffix from interrupt messages
+    if stripped.startswith('[Request interrupted by user'):
+        return "[Request interrupted by user]"
+    return stripped
+
+
 class TranscriptHandler(FileSystemEventHandler):
     """Monitors transcript file for new assistant messages
 
@@ -71,9 +88,10 @@ class TranscriptHandler(FileSystemEventHandler):
     sub-agent transcripts (agent-*.jsonl) and other sessions.
     """
 
-    def __init__(self, content_callback, audio_callback, loop, server):
+    def __init__(self, content_callback, audio_callback, loop, server, user_callback=None):
         self.content_callback = content_callback  # Sends AssistantResponse
         self.audio_callback = audio_callback       # Sends text for TTS
+        self.user_callback = user_callback          # Sends user text messages
         self.loop = loop
         self.server = server
         self.last_modified = 0
@@ -99,7 +117,7 @@ class TranscriptHandler(FileSystemEventHandler):
                 return
 
         try:
-            new_blocks = self.extract_new_assistant_content(event.src_path)
+            new_blocks, user_texts = self.extract_new_content(event.src_path)
 
             if new_blocks:
                 response = AssistantResponse(
@@ -127,6 +145,13 @@ class TranscriptHandler(FileSystemEventHandler):
                         self.loop
                     )
 
+            if user_texts and self.user_callback:
+                for user_text in user_texts:
+                    asyncio.run_coroutine_threadsafe(
+                        self.user_callback(user_text),
+                        self.loop
+                    )
+
             # Broadcast context update after processing
             if self.server.active_session_id:
                 self.broadcast_context_update(event.src_path, self.server.active_session_id)
@@ -136,8 +161,18 @@ class TranscriptHandler(FileSystemEventHandler):
             traceback.print_exc()
 
     def extract_new_assistant_content(self, filepath) -> list[ContentBlock]:
-        """Extract assistant content and tool results from lines not yet processed"""
+        """Legacy wrapper — returns only content blocks."""
+        blocks, _ = self.extract_new_content(filepath)
+        return blocks
+
+    def extract_new_content(self, filepath) -> tuple:
+        """Extract assistant content, tool results, and user texts from new lines.
+
+        Returns:
+            (content_blocks, user_texts) where user_texts are terminal-typed messages.
+        """
         all_blocks = []
+        user_texts = []
 
         with open(filepath, 'r') as f:
             lines = f.readlines()
@@ -182,29 +217,56 @@ class TranscriptHandler(FileSystemEventHandler):
                 elif role == 'user':
                     content = msg.get('content', entry.get('content', ''))
                     if isinstance(content, list):
-                        for block in content:
-                            if isinstance(block, dict) and block.get('type') == 'tool_result':
-                                if block.get('tool_use_id', '') in self.hidden_tool_ids:
-                                    continue
-                                try:
-                                    raw_content = block.get('content', '')
-                                    if isinstance(raw_content, str):
-                                        content_str = raw_content
-                                    elif isinstance(raw_content, list):
-                                        content_str = '\n'.join(
-                                            b.get('text', '') for b in raw_content
-                                            if isinstance(b, dict) and b.get('type') == 'text'
-                                        )
-                                    else:
-                                        content_str = str(raw_content)
-                                    all_blocks.append(ToolResultBlock(
-                                        type="tool_result",
-                                        tool_use_id=block.get('tool_use_id', ''),
-                                        content=content_str,
-                                        is_error=block.get('is_error', False)
-                                    ))
-                                except Exception:
-                                    continue
+                        has_tool_result = any(
+                            isinstance(b, dict) and b.get('type') == 'tool_result'
+                            for b in content
+                        )
+                        if has_tool_result:
+                            for block in content:
+                                if isinstance(block, dict) and block.get('type') == 'tool_result':
+                                    if block.get('tool_use_id', '') in self.hidden_tool_ids:
+                                        continue
+                                    try:
+                                        raw_content = block.get('content', '')
+                                        if isinstance(raw_content, str):
+                                            content_str = raw_content
+                                        elif isinstance(raw_content, list):
+                                            content_str = '\n'.join(
+                                                b.get('text', '') for b in raw_content
+                                                if isinstance(b, dict) and b.get('type') == 'text'
+                                            )
+                                        else:
+                                            content_str = str(raw_content)
+                                        all_blocks.append(ToolResultBlock(
+                                            type="tool_result",
+                                            tool_use_id=block.get('tool_use_id', ''),
+                                            content=content_str,
+                                            is_error=block.get('is_error', False)
+                                        ))
+                                    except Exception:
+                                        continue
+                        else:
+                            # User text blocks (non-tool_result): interrupts, image refs, etc.
+                            for block in content:
+                                if isinstance(block, dict):
+                                    if block.get('type') == 'text':
+                                        text = block.get('text', '').strip()
+                                        if not text:
+                                            continue
+                                        if text.startswith('Base directory for this skill:'):
+                                            continue
+                                        if text.startswith('<task-notification'):
+                                            continue
+                                        user_texts.append(rewrite_user_text(text))
+                                    # Skip image blocks (base64 data) silently
+                    elif isinstance(content, str) and content.strip():
+                        stripped = content.strip()
+                        if stripped.startswith('Base directory for this skill:'):
+                            pass
+                        elif stripped.startswith('<task-notification'):
+                            pass
+                        else:
+                            user_texts.append(rewrite_user_text(stripped))
 
             except json.JSONDecodeError:
                 continue
@@ -213,8 +275,10 @@ class TranscriptHandler(FileSystemEventHandler):
 
         if all_blocks:
             print(f"[DEBUG] Extracted {len(all_blocks)} blocks from {len(new_lines)} new lines")
+        if user_texts:
+            print(f"[DEBUG] Extracted {len(user_texts)} user texts from {len(new_lines)} new lines")
 
-        return all_blocks
+        return all_blocks, user_texts
 
     def broadcast_context_update(self, filepath: str, session_id: str):
         """Calculate and broadcast context usage for the session."""
@@ -451,6 +515,22 @@ class VoiceServer:
                 print(f"[{time.strftime('%H:%M:%S')}] Sent content to client (session: {self.active_session_id})")
             except Exception as e:
                 print(f"Error sending content: {e}")
+
+    async def handle_user_message(self, text: str):
+        """Send user text message to iOS clients (for terminal-typed input)"""
+        message = {
+            "type": "user_message",
+            "role": "user",
+            "content": text,
+            "timestamp": time.time(),
+            "session_id": self.active_session_id,
+        }
+
+        for websocket in list(self.clients):
+            try:
+                await websocket.send(json.dumps(message))
+            except Exception as e:
+                print(f"Error sending user message: {e}")
 
     async def handle_claude_response(self, text):
         """Handle Claude's response - generate and stream TTS audio"""
@@ -918,7 +998,8 @@ class VoiceServer:
                 self.handle_content_response,  # New: content callback
                 self.handle_claude_response,   # Existing: audio callback
                 self.loop,
-                self
+                self,
+                user_callback=self.handle_user_message,
             )
             # Set expected session file (initializes line count from existing content)
             self.transcript_handler.set_session_file(self.transcript_path)

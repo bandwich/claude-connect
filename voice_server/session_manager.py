@@ -1,10 +1,24 @@
 """Session management for Claude Code projects"""
 
 import os
+import re
 import json
 import glob
 from dataclasses import dataclass
 from typing import Optional
+
+
+IMAGE_SOURCE_RE = re.compile(r'^\[Image: source: (.+)\]$')
+
+def rewrite_user_text(text: str) -> str:
+    """Clean up user text for display: rewrite image sources, strip suffixes."""
+    stripped = text.strip()
+    m = IMAGE_SOURCE_RE.match(stripped)
+    if m:
+        return f"[Image: {os.path.basename(m.group(1))}]"
+    if stripped.startswith('[Request interrupted by user'):
+        return "[Request interrupted by user]"
+    return stripped
 
 
 @dataclass
@@ -332,11 +346,17 @@ class SessionManager:
                                     and b.get('name', '') in HIDDEN_TOOLS)
                         ]
 
+                        # Skip image blocks (base64 data too large for display)
+                        content = [
+                            b for b in content
+                            if not (isinstance(b, dict) and b.get('type') == 'image')
+                        ]
+
                         # Assistant message with structured blocks
                         text_parts = []
                         for block in content:
                             if isinstance(block, dict) and block.get('type') == 'text':
-                                text_parts.append(block.get('text', '').strip())
+                                text_parts.append(rewrite_user_text(block.get('text', '').strip()))
                         flat_content = ' '.join(text_parts).strip()
 
                         # Check if there are non-text blocks worth keeping
@@ -373,7 +393,7 @@ class SessionManager:
 
                         messages.append(SessionMessage(
                             role=role,
-                            content=content,
+                            content=rewrite_user_text(content),
                             timestamp=timestamp,
                             content_blocks=None
                         ))

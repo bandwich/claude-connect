@@ -688,3 +688,30 @@ class TestReadFile:
             response = json.loads(sent_messages[0])
             assert response["type"] == "file_contents"
             assert response["contents"] == "test content"
+
+
+@pytest.mark.asyncio
+async def test_handle_user_message_sends_to_clients():
+    """handle_user_message should send user_message JSON to all clients"""
+    from voice_server.ios_server import VoiceServer
+
+    server = VoiceServer()
+    server.active_session_id = "sess-123"
+
+    sent_messages = []
+
+    class MockWebSocket:
+        async def send(self, data):
+            sent_messages.append(json.loads(data))
+
+    server.clients = {MockWebSocket()}
+
+    await server.handle_user_message("hello from terminal")
+
+    assert len(sent_messages) == 1
+    msg = sent_messages[0]
+    assert msg["type"] == "user_message"
+    assert msg["role"] == "user"
+    assert msg["content"] == "hello from terminal"
+    assert msg["session_id"] == "sess-123"
+    assert "timestamp" in msg
