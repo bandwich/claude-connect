@@ -148,6 +148,8 @@ struct SessionView: View {
             // Retry sync when connection is established (for resumed sessions)
             if case .connected = newState, !session.isNewSession {
                 print("[SessionView] Connection established, attempting sync")
+                // Re-fetch session history to clear stale "Running..." tool_use items
+                webSocketManager.requestSessionHistory(folderName: project.folderName, sessionId: session.id)
                 syncSession()
             }
         }

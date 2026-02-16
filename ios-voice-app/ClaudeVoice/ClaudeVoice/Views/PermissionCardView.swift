@@ -91,7 +91,7 @@ struct PermissionCardView: View {
                 if let command = request.toolInput?.command {
                     ScrollView(.horizontal, showsIndicators: false) {
                         Text(command)
-                            .font(.system(.caption, design: .monospaced))
+                            .font(.system(.footnote, design: .monospaced))
                             .padding(8)
                     }
                     .background(Color(.systemGray5))
@@ -99,7 +99,7 @@ struct PermissionCardView: View {
                 }
                 if let desc = request.toolInput?.description {
                     Text(desc)
-                        .font(.caption)
+                        .font(.footnote)
                         .foregroundColor(.secondary)
                 }
             }
@@ -110,7 +110,7 @@ struct PermissionCardView: View {
                 let path = request.context?.filePath ?? request.toolInput?.filePath
                 if let path = path {
                     Text(path)
-                        .font(.system(.caption, design: .monospaced))
+                        .font(.system(.footnote, design: .monospaced))
                         .foregroundColor(.secondary)
                 }
                 // Diff from context or tool_input
@@ -158,7 +158,7 @@ struct PermissionCardView: View {
     private var permissionOptions: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Do you want to proceed?")
-                .font(.caption)
+                .font(.subheadline)
                 .foregroundColor(.secondary)
 
             // Option 1: Yes
@@ -216,19 +216,19 @@ struct PermissionCardView: View {
         Button(action: action) {
             HStack(alignment: .top, spacing: 8) {
                 Text("\(number).")
-                    .font(.caption)
+                    .font(.subheadline)
                     .foregroundColor(.secondary)
-                    .frame(width: 20, alignment: .trailing)
+                    .frame(width: 22, alignment: .trailing)
                 Text(text)
-                    .font(.caption)
+                    .font(.subheadline)
                     .foregroundColor(.primary)
                     .multilineTextAlignment(.leading)
                 Spacer()
             }
-            .padding(.vertical, 6)
-            .padding(.horizontal, 8)
+            .padding(.vertical, 10)
+            .padding(.horizontal, 10)
             .background(Color(.systemGray5))
-            .cornerRadius(6)
+            .cornerRadius(8)
         }
         .accessibilityIdentifier("permissionOption\(number)")
     }

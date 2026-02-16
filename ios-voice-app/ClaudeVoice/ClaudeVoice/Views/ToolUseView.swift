@@ -33,10 +33,10 @@ struct ToolUseView: View {
             // Header: icon + tool name + chevron for expand/collapse
             HStack(spacing: 6) {
                 Image(systemName: toolIcon)
-                    .font(.caption)
+                    .font(.footnote)
                     .foregroundColor(.secondary)
                 Text(tool.name)
-                    .font(.caption.bold())
+                    .font(.footnote.bold())
                     .foregroundColor(.secondary)
 
                 if !shouldCollapseResult && resultHasTruncatableContent {
@@ -45,7 +45,7 @@ struct ToolUseView: View {
                         withAnimation { isExpanded.toggle() }
                     } label: {
                         Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                            .font(.caption)
+                            .font(.footnote)
                             .foregroundColor(.secondary)
                     }
                 }
@@ -55,7 +55,7 @@ struct ToolUseView: View {
             // Tool input
             if let inputSummary = toolInputSummary {
                 Text(inputSummary)
-                    .font(.system(.caption2, design: .monospaced))
+                    .font(.system(.footnote, design: .monospaced))
                     .foregroundColor(.primary)
                     .lineLimit(isExpanded ? nil : 3)
                     .padding(8)
@@ -70,10 +70,10 @@ struct ToolUseView: View {
                 if result != nil {
                     HStack(spacing: 4) {
                         Image(systemName: "checkmark")
-                            .font(.caption2)
+                            .font(.footnote)
                             .foregroundColor(.secondary)
                         Text("Done")
-                            .font(.caption2)
+                            .font(.footnote)
                             .foregroundColor(.secondary)
                     }
                     .padding(.top, 2)
@@ -82,7 +82,7 @@ struct ToolUseView: View {
                         ProgressView()
                             .scaleEffect(0.7)
                         Text("Running...")
-                            .font(.caption2)
+                            .font(.footnote)
                             .foregroundColor(.secondary)
                     }
                     .padding(8)
@@ -95,7 +95,7 @@ struct ToolUseView: View {
                         ProgressView()
                             .scaleEffect(0.7)
                         Text("Running...")
-                            .font(.caption2)
+                            .font(.footnote)
                             .foregroundColor(.secondary)
                     }
                     .padding(8)
@@ -108,7 +108,7 @@ struct ToolUseView: View {
                     ProgressView()
                         .scaleEffect(0.7)
                     Text("Running...")
-                        .font(.caption2)
+                        .font(.footnote)
                         .foregroundColor(.secondary)
                 }
                 .padding(8)
@@ -149,7 +149,7 @@ struct ToolUseView: View {
             VStack(alignment: .leading, spacing: 4) {
                 let content = displayContent(for: result)
                 Text(content.isEmpty ? "(empty)" : content)
-                    .font(.system(.caption2, design: .monospaced))
+                    .font(.system(.footnote, design: .monospaced))
                     .foregroundColor(isError ? .red : .primary)
                     .padding(8)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -162,9 +162,9 @@ struct ToolUseView: View {
                     HStack {
                         Spacer()
                         Image(systemName: "chevron.up")
-                            .font(.caption2)
+                            .font(.footnote)
                         Text("Hide output")
-                            .font(.caption2)
+                            .font(.footnote)
                         Spacer()
                     }
                     .foregroundColor(.accentColor)
@@ -177,10 +177,10 @@ struct ToolUseView: View {
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: isError ? "xmark.circle" : "checkmark")
-                        .font(.caption2)
+                        .font(.footnote)
                         .foregroundColor(isError ? .red : .secondary)
                     Text(isError ? "Error — tap to show" : "Done — tap to show output")
-                        .font(.caption2)
+                        .font(.footnote)
                         .foregroundColor(isError ? .red : .secondary)
                 }
                 .padding(.top, 2)
@@ -199,7 +199,7 @@ struct ToolUseView: View {
 
         VStack(alignment: .leading, spacing: 4) {
             Text(displayText.isEmpty ? "(empty)" : displayText)
-                .font(.system(.caption2, design: .monospaced))
+                .font(.system(.footnote, design: .monospaced))
                 .foregroundColor(result.isError == true ? .red : .primary)
                 .padding(8)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -214,9 +214,9 @@ struct ToolUseView: View {
                         HStack {
                             Spacer()
                             Image(systemName: "chevron.down")
-                                .font(.caption2)
+                                .font(.footnote)
                             Text("Show \(lines.count - maxPreviewLines) more lines")
-                                .font(.caption2)
+                                .font(.footnote)
                             Spacer()
                         }
                         .foregroundColor(.accentColor)
@@ -229,9 +229,9 @@ struct ToolUseView: View {
                         HStack {
                             Spacer()
                             Image(systemName: "chevron.up")
-                                .font(.caption2)
+                                .font(.footnote)
                             Text("Hide")
-                                .font(.caption2)
+                                .font(.footnote)
                             Spacer()
                         }
                         .foregroundColor(.accentColor)
