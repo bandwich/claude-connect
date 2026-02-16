@@ -1,10 +1,21 @@
 """Session management for Claude Code projects"""
 
 import os
+import re
 import json
 import glob
 from dataclasses import dataclass
 from typing import Optional
+
+
+IMAGE_SOURCE_RE = re.compile(r'^\[Image: source: (.+)\]$')
+
+def rewrite_image_source(text: str) -> str:
+    """Rewrite [Image: source: /path/to/file.png] to [Image: file.png]"""
+    m = IMAGE_SOURCE_RE.match(text.strip())
+    if m:
+        return f"[Image: {os.path.basename(m.group(1))}]"
+    return text
 
 
 @dataclass
@@ -332,11 +343,17 @@ class SessionManager:
                                     and b.get('name', '') in HIDDEN_TOOLS)
                         ]
 
+                        # Skip image blocks (base64 data too large for display)
+                        content = [
+                            b for b in content
+                            if not (isinstance(b, dict) and b.get('type') == 'image')
+                        ]
+
                         # Assistant message with structured blocks
                         text_parts = []
                         for block in content:
                             if isinstance(block, dict) and block.get('type') == 'text':
-                                text_parts.append(block.get('text', '').strip())
+                                text_parts.append(rewrite_image_source(block.get('text', '').strip()))
                         flat_content = ' '.join(text_parts).strip()
 
                         # Check if there are non-text blocks worth keeping
@@ -373,7 +390,7 @@ class SessionManager:
 
                         messages.append(SessionMessage(
                             role=role,
-                            content=content,
+                            content=rewrite_image_source(content),
                             timestamp=timestamp,
                             content_blocks=None
                         ))

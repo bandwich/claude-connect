@@ -284,3 +284,46 @@ class TestSessionManager:
         assert len(messages) == 1
         assert messages[0].content == "Hello, how can I help?"
         assert not messages[0].content.startswith("\n")
+
+    def test_get_session_history_rewrites_image_source(self, tmp_path):
+        """[Image: source: /path/file.png] should become [Image: file.png]"""
+        from session_manager import SessionManager
+
+        project_dir = tmp_path / "-Users-test-proj"
+        project_dir.mkdir()
+        session_file = project_dir / "sess1.jsonl"
+        session_file.write_text(
+            json.dumps({
+                "type": "user",
+                "timestamp": "2026-01-01T00:00:00Z",
+                "message": {"role": "user", "content": [
+                    {"type": "text", "text": "[Image: source: /Users/aaron/Downloads/IMG_5594.PNG]"}
+                ]}
+            }) + "\n"
+        )
+
+        manager = SessionManager(projects_dir=str(tmp_path))
+        messages = manager.get_session_history("-Users-test-proj", "sess1")
+        assert len(messages) == 1
+        assert messages[0].content == "[Image: IMG_5594.PNG]"
+
+    def test_get_session_history_skips_image_blocks(self, tmp_path):
+        """Image blocks with base64 data should be skipped entirely"""
+        from session_manager import SessionManager
+
+        project_dir = tmp_path / "-Users-test-proj"
+        project_dir.mkdir()
+        session_file = project_dir / "sess1.jsonl"
+        session_file.write_text(
+            json.dumps({
+                "type": "user",
+                "timestamp": "2026-01-01T00:00:00Z",
+                "message": {"role": "user", "content": [
+                    {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "abc"}}
+                ]}
+            }) + "\n"
+        )
+
+        manager = SessionManager(projects_dir=str(tmp_path))
+        messages = manager.get_session_history("-Users-test-proj", "sess1")
+        assert len(messages) == 0
