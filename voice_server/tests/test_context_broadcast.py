@@ -56,7 +56,7 @@ def test_context_update_broadcast():
 
         assert len(context_calls) >= 1, "Should broadcast context_update"
         context_msg = context_calls[0][0][0]
-        assert context_msg["tokens_used"] == 150
+        assert context_msg["tokens_used"] == 100  # input_tokens only (no output_tokens)
         assert context_msg["session_id"] == "test-session-123"
 
     finally:

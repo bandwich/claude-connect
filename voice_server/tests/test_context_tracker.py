@@ -16,7 +16,7 @@ def test_calculate_context_from_empty_file():
 
         assert result["tokens_used"] == 0
         assert result["context_percentage"] == 0.0
-        assert result["context_limit"] == 158000
+        assert result["context_limit"] == 166000
 
         os.unlink(f.name)
 
@@ -45,9 +45,9 @@ def test_calculate_context_from_transcript():
         tracker = ContextTracker()
         result = tracker.calculate_context(f.name)
 
-        # Uses last message: 150 + 50 = 200 tokens
-        assert result["tokens_used"] == 200
-        assert result["context_percentage"] == 0.13  # 200/158000 * 100 = 0.13%
+        # Uses last message: 150 input tokens only (no output_tokens)
+        assert result["tokens_used"] == 150
+        assert result["context_percentage"] == 0.09  # 150/166000 * 100 = 0.09%
 
         os.unlink(f.name)
 
@@ -76,9 +76,9 @@ def test_calculate_context_includes_cache_tokens():
         tracker = ContextTracker()
         result = tracker.calculate_context(f.name)
 
-        # 10 + 20 + 5000 + 1000 = 6030 tokens
-        assert result["tokens_used"] == 6030
-        assert result["context_percentage"] == 3.82  # 6030/158000 * 100
+        # 10 + 5000 + 1000 = 6010 (no output_tokens)
+        assert result["tokens_used"] == 6010
+        assert result["context_percentage"] == 3.62  # 6010/166000 * 100
 
         os.unlink(f.name)
 
@@ -102,6 +102,7 @@ def test_calculate_context_ignores_entries_without_usage():
         tracker = ContextTracker()
         result = tracker.calculate_context(f.name)
 
-        assert result["tokens_used"] == 1000
+        # 500 input only (no output_tokens)
+        assert result["tokens_used"] == 500
 
         os.unlink(f.name)
