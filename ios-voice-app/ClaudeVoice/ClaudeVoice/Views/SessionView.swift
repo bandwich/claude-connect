@@ -17,6 +17,7 @@ struct SessionView: View {
     @State private var syncError: String? = nil
     @State private var branchName: String = "main"  // Placeholder for now
     @State private var contextPercentage: Double? = nil
+    @State private var permissionResolutions: [String: PermissionCardResolution] = [:]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -32,6 +33,15 @@ struct SessionView: View {
                             case .toolUse(_, let tool, let result):
                                 ToolUseView(tool: tool, result: result)
                                     .id(item.id)
+                            case .permissionPrompt(_, let request):
+                                PermissionCardView(
+                                    request: request,
+                                    resolved: permissionResolutions[request.requestId],
+                                    onResponse: { response in
+                                        handlePermissionResponse(response, for: request)
+                                    }
+                                )
+                                .id(item.id)
                             }
                         }
                     }
@@ -470,6 +480,16 @@ struct SessionView: View {
             }
             return "Answer question"
         }
+    }
+
+    private func handlePermissionResponse(_ response: PermissionResponse, for request: PermissionRequest) {
+        let allowed = response.decision == .allow
+        let summary = "\(allowed ? "Allowed" : "Denied"): \(permissionDescription(for: request))"
+        permissionResolutions[request.requestId] = PermissionCardResolution(
+            allowed: allowed,
+            summary: summary
+        )
+        webSocketManager.sendPermissionResponse(response)
     }
 }
 
