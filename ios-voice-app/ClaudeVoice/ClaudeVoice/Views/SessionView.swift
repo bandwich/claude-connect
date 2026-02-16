@@ -17,6 +17,7 @@ struct SessionView: View {
     @State private var syncError: String? = nil
     @State private var branchName: String = "main"  // Placeholder for now
     @State private var contextPercentage: Double? = nil
+    @State private var permissionResolutions: [String: PermissionCardResolution] = [:]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -32,6 +33,15 @@ struct SessionView: View {
                             case .toolUse(_, let tool, let result):
                                 ToolUseView(tool: tool, result: result)
                                     .id(item.id)
+                            case .permissionPrompt(_, let request):
+                                PermissionCardView(
+                                    request: request,
+                                    resolved: permissionResolutions[request.requestId],
+                                    onResponse: { response in
+                                        handlePermissionResponse(response, for: request)
+                                    }
+                                )
+                                .id(item.id)
                             }
                         }
                     }
@@ -121,27 +131,16 @@ struct SessionView: View {
             }
         }
         .enableSwipeBack()
-        .sheet(item: $webSocketManager.pendingPermission) { request in
-            PermissionPromptView(request: request) { response in
-                let decisionText = response.decision == .allow ? "✓ Allowed" : "✗ Denied"
-                let responseMessage = SessionHistoryMessage(
-                    role: "assistant",
-                    content: "\(decisionText): \(permissionDescription(for: request))",
-                    timestamp: response.timestamp
-                )
-                items.append(.textMessage(responseMessage))
-
-                webSocketManager.sendPermissionResponse(response)
-            }
-        }
         .onChange(of: webSocketManager.pendingPermission) { _, newValue in
             if let request = newValue {
-                let requestMessage = SessionHistoryMessage(
-                    role: "assistant",
-                    content: "⏳ Permission requested: \(permissionDescription(for: request))",
-                    timestamp: request.timestamp
-                )
-                items.append(.textMessage(requestMessage))
+                // Only add if not already in items (prevents duplicates on reconnect)
+                let alreadyExists = items.contains(where: {
+                    if case .permissionPrompt(let id, _) = $0 { return id == request.requestId }
+                    return false
+                })
+                if !alreadyExists {
+                    items.append(.permissionPrompt(requestId: request.requestId, request: request))
+                }
             }
         }
         .onAppear(perform: setupView)
@@ -154,6 +153,8 @@ struct SessionView: View {
             // Retry sync when connection is established (for resumed sessions)
             if case .connected = newState, !session.isNewSession {
                 print("[SessionView] Connection established, attempting sync")
+                // Re-fetch session history to clear stale "Running..." tool_use items
+                webSocketManager.requestSessionHistory(folderName: project.folderName, sessionId: session.id)
                 syncSession()
             }
         }
@@ -240,6 +241,12 @@ struct SessionView: View {
                             content: msg.content,
                             timestamp: msg.timestamp
                         )))
+                    }
+                }
+                // Re-add pending permission card if history reload would wipe it
+                if let pending = self.webSocketManager.pendingPermission {
+                    if self.permissionResolutions[pending.requestId] == nil {
+                        newItems.append(.permissionPrompt(requestId: pending.requestId, request: pending))
                     }
                 }
                 self.items = newItems
@@ -379,6 +386,18 @@ struct SessionView: View {
                 self.contextPercentage = stats.contextPercentage
             }
         }
+
+        // Handle permission resolved from terminal (only if not already resolved from app)
+        webSocketManager.onPermissionResolved = { resolved in
+            DispatchQueue.main.async {
+                if resolved.answeredIn == "terminal" && permissionResolutions[resolved.requestId] == nil {
+                    permissionResolutions[resolved.requestId] = PermissionCardResolution(
+                        allowed: true,
+                        summary: "Answered in terminal"
+                    )
+                }
+            }
+        }
     }
 
     private func syncSession() {
@@ -448,12 +467,12 @@ struct SessionView: View {
             }
             return "Run command"
         case .edit:
-            if let path = request.context?.filePath {
+            if let path = request.context?.filePath ?? request.toolInput?.filePath {
                 return "Edit \(path)"
             }
             return "Edit file"
         case .write:
-            if let path = request.context?.filePath {
+            if let path = request.context?.filePath ?? request.toolInput?.filePath {
                 return "Create \(path)"
             }
             return "Create file"
@@ -470,6 +489,16 @@ struct SessionView: View {
             }
             return "Answer question"
         }
+    }
+
+    private func handlePermissionResponse(_ response: PermissionResponse, for request: PermissionRequest) {
+        let allowed = response.decision == .allow
+        let summary = "\(allowed ? "Allowed" : "Denied"): \(permissionDescription(for: request))"
+        permissionResolutions[request.requestId] = PermissionCardResolution(
+            allowed: allowed,
+            summary: summary
+        )
+        webSocketManager.sendPermissionResponse(response)
     }
 }
 

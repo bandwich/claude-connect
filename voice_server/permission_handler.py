@@ -13,6 +13,7 @@ class PermissionHandler:
     def __init__(self):
         self.pending_permissions: dict[str, asyncio.Event] = {}
         self.permission_responses: dict[str, dict] = {}
+        self.pending_messages: dict[str, dict] = {}  # request_id -> original broadcast message
         self.websocket_clients: set = set()
         self.timed_out_requests: set[str] = set()
         self.latest_request_id: Optional[str] = None
@@ -47,6 +48,7 @@ class PermissionHandler:
         self.timed_out_requests.add(request_id)
         if request_id in self.pending_permissions:
             del self.pending_permissions[request_id]
+        self.pending_messages.pop(request_id, None)
 
     async def wait_for_response(
         self, request_id: str, timeout: float = 180.0
@@ -68,10 +70,17 @@ class PermissionHandler:
         """Clean up all state for a request"""
         self.pending_permissions.pop(request_id, None)
         self.permission_responses.pop(request_id, None)
+        self.pending_messages.pop(request_id, None)
         self.timed_out_requests.discard(request_id)
 
     async def broadcast(self, message: dict):
         """Broadcast a message to all connected WebSocket clients"""
+        # Store permission_request messages for re-send on reconnect
+        if message.get("type") == "permission_request":
+            request_id = message.get("request_id", "")
+            if request_id:
+                self.pending_messages[request_id] = message
+
         json_message = json.dumps(message)
         for client in list(self.websocket_clients):
             try:
@@ -79,6 +88,15 @@ class PermissionHandler:
             except Exception as e:
                 print(f"Error broadcasting to client: {e}")
                 self.websocket_clients.discard(client)
+
+    async def send_pending_to_client(self, client):
+        """Re-send any pending permission requests to a newly connected client"""
+        for request_id, message in list(self.pending_messages.items()):
+            if self.is_request_pending(request_id):
+                try:
+                    await client.send(json.dumps(message))
+                except Exception as e:
+                    print(f"Error sending pending permission to client: {e}")
 
     def generate_request_id(self) -> str:
         """Generate a unique request ID"""

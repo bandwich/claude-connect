@@ -76,6 +76,7 @@ struct ContentBlockRaw: Codable {
 enum ConversationItem: Identifiable {
     case textMessage(SessionHistoryMessage)
     case toolUse(toolId: String, tool: ToolUseBlock, result: ToolResultBlock?)
+    case permissionPrompt(requestId: String, request: PermissionRequest)
 
     var id: String {
         switch self {
@@ -83,6 +84,8 @@ enum ConversationItem: Identifiable {
             return "text-\(msg.timestamp)"
         case .toolUse(let toolId, _, _):
             return "tool-\(toolId)"
+        case .permissionPrompt(let requestId, _):
+            return "perm-\(requestId)"
         }
     }
 }

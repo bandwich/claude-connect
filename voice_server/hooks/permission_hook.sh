@@ -5,28 +5,21 @@
 # Reads JSON from stdin, POSTs to server, outputs response JSON
 # Exit 0 on success with decision, exit 2 to fall back to terminal
 
-SERVER_URL="${VOICE_SERVER_URL:-http://localhost:8766}"
+SERVER_URL="${VOICE_SERVER_URL:-http://127.0.0.1:8766}"
 
-# Check if server is running - exit immediately if not
-# Use /dev/null for stdin since we haven't consumed it yet
-if ! curl -s --max-time 2 "${SERVER_URL}/health" >/dev/null 2>&1; then
-    # Server not running - fall back to terminal silently
-    cat >/dev/null  # Consume stdin to avoid broken pipe
-    exit 2
-fi
-
-set -e
-
-# Read JSON payload from stdin
+# Read JSON payload from stdin first
 PAYLOAD=$(cat)
 
 # POST to permission endpoint with 3 minute timeout
+# Use 127.0.0.1 to avoid DNS resolution delays
+# If server is down, curl fails fast and we fall back to terminal
 RESPONSE=$(curl -s -X POST \
   -H "Content-Type: application/json" \
   -d "$PAYLOAD" \
+  --connect-timeout 3 \
   --max-time 185 \
   "${SERVER_URL}/permission" 2>/dev/null) || {
-    # Network error - fall back to terminal
+    # Server not running or network error - fall back to terminal
     exit 2
 }
 

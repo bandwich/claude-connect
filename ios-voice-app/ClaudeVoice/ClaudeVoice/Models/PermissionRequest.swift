@@ -17,10 +17,24 @@ enum PermissionDecision: String, Codable {
 struct ToolInput: Codable, Equatable {
     let command: String?
     let description: String?
+    // Edit/Write tool fields
+    let filePath: String?
+    let oldString: String?
+    let newString: String?
 
-    init(command: String? = nil, description: String? = nil) {
+    init(command: String? = nil, description: String? = nil, filePath: String? = nil, oldString: String? = nil, newString: String? = nil) {
         self.command = command
         self.description = description
+        self.filePath = filePath
+        self.oldString = oldString
+        self.newString = newString
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case command, description
+        case filePath = "file_path"
+        case oldString = "old_string"
+        case newString = "new_string"
     }
 }
 
@@ -41,6 +55,49 @@ struct PermissionQuestion: Codable, Equatable {
     let options: [String]?
 }
 
+struct PermissionRule: Codable, Equatable {
+    let toolName: String
+    let ruleContent: String
+}
+
+struct PermissionSuggestion: Codable, Equatable {
+    let type: String
+    // addRules format
+    let rules: [PermissionRule]?
+    let behavior: String?
+    let destination: String?
+    // toolAlwaysAllow format
+    let tool: String?
+
+    init(type: String, rules: [PermissionRule]? = nil, behavior: String? = nil, destination: String? = nil, tool: String? = nil) {
+        self.type = type
+        self.rules = rules
+        self.behavior = behavior
+        self.destination = destination
+        self.tool = tool
+    }
+
+    /// Human-readable display text for the option button
+    var displayText: String {
+        if type == "toolAlwaysAllow", let tool = tool {
+            return "Yes, always allow \(tool)"
+        }
+        guard let rules = rules, !rules.isEmpty else {
+            return "Yes, and always allow"
+        }
+        let ruleDescriptions = rules.map { rule in
+            let content = rule.ruleContent
+            if rule.toolName == "Bash" {
+                let cleaned = content.hasSuffix(":*") ? String(content.dropLast(2)) : content
+                return cleaned
+            }
+            return "\(rule.toolName) \(content)"
+        }
+        let joined = ruleDescriptions.joined(separator: ", ")
+        return "Yes, and don't ask again for \(joined)" + (rules.first?.toolName == "Bash" ? " commands" : "")
+    }
+}
+
 struct PermissionRequest: Codable, Identifiable, Equatable {
     let type: String
     let requestId: String
@@ -49,6 +106,7 @@ struct PermissionRequest: Codable, Identifiable, Equatable {
     let toolInput: ToolInput?
     let context: PermissionContext?
     let question: PermissionQuestion?
+    let permissionSuggestions: [PermissionSuggestion]?
     let timestamp: Double
 
     var id: String { requestId }
@@ -61,6 +119,7 @@ struct PermissionRequest: Codable, Identifiable, Equatable {
         case toolInput = "tool_input"
         case context
         case question
+        case permissionSuggestions = "permission_suggestions"
         case timestamp
     }
 }
@@ -71,14 +130,16 @@ struct PermissionResponse: Codable {
     let decision: PermissionDecision
     let input: String?
     let selectedOption: Int?
+    let updatedPermissions: [PermissionSuggestion]?
     let timestamp: Double
 
-    init(requestId: String, decision: PermissionDecision, input: String? = nil, selectedOption: Int? = nil) {
+    init(requestId: String, decision: PermissionDecision, input: String? = nil, selectedOption: Int? = nil, updatedPermissions: [PermissionSuggestion]? = nil) {
         self.type = "permission_response"
         self.requestId = requestId
         self.decision = decision
         self.input = input
         self.selectedOption = selectedOption
+        self.updatedPermissions = updatedPermissions
         self.timestamp = Date().timeIntervalSince1970
     }
 
@@ -88,6 +149,7 @@ struct PermissionResponse: Codable {
         case decision
         case input
         case selectedOption = "selected_option"
+        case updatedPermissions = "updated_permissions"
         case timestamp
     }
 }

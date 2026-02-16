@@ -872,7 +872,8 @@ class VoiceServer:
             self.permission_handler.resolve_request(request_id, {
                 "decision": decision,
                 "input": data.get('input'),
-                "selected_option": data.get('selected_option')
+                "selected_option": data.get('selected_option'),
+                "updated_permissions": data.get('updated_permissions')
             })
             # Notify iOS that the permission was resolved
             await self.permission_handler.broadcast({
@@ -970,6 +971,7 @@ class VoiceServer:
         try:
             await self.send_status(websocket, "idle", "Connected")
             await self.send_connection_status(websocket)
+            await self.permission_handler.send_pending_to_client(websocket)
             async for message in websocket:
                 print(f"Received message: {message[:100]}...")
                 await self.handle_message(websocket, message)
