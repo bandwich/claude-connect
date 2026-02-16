@@ -39,17 +39,21 @@ iPhone App                         Mac Server
 ├─ Speech Recognition              ├─ WebSocket Server (port 8765)
 ├─ WebSocket Client ──────────────►├─ Receives voice input
 ├─ Audio Player ◄──────────────────├─ Streams TTS audio (Kokoro)
+├─ Conversation View               ├─ Transcript file watching
+│  (text, tools, user msgs)        │  (assistant + user extraction)
 ├─ Session/Project Browser         ├─ tmux session management
+├─ File Browser + Image Viewer     ├─ File serving (text + images)
 ├─ Permission Approval UI          ├─ HTTP server for hooks (port 8766)
-└─ Usage Stats Display             └─ Transcript file watching
+└─ Usage Stats Display             └─ Session history + context tracking
 ```
 
 ## Project Structure
 
 ```
 voice_server/                  # Python server
-├─ ios_server.py              # Main WebSocket server
-├─ session_manager.py         # Claude Code session management
+├─ ios_server.py              # Main WebSocket server + transcript watcher
+├─ session_manager.py         # Claude Code session/project management
+├─ content_models.py          # Pydantic models for content blocks
 ├─ tts_utils.py               # Kokoro TTS integration
 ├─ tmux_controller.py         # Tmux session control
 ├─ context_tracker.py         # Token usage calculation from transcripts
@@ -62,24 +66,36 @@ voice_server/                  # Python server
 
 ios-voice-app/ClaudeVoice/     # iOS app (Swift/SwiftUI)
 ├─ Models/
+│   ├─ AssistantContent.swift # Content block types (text, tool_use, etc.)
 │   ├─ ConnectionState.swift  # WebSocket connection states
-│   ├─ VoiceState.swift       # Voice interaction states
-│   ├─ Message.swift          # WebSocket message types
-│   ├─ Project.swift          # Claude Code project model
-│   ├─ Session.swift          # Claude Code session model
+│   ├─ ClaudeOutputState.swift # Output state tracking
 │   ├─ ContextStats.swift     # Context window usage stats
-│   └─ UsageStats.swift       # Weekly/session quota stats
+│   ├─ FileModels.swift       # File browser response models
+│   ├─ Message.swift          # WebSocket message types
+│   ├─ PermissionRequest.swift # Permission request/response models
+│   ├─ Project.swift          # Claude Code project model
+│   ├─ Session.swift          # Session model + conversation items
+│   ├─ UsageStats.swift       # Weekly/session quota stats
+│   └─ VoiceState.swift       # Voice interaction states
 ├─ Services/
 │   ├─ WebSocketManager.swift # WebSocket client with reconnect
 │   ├─ SpeechRecognizer.swift # iOS Speech framework
 │   ├─ AudioPlayer.swift      # TTS audio playback
 │   └─ QRCodeValidator.swift  # QR code URL validation
 └─ Views/
-    ├─ SessionView.swift      # Main voice interaction view
+    ├─ SessionView.swift      # Main voice interaction + conversation view
+    ├─ ToolUseView.swift      # Tool use/result display with expand/collapse
     ├─ ProjectsListView.swift # Project browser
+    ├─ ProjectDetailView.swift # Project detail with sessions + files tabs
     ├─ SessionsListView.swift # Session browser
+    ├─ FilesView.swift        # File browser (directory listing)
+    ├─ FileView.swift         # File viewer (text + images)
+    ├─ DiffView.swift         # Diff viewer for Edit results
+    ├─ PermissionPromptView.swift # Permission approval sheet
     ├─ SettingsView.swift     # Connection settings + usage stats
-    └─ QRScannerView.swift    # Camera-based QR scanner
+    ├─ QRScannerView.swift    # Camera-based QR scanner
+    ├─ CustomNavigationBar.swift # Reusable nav bar component
+    └─ VoiceIndicator.swift   # Recording animation indicator
 
 tests/e2e_support/            # E2E test utilities
 └─ server_manager.py          # Server lifecycle for tests
@@ -216,29 +232,49 @@ To enable remote permission control from the iOS app, add hooks to your Claude C
 
 ### iOS → Server
 ```
-voice_input      {"type": "voice_input", "text": "...", "timestamp": ...}
-list_projects    {"type": "list_projects"}
-list_sessions    {"type": "list_sessions", "folder_name": "..."}
-open_session     {"type": "open_session", "folder_name": "...", "session_id": "..."}
-usage_request    {"type": "usage_request"}
+voice_input          {"type": "voice_input", "text": "...", "timestamp": ...}
+list_projects        {"type": "list_projects"}
+list_sessions        {"type": "list_sessions", "folder_name": "..."}
+open_session         {"type": "open_session", "folder_name": "...", "session_id": "..."}
+new_session          {"type": "new_session", "folder_name": "..."}
+resume_session       {"type": "resume_session", "folder_name": "...", "session_id": "..."}
+close_session        {"type": "close_session"}
+add_project          {"type": "add_project", "name": "...", "path": "..."}
+list_directory       {"type": "list_directory", "path": "..."}
+read_file            {"type": "read_file", "path": "..."}
+usage_request        {"type": "usage_request"}
 permission_response  {"type": "permission_response", "request_id": "...", "decision": "allow|deny|modify", ...}
 ```
 
 ### Server → iOS
 ```
-status           {"type": "status", "state": "idle|processing|speaking", ...}
-audio_chunk      {"type": "audio_chunk", "data": "<base64 WAV>", ...}
-projects_list    {"type": "projects_list", "projects": [...]}
-sessions_list    {"type": "sessions_list", "sessions": [...]}
-context_update   {"type": "context_update", "session_id": "...", "context_percentage": ..., "tokens_used": ...}
-usage_response   {"type": "usage_response", "session": {...}, "week_all_models": {...}, ...}
-permission_request  {"type": "permission_request", "request_id": "...", "prompt_type": "bash|edit|...", ...}
+status               {"type": "status", "state": "idle|processing|speaking", ...}
+audio_chunk          {"type": "audio_chunk", "data": "<base64 WAV>", ...}
+assistant_response   {"type": "assistant_response", "content_blocks": [...], "session_id": "..."}
+user_message         {"type": "user_message", "role": "user", "content": "...", "session_id": "..."}
+projects_list        {"type": "projects_list", "projects": [...]}
+sessions_list        {"type": "sessions_list", "sessions": [...]}
+session_history      {"type": "session_history", "messages": [...]}
+session_created      {"type": "session_created", "session_id": "..."}
+session_resumed      {"type": "session_resumed", "session_id": "..."}
+session_closed       {"type": "session_closed"}
+connection_status    {"type": "connection_status", "connected": true|false}
+directory_listing    {"type": "directory_listing", "path": "...", "entries": [...]}
+file_contents        {"type": "file_contents", "path": "...", "contents": "..." | "image_data": "..."}
+context_update       {"type": "context_update", "session_id": "...", "context_percentage": ..., "tokens_used": ...}
+usage_response       {"type": "usage_response", "session": {...}, "week_all_models": {...}, ...}
+permission_request   {"type": "permission_request", "request_id": "...", "prompt_type": "bash|edit|...", ...}
+permission_resolved  {"type": "permission_resolved", "request_id": "..."}
 ```
 
 ## Key Features
 
 - **Voice Interaction**: Speak commands, hear Claude's responses via Kokoro TTS
 - **Session Browser**: Browse projects from `~/.claude/projects/`, view sessions, resume in tmux
+- **Conversation View**: See assistant text, tool use/results, terminal-typed user messages, and interrupts
+- **Tool Display**: Collapsible tool use blocks with input summaries and results
+- **File Browser**: Browse project files with text and image viewing
+- **Markdown Rendering**: Rich text in messages, stripped for TTS
 - **Remote Permissions**: Approve/deny Claude Code permission prompts from iOS
 - **Context Tracking**: Real-time context window usage displayed in session header
 - **Usage Stats**: View session/weekly quotas in Settings (fetched via /usage command)
