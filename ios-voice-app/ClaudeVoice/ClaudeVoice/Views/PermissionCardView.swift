@@ -106,16 +106,21 @@ struct PermissionCardView: View {
 
         case .edit, .write:
             VStack(alignment: .leading, spacing: 4) {
-                if let path = request.context?.filePath {
+                // File path from context or tool_input
+                let path = request.context?.filePath ?? request.toolInput?.filePath
+                if let path = path {
                     Text(path)
                         .font(.system(.caption, design: .monospaced))
                         .foregroundColor(.secondary)
                 }
-                if let context = request.context {
+                // Diff from context or tool_input
+                let oldContent = request.context?.oldContent ?? request.toolInput?.oldString
+                let newContent = request.context?.newContent ?? request.toolInput?.newString
+                if oldContent != nil || newContent != nil {
                     DiffView(
-                        oldContent: context.oldContent ?? "",
-                        newContent: context.newContent ?? "",
-                        filePath: context.filePath ?? "file"
+                        oldContent: oldContent ?? "",
+                        newContent: newContent ?? "",
+                        filePath: path ?? "file"
                     )
                     .frame(maxHeight: 200)
                 }

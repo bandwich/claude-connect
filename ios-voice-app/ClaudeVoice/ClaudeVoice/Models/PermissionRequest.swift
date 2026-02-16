@@ -17,10 +17,24 @@ enum PermissionDecision: String, Codable {
 struct ToolInput: Codable, Equatable {
     let command: String?
     let description: String?
+    // Edit/Write tool fields
+    let filePath: String?
+    let oldString: String?
+    let newString: String?
 
-    init(command: String? = nil, description: String? = nil) {
+    init(command: String? = nil, description: String? = nil, filePath: String? = nil, oldString: String? = nil, newString: String? = nil) {
         self.command = command
         self.description = description
+        self.filePath = filePath
+        self.oldString = oldString
+        self.newString = newString
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case command, description
+        case filePath = "file_path"
+        case oldString = "old_string"
+        case newString = "new_string"
     }
 }
 
@@ -48,12 +62,29 @@ struct PermissionRule: Codable, Equatable {
 
 struct PermissionSuggestion: Codable, Equatable {
     let type: String
-    let rules: [PermissionRule]
-    let behavior: String
-    let destination: String
+    // addRules format
+    let rules: [PermissionRule]?
+    let behavior: String?
+    let destination: String?
+    // toolAlwaysAllow format
+    let tool: String?
+
+    init(type: String, rules: [PermissionRule]? = nil, behavior: String? = nil, destination: String? = nil, tool: String? = nil) {
+        self.type = type
+        self.rules = rules
+        self.behavior = behavior
+        self.destination = destination
+        self.tool = tool
+    }
 
     /// Human-readable display text for the option button
     var displayText: String {
+        if type == "toolAlwaysAllow", let tool = tool {
+            return "Yes, always allow \(tool)"
+        }
+        guard let rules = rules, !rules.isEmpty else {
+            return "Yes, and always allow"
+        }
         let ruleDescriptions = rules.map { rule in
             let content = rule.ruleContent
             if rule.toolName == "Bash" {

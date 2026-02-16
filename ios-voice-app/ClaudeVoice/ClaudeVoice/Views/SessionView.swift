@@ -454,12 +454,12 @@ struct SessionView: View {
             }
             return "Run command"
         case .edit:
-            if let path = request.context?.filePath {
+            if let path = request.context?.filePath ?? request.toolInput?.filePath {
                 return "Edit \(path)"
             }
             return "Edit file"
         case .write:
-            if let path = request.context?.filePath {
+            if let path = request.context?.filePath ?? request.toolInput?.filePath {
                 return "Create \(path)"
             }
             return "Create file"
