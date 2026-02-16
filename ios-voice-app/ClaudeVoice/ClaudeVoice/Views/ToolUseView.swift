@@ -12,12 +12,17 @@ struct ToolUseView: View {
     }
 
     private var shouldHideResult: Bool {
-        ["Task", "Read", "Grep", "Glob"].contains(tool.name)
+        ["Task", "Read", "Edit", "Grep", "Glob"].contains(tool.name)
+    }
+
+    /// Tools where results are collapsed by default but expandable
+    private var shouldCollapseResult: Bool {
+        tool.name == "Bash"
     }
 
     /// Whether the result content has more lines than maxPreviewLines
     private var resultHasTruncatableContent: Bool {
-        guard !shouldHideResult else { return false }
+        guard !shouldHideResult && !shouldCollapseResult else { return false }
         guard let result = result else { return false }
         let content = displayContent(for: result)
         return content.components(separatedBy: "\n").count > maxPreviewLines
@@ -34,7 +39,7 @@ struct ToolUseView: View {
                     .font(.caption.bold())
                     .foregroundColor(.secondary)
 
-                if resultHasTruncatableContent {
+                if !shouldCollapseResult && resultHasTruncatableContent {
                     Spacer()
                     Button {
                         withAnimation { isExpanded.toggle() }
@@ -72,6 +77,19 @@ struct ToolUseView: View {
                             .foregroundColor(.secondary)
                     }
                     .padding(.top, 2)
+                } else {
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .scaleEffect(0.7)
+                        Text("Running...")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(8)
+                }
+            } else if shouldCollapseResult {
+                if let result = result {
+                    collapsedResultView(result)
                 } else {
                     HStack(spacing: 6) {
                         ProgressView()
@@ -122,6 +140,52 @@ struct ToolUseView: View {
         }
         // No closing tag - return everything after <output>
         return String(afterStart).trimmingCharacters(in: .newlines)
+    }
+
+    @ViewBuilder
+    private func collapsedResultView(_ result: ToolResultBlock) -> some View {
+        let isError = result.isError == true
+        if isExpanded {
+            VStack(alignment: .leading, spacing: 4) {
+                let content = displayContent(for: result)
+                Text(content.isEmpty ? "(empty)" : content)
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundColor(isError ? .red : .primary)
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(isError ? Color.red.opacity(0.1) : Color(.systemGray6))
+                    .cornerRadius(6)
+
+                Button {
+                    withAnimation { isExpanded = false }
+                } label: {
+                    HStack {
+                        Spacer()
+                        Image(systemName: "chevron.up")
+                            .font(.caption2)
+                        Text("Hide output")
+                            .font(.caption2)
+                        Spacer()
+                    }
+                    .foregroundColor(.accentColor)
+                    .padding(.top, 2)
+                }
+            }
+        } else {
+            Button {
+                withAnimation { isExpanded = true }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: isError ? "xmark.circle" : "checkmark")
+                        .font(.caption2)
+                        .foregroundColor(isError ? .red : .secondary)
+                    Text(isError ? "Error — tap to show" : "Done — tap to show output")
+                        .font(.caption2)
+                        .foregroundColor(isError ? .red : .secondary)
+                }
+                .padding(.top, 2)
+            }
+        }
     }
 
     @ViewBuilder
