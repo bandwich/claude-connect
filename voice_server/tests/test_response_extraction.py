@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import tempfile
 
 from voice_server.ios_server import TranscriptHandler
@@ -333,5 +334,125 @@ def test_extract_tool_result_with_list_content():
         # Should be joined text, not "[{'type': 'text', ..."
         assert result_block.content == "First part of result.\nSecond part of result."
         assert "[{" not in result_block.content
+    finally:
+        os.unlink(temp_path)
+
+
+def test_extract_user_text_from_string_content():
+    """User messages with string content should be returned as user_texts"""
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
+        f.write(json.dumps({
+            "type": "user",
+            "message": {"role": "user", "content": "hello from terminal"}
+        }) + "\n")
+        temp_path = f.name
+
+    try:
+        mock_server = type('obj', (), {'last_voice_input': None})()
+        handler = TranscriptHandler(None, None, None, mock_server)
+        blocks, user_texts = handler.extract_new_content(temp_path)
+        assert len(blocks) == 0
+        assert len(user_texts) == 1
+        assert user_texts[0] == "hello from terminal"
+    finally:
+        os.unlink(temp_path)
+
+
+def test_extract_user_text_from_list_with_text_blocks():
+    """User messages with text blocks (non-tool_result) should be returned"""
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
+        f.write(json.dumps({
+            "type": "user",
+            "message": {"role": "user", "content": [
+                {"type": "text", "text": "[Request interrupted by user]"}
+            ]}
+        }) + "\n")
+        temp_path = f.name
+
+    try:
+        mock_server = type('obj', (), {'last_voice_input': None})()
+        handler = TranscriptHandler(None, None, None, mock_server)
+        blocks, user_texts = handler.extract_new_content(temp_path)
+        assert len(blocks) == 0
+        assert len(user_texts) == 1
+        assert user_texts[0] == "[Request interrupted by user]"
+    finally:
+        os.unlink(temp_path)
+
+
+def test_extract_image_source_rewrites_to_filename():
+    """[Image: source: /path/to/file.png] should become [Image: file.png]"""
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
+        f.write(json.dumps({
+            "type": "user",
+            "message": {"role": "user", "content": [
+                {"type": "text", "text": "[Image: source: /Users/aaron/Downloads/IMG_5594.PNG]"}
+            ]}
+        }) + "\n")
+        temp_path = f.name
+
+    try:
+        mock_server = type('obj', (), {'last_voice_input': None})()
+        handler = TranscriptHandler(None, None, None, mock_server)
+        blocks, user_texts = handler.extract_new_content(temp_path)
+        assert len(user_texts) == 1
+        assert user_texts[0] == "[Image: IMG_5594.PNG]"
+    finally:
+        os.unlink(temp_path)
+
+
+def test_extract_skips_image_blocks():
+    """Raw image blocks (base64 data) should be silently skipped"""
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
+        f.write(json.dumps({
+            "type": "user",
+            "message": {"role": "user", "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "abc123"}}
+            ]}
+        }) + "\n")
+        temp_path = f.name
+
+    try:
+        mock_server = type('obj', (), {'last_voice_input': None})()
+        handler = TranscriptHandler(None, None, None, mock_server)
+        blocks, user_texts = handler.extract_new_content(temp_path)
+        assert len(blocks) == 0
+        assert len(user_texts) == 0
+    finally:
+        os.unlink(temp_path)
+
+
+def test_extract_skips_skill_expansions():
+    """Skill expansion user messages should not be surfaced"""
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
+        f.write(json.dumps({
+            "type": "user",
+            "message": {"role": "user", "content": "Base directory for this skill: /foo/bar"}
+        }) + "\n")
+        temp_path = f.name
+
+    try:
+        mock_server = type('obj', (), {'last_voice_input': None})()
+        handler = TranscriptHandler(None, None, None, mock_server)
+        blocks, user_texts = handler.extract_new_content(temp_path)
+        assert len(user_texts) == 0
+    finally:
+        os.unlink(temp_path)
+
+
+def test_extract_skips_task_notifications():
+    """<task-notification> user messages should not be surfaced"""
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
+        f.write(json.dumps({
+            "type": "user",
+            "message": {"role": "user", "content": "<task-notification>something</task-notification>"}
+        }) + "\n")
+        temp_path = f.name
+
+    try:
+        mock_server = type('obj', (), {'last_voice_input': None})()
+        handler = TranscriptHandler(None, None, None, mock_server)
+        blocks, user_texts = handler.extract_new_content(temp_path)
+        assert len(user_texts) == 0
     finally:
         os.unlink(temp_path)
