@@ -133,9 +133,14 @@ struct SessionView: View {
         .enableSwipeBack()
         .onChange(of: webSocketManager.pendingPermission) { _, newValue in
             if let request = newValue {
-                items.append(.permissionPrompt(requestId: request.requestId, request: request))
-                // Clear pendingPermission so it doesn't re-trigger
-                webSocketManager.pendingPermission = nil
+                // Only add if not already in items (prevents duplicates on reconnect)
+                let alreadyExists = items.contains(where: {
+                    if case .permissionPrompt(let id, _) = $0 { return id == request.requestId }
+                    return false
+                })
+                if !alreadyExists {
+                    items.append(.permissionPrompt(requestId: request.requestId, request: request))
+                }
             }
         }
         .onAppear(perform: setupView)
@@ -236,6 +241,12 @@ struct SessionView: View {
                             content: msg.content,
                             timestamp: msg.timestamp
                         )))
+                    }
+                }
+                // Re-add pending permission card if history reload would wipe it
+                if let pending = self.webSocketManager.pendingPermission {
+                    if self.permissionResolutions[pending.requestId] == nil {
+                        newItems.append(.permissionPrompt(requestId: pending.requestId, request: pending))
                     }
                 }
                 self.items = newItems
