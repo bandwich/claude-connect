@@ -19,6 +19,19 @@ struct StatusMessage: Codable {
     let timestamp: Double
 }
 
+struct UserMessage: Codable {
+    let type: String
+    let role: String
+    let content: String
+    let timestamp: Double
+    let sessionId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case type, role, content, timestamp
+        case sessionId = "session_id"
+    }
+}
+
 struct AudioChunkMessage: Codable {
     let type: String
     let format: String

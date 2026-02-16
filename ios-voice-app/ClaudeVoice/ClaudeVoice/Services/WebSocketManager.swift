@@ -45,6 +45,7 @@ class WebSocketManager: NSObject, ObservableObject {
     var onFileContents: ((FileContentsResponse) -> Void)?
     var onContextUpdate: ((ContextStats) -> Void)?
     var onUsageUpdate: ((UsageStats) -> Void)?
+    var onUserMessage: ((UserMessage) -> Void)?
     @Published var pendingPermission: PermissionRequest? = nil {
         didSet {
             print("🔄 pendingPermission didSet: \(oldValue?.requestId ?? "nil") -> \(pendingPermission?.requestId ?? "nil")")
@@ -458,6 +459,12 @@ class WebSocketManager: NSObject, ObservableObject {
                     self.usageStats = usageStats
                     self.isLoadingUsage = false
                     self.onUsageUpdate?(usageStats)
+                }
+            } else if let userMessage = try? JSONDecoder().decode(UserMessage.self, from: data),
+                      userMessage.type == "user_message" {
+                logToFile("✅ Decoded as UserMessage: \(userMessage.content.prefix(50))")
+                DispatchQueue.main.async {
+                    self.onUserMessage?(userMessage)
                 }
             } else {
                 print("❌ Failed to decode message as any known type")

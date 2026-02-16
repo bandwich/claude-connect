@@ -349,6 +349,27 @@ struct SessionView: View {
             }
         }
 
+        // Subscribe to real-time user messages (terminal-typed input)
+        webSocketManager.onUserMessage = { [self] message in
+            // Filter: only accept messages for the current session
+            if session.isNewSession {
+                if message.sessionId != nil { return }
+            } else {
+                if message.sessionId != session.id { return }
+            }
+
+            guard !message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+
+            let userMsg = SessionHistoryMessage(
+                role: "user",
+                content: message.content,
+                timestamp: message.timestamp
+            )
+            DispatchQueue.main.async {
+                items.append(.textMessage(userMsg))
+            }
+        }
+
         // Subscribe to context updates
         webSocketManager.onContextUpdate = { stats in
             // Only update if this is for our session
