@@ -444,7 +444,8 @@ class E2ETestBase: XCTestCase {
         oldContent: String? = nil,
         newContent: String? = nil,
         questionText: String? = nil,
-        questionOptions: [String]? = nil
+        questionOptions: [String]? = nil,
+        permissionSuggestions: [[String: Any]]? = nil
     ) -> String {
         let requestId = UUID().uuidString
 
@@ -477,6 +478,10 @@ class E2ETestBase: XCTestCase {
             payload["question"] = question
         }
 
+        if let suggestions = permissionSuggestions {
+            payload["permission_suggestions"] = suggestions
+        }
+
         // POST to HTTP server (port 8766) - this triggers broadcast to iOS app
         let httpPort = testServerPort + 1
         let url = URL(string: "http://\(testServerHost):\(httpPort)/permission?timeout=5")!
@@ -497,27 +502,21 @@ class E2ETestBase: XCTestCase {
         return requestId
     }
 
+    func waitForPermissionCard(timeout: TimeInterval = 5.0) -> Bool {
+        return app.otherElements["permissionCard"].waitForExistence(timeout: timeout)
+    }
+
+    func waitForPermissionResolved(timeout: TimeInterval = 3.0) -> Bool {
+        return app.otherElements["permissionResolved"].waitForExistence(timeout: timeout)
+    }
+
+    // Legacy helpers kept for backward compatibility
     func waitForPermissionSheet(timeout: TimeInterval = 5.0) -> Bool {
-        // Permission sheet has navigation title based on type
-        let sheetTitles = ["Command", "Edit", "New File", "Question", "Agent"]
-        for title in sheetTitles {
-            if app.navigationBars[title].waitForExistence(timeout: timeout / Double(sheetTitles.count)) {
-                return true
-            }
-        }
-        return false
+        return waitForPermissionCard(timeout: timeout)
     }
 
     func waitForPermissionSheetDismissed(timeout: TimeInterval = 3.0) -> Bool {
-        let sheetTitles = ["Command", "Edit", "New File", "Question", "Agent"]
-        // Wait briefly, then check none exist
-        sleep(1)
-        for title in sheetTitles {
-            if app.navigationBars[title].exists {
-                return false
-            }
-        }
-        return true
+        return waitForPermissionResolved(timeout: timeout)
     }
 
     // MARK: - Navigation Helpers

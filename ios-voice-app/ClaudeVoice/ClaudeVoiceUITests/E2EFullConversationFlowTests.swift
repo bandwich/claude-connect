@@ -51,13 +51,12 @@ final class E2EFullConversationFlowTests: E2ETestBase {
             command: "echo test"
         )
 
-        // Permission sheet should appear
-        XCTAssertTrue(waitForPermissionSheet(timeout: 5), "Permission sheet should appear")
-        XCTAssertTrue(app.navigationBars["Command"].exists, "Should show Command title")
+        // Permission card should appear inline
+        XCTAssertTrue(waitForPermissionCard(timeout: 5), "Permission card should appear")
 
         // Approve
-        app.buttons["Allow"].tap()
-        XCTAssertTrue(waitForPermissionSheetDismissed(), "Sheet should dismiss")
+        app.buttons["permissionOption1"].tap()  // "Yes"
+        XCTAssertTrue(waitForPermissionResolved(timeout: 3), "Card should collapse")
 
         print("✅ Permission flow works")
     }
