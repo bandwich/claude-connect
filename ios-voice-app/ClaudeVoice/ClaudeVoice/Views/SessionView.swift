@@ -131,27 +131,11 @@ struct SessionView: View {
             }
         }
         .enableSwipeBack()
-        .sheet(item: $webSocketManager.pendingPermission) { request in
-            PermissionPromptView(request: request) { response in
-                let decisionText = response.decision == .allow ? "✓ Allowed" : "✗ Denied"
-                let responseMessage = SessionHistoryMessage(
-                    role: "assistant",
-                    content: "\(decisionText): \(permissionDescription(for: request))",
-                    timestamp: response.timestamp
-                )
-                items.append(.textMessage(responseMessage))
-
-                webSocketManager.sendPermissionResponse(response)
-            }
-        }
         .onChange(of: webSocketManager.pendingPermission) { _, newValue in
             if let request = newValue {
-                let requestMessage = SessionHistoryMessage(
-                    role: "assistant",
-                    content: "⏳ Permission requested: \(permissionDescription(for: request))",
-                    timestamp: request.timestamp
-                )
-                items.append(.textMessage(requestMessage))
+                items.append(.permissionPrompt(requestId: request.requestId, request: request))
+                // Clear pendingPermission so it doesn't re-trigger
+                webSocketManager.pendingPermission = nil
             }
         }
         .onAppear(perform: setupView)
@@ -387,6 +371,18 @@ struct SessionView: View {
             // Only update if this is for our session
             if stats.sessionId == session.id || (session.isNewSession && webSocketManager.activeSessionId == nil) {
                 self.contextPercentage = stats.contextPercentage
+            }
+        }
+
+        // Handle permission resolved from terminal
+        webSocketManager.onPermissionResolved = { resolved in
+            DispatchQueue.main.async {
+                if resolved.answeredIn == "terminal" {
+                    permissionResolutions[resolved.requestId] = PermissionCardResolution(
+                        allowed: true,
+                        summary: "Answered in terminal"
+                    )
+                }
             }
         }
     }
