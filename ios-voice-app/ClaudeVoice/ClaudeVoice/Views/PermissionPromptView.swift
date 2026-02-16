@@ -212,6 +212,7 @@ struct PermissionPromptView: View {
             toolInput: ToolInput(command: "npm install", description: "Install dependencies"),
             context: nil,
             question: nil,
+            permissionSuggestions: nil,
             timestamp: Date().timeIntervalSince1970
         ),
         onResponse: { _ in }
@@ -232,6 +233,7 @@ struct PermissionPromptView: View {
                 newContent: "const foo = 2;"
             ),
             question: nil,
+            permissionSuggestions: nil,
             timestamp: Date().timeIntervalSince1970
         ),
         onResponse: { _ in }
@@ -251,6 +253,7 @@ struct PermissionPromptView: View {
                 text: "Which database should we use?",
                 options: ["PostgreSQL", "SQLite", "MongoDB"]
             ),
+            permissionSuggestions: nil,
             timestamp: Date().timeIntervalSince1970
         ),
         onResponse: { _ in }
@@ -270,6 +273,7 @@ struct PermissionPromptView: View {
                 text: "What should the function be named?",
                 options: nil
             ),
+            permissionSuggestions: nil,
             timestamp: Date().timeIntervalSince1970
         ),
         onResponse: { _ in }

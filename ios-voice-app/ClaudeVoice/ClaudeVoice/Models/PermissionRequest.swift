@@ -41,6 +41,32 @@ struct PermissionQuestion: Codable, Equatable {
     let options: [String]?
 }
 
+struct PermissionRule: Codable, Equatable {
+    let toolName: String
+    let ruleContent: String
+}
+
+struct PermissionSuggestion: Codable, Equatable {
+    let type: String
+    let rules: [PermissionRule]
+    let behavior: String
+    let destination: String
+
+    /// Human-readable display text for the option button
+    var displayText: String {
+        let ruleDescriptions = rules.map { rule in
+            let content = rule.ruleContent
+            if rule.toolName == "Bash" {
+                let cleaned = content.hasSuffix(":*") ? String(content.dropLast(2)) : content
+                return cleaned
+            }
+            return "\(rule.toolName) \(content)"
+        }
+        let joined = ruleDescriptions.joined(separator: ", ")
+        return "Yes, and don't ask again for \(joined)" + (rules.first?.toolName == "Bash" ? " commands" : "")
+    }
+}
+
 struct PermissionRequest: Codable, Identifiable, Equatable {
     let type: String
     let requestId: String
@@ -49,6 +75,7 @@ struct PermissionRequest: Codable, Identifiable, Equatable {
     let toolInput: ToolInput?
     let context: PermissionContext?
     let question: PermissionQuestion?
+    let permissionSuggestions: [PermissionSuggestion]?
     let timestamp: Double
 
     var id: String { requestId }
@@ -61,6 +88,7 @@ struct PermissionRequest: Codable, Identifiable, Equatable {
         case toolInput = "tool_input"
         case context
         case question
+        case permissionSuggestions = "permission_suggestions"
         case timestamp
     }
 }
@@ -71,14 +99,16 @@ struct PermissionResponse: Codable {
     let decision: PermissionDecision
     let input: String?
     let selectedOption: Int?
+    let updatedPermissions: [PermissionSuggestion]?
     let timestamp: Double
 
-    init(requestId: String, decision: PermissionDecision, input: String? = nil, selectedOption: Int? = nil) {
+    init(requestId: String, decision: PermissionDecision, input: String? = nil, selectedOption: Int? = nil, updatedPermissions: [PermissionSuggestion]? = nil) {
         self.type = "permission_response"
         self.requestId = requestId
         self.decision = decision
         self.input = input
         self.selectedOption = selectedOption
+        self.updatedPermissions = updatedPermissions
         self.timestamp = Date().timeIntervalSince1970
     }
 
@@ -88,6 +118,7 @@ struct PermissionResponse: Codable {
         case decision
         case input
         case selectedOption = "selected_option"
+        case updatedPermissions = "updated_permissions"
         case timestamp
     }
 }
