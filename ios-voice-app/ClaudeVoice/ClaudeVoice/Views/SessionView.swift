@@ -345,6 +345,8 @@ struct SessionView: View {
                             }
                         }
                     }
+                case .unknown:
+                    break
                 }
             }
         }

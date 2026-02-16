@@ -92,6 +92,7 @@ enum ContentBlock: Codable {
     case thinking(ThinkingBlock)
     case toolUse(ToolUseBlock)
     case toolResult(ToolResultBlock)
+    case unknown
 
     enum CodingKeys: String, CodingKey {
         case type
@@ -111,12 +112,7 @@ enum ContentBlock: Codable {
         case "tool_result":
             self = .toolResult(try ToolResultBlock(from: decoder))
         default:
-            throw DecodingError.dataCorrupted(
-                DecodingError.Context(
-                    codingPath: decoder.codingPath,
-                    debugDescription: "Unknown content block type: \(type)"
-                )
-            )
+            self = .unknown
         }
     }
 
@@ -130,6 +126,8 @@ enum ContentBlock: Codable {
             try block.encode(to: encoder)
         case .toolResult(let block):
             try block.encode(to: encoder)
+        case .unknown:
+            break
         }
     }
 }

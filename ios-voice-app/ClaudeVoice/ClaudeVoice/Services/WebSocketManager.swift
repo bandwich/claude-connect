@@ -592,6 +592,9 @@ class WebSocketManager: NSObject, ObservableObject {
             case .toolResult(let resultBlock):
                 print("  Block \(index): tool_result - \(resultBlock.toolUseId)")
                 logToFile("  Block \(index): tool_result - \(resultBlock.toolUseId)")
+            case .unknown:
+                print("  Block \(index): unknown type (skipped)")
+                logToFile("  Block \(index): unknown type")
             }
         }
 
