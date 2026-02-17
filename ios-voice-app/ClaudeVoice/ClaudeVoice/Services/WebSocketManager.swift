@@ -32,6 +32,7 @@ class WebSocketManager: NSObject, ObservableObject {
     }
 
     var onAudioChunk: ((AudioChunkMessage) -> Void)?
+    var onStopAudio: (() -> Void)?
     var onStatusUpdate: ((StatusMessage) -> Void)?
     var onAssistantResponse: ((AssistantResponseMessage) -> Void)?  // NEW
     var onProjectsReceived: (([Project]) -> Void)?
@@ -386,6 +387,12 @@ class WebSocketManager: NSObject, ObservableObject {
             } else if let statusMessage = try? JSONDecoder().decode(StatusMessage.self, from: data) {
                 logToFile("✅ Decoded as StatusMessage: \(statusMessage.state)")
                 handleStatusMessage(statusMessage)
+            } else if let stopAudio = try? JSONDecoder().decode(StopAudioMessage.self, from: data),
+                      stopAudio.type == "stop_audio" {
+                logToFile("🛑 Decoded as StopAudio")
+                DispatchQueue.main.async {
+                    self.onStopAudio?()
+                }
             } else if let audioChunk = try? JSONDecoder().decode(AudioChunkMessage.self, from: data) {
                 logToFile("✅ Decoded as AudioChunk: \(audioChunk.chunkIndex + 1)/\(audioChunk.totalChunks)")
                 handleAudioChunk(audioChunk)

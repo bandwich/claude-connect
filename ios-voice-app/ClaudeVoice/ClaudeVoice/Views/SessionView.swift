@@ -296,6 +296,9 @@ struct SessionView: View {
         webSocketManager.onAudioChunk = { chunk in
             audioPlayer.receiveAudioChunk(chunk)
         }
+        webSocketManager.onStopAudio = {
+            audioPlayer.stop()
+        }
 
         audioPlayer.onPlaybackStarted = {
             DispatchQueue.main.async {

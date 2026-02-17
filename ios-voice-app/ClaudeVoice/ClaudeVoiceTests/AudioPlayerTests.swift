@@ -168,9 +168,9 @@ struct AudioPlayerTests {
         }
 
         // First message should be playing/processing
-        #expect(audioPlayer.isPlaying == true || audioPlayer.queuedMessageCount == 0)
+        #expect(audioPlayer.isPlaying == true)
 
-        // Send second message while first is playing
+        // Send second message while first is playing — should replace it
         for i in 0..<2 {
             let chunk = AudioChunkMessage(
                 type: "audio_chunk", format: "wav", sampleRate: 24000,
@@ -180,8 +180,8 @@ struct AudioPlayerTests {
             await audioPlayer.receiveAudioChunk(chunk)
         }
 
-        // Second message should be queued, not playing simultaneously
-        #expect(audioPlayer.queuedMessageCount >= 0, "Should track queued messages")
+        // Second message replaces first (no queuing)
+        #expect(audioPlayer.isPlaying == true, "New message should be playing")
     }
 
     // MARK: - Test Helpers

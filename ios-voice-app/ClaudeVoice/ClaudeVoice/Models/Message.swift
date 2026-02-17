@@ -32,6 +32,10 @@ struct UserMessage: Codable {
     }
 }
 
+struct StopAudioMessage: Codable {
+    let type: String
+}
+
 struct AudioChunkMessage: Codable {
     let type: String
     let format: String

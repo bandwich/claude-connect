@@ -4,8 +4,8 @@ import json
 from typing import Optional
 
 # Claude's effective context limit before auto-compact triggers
-# Empirically determined: 142100 tokens at 90% usage = ~158k limit
-CONTEXT_LIMIT = 158000
+# Empirically determined: 163061 tokens at 98% usage (Claude Code terminal) ≈ 166k
+CONTEXT_LIMIT = 166000
 
 class ContextTracker:
     """Calculates context usage from transcript files."""
@@ -43,11 +43,10 @@ class ContextTracker:
             pass
 
         if last_usage:
-            # Sum all token types from the last assistant response
-            # This represents the current context size
+            # Sum input token types from the last assistant response
+            # Output tokens represent generation, not context consumed
             total_tokens = (
                 last_usage.get('input_tokens', 0) +
-                last_usage.get('output_tokens', 0) +
                 last_usage.get('cache_creation_input_tokens', 0) +
                 last_usage.get('cache_read_input_tokens', 0)
             )
