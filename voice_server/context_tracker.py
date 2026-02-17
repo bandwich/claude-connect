@@ -35,7 +35,7 @@ class ContextTracker:
                         entry = json.loads(line)
                         message = entry.get('message', {})
                         usage = message.get('usage')
-                        if usage:
+                        if usage and (usage.get('input_tokens', 0) + usage.get('cache_creation_input_tokens', 0) + usage.get('cache_read_input_tokens', 0)) > 0:
                             last_usage = usage
                     except json.JSONDecodeError:
                         continue

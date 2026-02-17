@@ -82,6 +82,38 @@ def test_calculate_context_includes_cache_tokens():
 
         os.unlink(f.name)
 
+def test_calculate_context_skips_all_zero_usage():
+    """Usage entries with all zero tokens are skipped (e.g. from killed compaction)."""
+    lines = [
+        json.dumps({
+            "message": {
+                "role": "assistant",
+                "content": "Real response",
+                "usage": {"input_tokens": 1, "cache_creation_input_tokens": 11587, "cache_read_input_tokens": 157975, "output_tokens": 100}
+            }
+        }),
+        json.dumps({
+            "message": {
+                "role": "assistant",
+                "content": "",
+                "usage": {"input_tokens": 0, "output_tokens": 0, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
+            }
+        })
+    ]
+
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
+        f.write("\n".join(lines))
+        f.flush()
+
+        tracker = ContextTracker()
+        result = tracker.calculate_context(f.name)
+
+        # Should use the real usage, not the all-zero one
+        assert result["tokens_used"] == 1 + 11587 + 157975
+        assert result["context_percentage"] > 100  # Over limit
+
+        os.unlink(f.name)
+
 def test_calculate_context_ignores_entries_without_usage():
     """Entries without usage field are skipped."""
     lines = [
