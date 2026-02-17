@@ -450,6 +450,45 @@ class TestVoiceServer:
         assert connection_status_sent["active_session_id"] == "active-session-123", \
             "Should preserve active session across reconnects"
 
+    @pytest.mark.asyncio
+    async def test_usage_request_does_not_block_message_loop(self):
+        """usage_request should not block other messages from being processed."""
+        server = VoiceServer()
+
+        # Create a slow usage handler that takes time
+        usage_started = asyncio.Event()
+        usage_can_finish = asyncio.Event()
+
+        async def slow_usage_handler(websocket):
+            usage_started.set()
+            await usage_can_finish.wait()
+
+        server.handle_usage_request = slow_usage_handler
+
+        mock_ws = AsyncMock()
+
+        usage_msg = json.dumps({"type": "usage_request"})
+
+        # handle_message should return quickly (not block on slow usage handler)
+        # If it blocks, this will timeout
+        try:
+            await asyncio.wait_for(
+                server.handle_message(mock_ws, usage_msg),
+                timeout=1.0
+            )
+        except asyncio.TimeoutError:
+            usage_can_finish.set()  # Clean up
+            pytest.fail("handle_message blocked on usage_request - should return immediately")
+
+        # Usage handler should have started as a background task
+        await asyncio.sleep(0.05)
+        assert usage_started.is_set(), "Usage handler should have started"
+
+        # Clean up background task
+        usage_can_finish.set()
+        await asyncio.sleep(0.05)
+
+
 class TestTranscriptHandlerGlobalTracking:
     """Tests for line-based tracking (not voice-input-gated)"""
 
