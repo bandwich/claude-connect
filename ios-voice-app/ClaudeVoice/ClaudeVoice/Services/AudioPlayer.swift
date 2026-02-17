@@ -14,6 +14,10 @@ class AudioPlayer: NSObject, ObservableObject {
 
     private var audioFormat: AVAudioFormat?
 
+    // Delay between interrupting old audio and starting new audio
+    private var interruptionDelay: DispatchWorkItem?
+    private var pendingChunks: [AudioChunkMessage] = []
+
     var onPlaybackStarted: (() -> Void)?
     var onPlaybackFinished: (() -> Void)?
 
@@ -65,8 +69,14 @@ class AudioPlayer: NSObject, ObservableObject {
     }
 
     func receiveAudioChunk(_ chunk: AudioChunkMessage) {
+        // If we're in the delay period, buffer chunks
+        if interruptionDelay != nil {
+            pendingChunks.append(chunk)
+            return
+        }
+
         // New message starting (chunkIndex == 0) — stop current playback
-        // so the latest message always wins (matches server-side behavior)
+        // with a brief gap before starting the new message
         if chunk.chunkIndex == 0 && (isPlaying || receivedChunks > 0) {
             print("AudioPlayer: New message arrived, stopping current playback")
             logToFile("⏭ New message arrived, stopping current playback")
@@ -75,6 +85,21 @@ class AudioPlayer: NSObject, ObservableObject {
             receivedChunks = 0
             scheduledChunks = 0
             expectedChunks = 0
+
+            // Buffer this chunk and start delay
+            pendingChunks = [chunk]
+            let workItem = DispatchWorkItem { [weak self] in
+                guard let self = self else { return }
+                self.interruptionDelay = nil
+                let chunks = self.pendingChunks
+                self.pendingChunks = []
+                for buffered in chunks {
+                    self.processChunk(buffered)
+                }
+            }
+            interruptionDelay = workItem
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: workItem)
+            return
         }
 
         // Process chunk directly
@@ -260,6 +285,9 @@ class AudioPlayer: NSObject, ObservableObject {
 
     func stop() {
         playerNode.stop()
+        interruptionDelay?.cancel()
+        interruptionDelay = nil
+        pendingChunks = []
 
         receivedChunks = 0
         scheduledChunks = 0
