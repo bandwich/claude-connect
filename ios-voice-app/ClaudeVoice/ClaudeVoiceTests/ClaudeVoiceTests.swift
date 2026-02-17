@@ -347,6 +347,33 @@ struct ConnectionStatusModelTests {
 
         #expect(status.connected == false)
     }
+
+    @Test func testConnectionStatusDecodingWithBranch() throws {
+        let json = """
+        {
+            "type": "connection_status",
+            "connected": true,
+            "active_session_id": "abc123",
+            "branch": "feat/my-feature"
+        }
+        """.data(using: .utf8)!
+
+        let status = try JSONDecoder().decode(ConnectionStatus.self, from: json)
+        #expect(status.branch == "feat/my-feature")
+    }
+
+    @Test func testConnectionStatusDecodingWithoutBranch() throws {
+        let json = """
+        {
+            "type": "connection_status",
+            "connected": true,
+            "active_session_id": "abc123"
+        }
+        """.data(using: .utf8)!
+
+        let status = try JSONDecoder().decode(ConnectionStatus.self, from: json)
+        #expect(status.branch == nil)
+    }
 }
 
 @Suite("SessionHistoryMessage Model Tests")

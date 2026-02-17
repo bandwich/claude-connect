@@ -15,7 +15,6 @@ struct SessionView: View {
     @State private var isInitialLoad = true
     @State private var isSyncing = false
     @State private var syncError: String? = nil
-    @State private var branchName: String = "main"  // Placeholder for now
     @State private var contextPercentage: Double? = nil
     @State private var permissionResolutions: [String: PermissionCardResolution] = [:]
     @State private var lastVoiceInputText: String = ""
@@ -126,7 +125,7 @@ struct SessionView: View {
                     Image(systemName: "arrow.triangle.branch")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    Text(branchName)
+                    Text(webSocketManager.branch ?? "main")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }

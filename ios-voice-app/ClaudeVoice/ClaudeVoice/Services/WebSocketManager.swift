@@ -25,6 +25,7 @@ class WebSocketManager: NSObject, ObservableObject {
             print("🔄 activeSessionId didSet: \(oldValue ?? "nil") -> \(activeSessionId ?? "nil")")
         }
     }
+    @Published var branch: String? = nil
     @Published var outputState: ClaudeOutputState = .idle {
         didSet {
             print("🔄 outputState didSet: \(oldValue) -> \(outputState)")
@@ -421,6 +422,7 @@ class WebSocketManager: NSObject, ObservableObject {
                 DispatchQueue.main.async {
                     self.connected = connectionStatus.connected
                     self.activeSessionId = connectionStatus.activeSessionId
+                    self.branch = connectionStatus.branch
                     self.onConnectionStatusReceived?(connectionStatus)
                 }
             } else if let permissionRequest = try? JSONDecoder().decode(PermissionRequest.self, from: data) {
@@ -509,6 +511,7 @@ class WebSocketManager: NSObject, ObservableObject {
                 DispatchQueue.main.async {
                     self.connected = connectionStatus.connected
                     self.activeSessionId = connectionStatus.activeSessionId
+                    self.branch = connectionStatus.branch
                     self.onConnectionStatusReceived?(connectionStatus)
                 }
             } else if let permissionRequest = try? JSONDecoder().decode(PermissionRequest.self, from: data) {
