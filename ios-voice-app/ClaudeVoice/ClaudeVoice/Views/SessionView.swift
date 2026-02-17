@@ -25,7 +25,7 @@ struct SessionView: View {
             // Message history
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 12) {
                         ForEach(items) { item in
                             switch item {
                             case .textMessage(let message):
@@ -48,6 +48,7 @@ struct SessionView: View {
                     }
                     .padding()
                 }
+                .contentMargins(.bottom, 20, for: .scrollContent)
                 .onChange(of: items.count) { _, _ in
                     guard let lastItem = items.last else { return }
 
