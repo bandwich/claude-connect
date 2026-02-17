@@ -112,7 +112,7 @@ struct SessionView: View {
                         Circle()
                             .fill(contextColor(pct))
                             .frame(width: 8, height: 8)
-                        Text("\(Int(100 - pct))%")
+                        Text("\(Int(max(0, 100 - pct)))%")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }

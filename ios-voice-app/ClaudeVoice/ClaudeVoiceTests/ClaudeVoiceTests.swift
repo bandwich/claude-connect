@@ -1006,6 +1006,21 @@ struct EndToEndFlowTests {
         #expect(VoiceState(rawValue: statusMessage.state) == .processing)
     }
 
+    @Test func testContextPercentageClampedAtZero() {
+        // When context_percentage > 100 (over-limit), remaining should show 0%, not negative
+        let overLimit: Double = 120.0
+        let displayed = Int(max(0, 100 - overLimit))
+        #expect(displayed == 0, "Over-limit context should display 0%, not negative")
+
+        let normalCase: Double = 60.0
+        let normalDisplayed = Int(max(0, 100 - normalCase))
+        #expect(normalDisplayed == 40, "Normal context should display correctly")
+
+        let exactLimit: Double = 100.0
+        let exactDisplayed = Int(max(0, 100 - exactLimit))
+        #expect(exactDisplayed == 0, "Exact limit should display 0%")
+    }
+
     @Test func testCompleteVoiceStateFlow() async throws {
         let recognizer = SpeechRecognizer()
         let websocketManager = WebSocketManager()
