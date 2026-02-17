@@ -18,6 +18,8 @@ struct SessionView: View {
     @State private var branchName: String = "main"  // Placeholder for now
     @State private var contextPercentage: Double? = nil
     @State private var permissionResolutions: [String: PermissionCardResolution] = [:]
+    @State private var lastVoiceInputText: String = ""
+    @State private var lastVoiceInputTime: Date = .distantPast
 
     var body: some View {
         VStack(spacing: 0) {
@@ -275,6 +277,8 @@ struct SessionView: View {
 
         speechRecognizer.onFinalTranscription = { text in
             currentTranscript = text
+            lastVoiceInputText = text
+            lastVoiceInputTime = Date()
 
             let userMessage = SessionHistoryMessage(
                 role: "user",
@@ -371,6 +375,13 @@ struct SessionView: View {
             }
 
             guard !message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+
+            // Skip server echo of voice input we already added locally
+            if message.content == lastVoiceInputText &&
+               Date().timeIntervalSince(lastVoiceInputTime) < 10 {
+                lastVoiceInputText = ""  // Clear so only first echo is filtered
+                return
+            }
 
             let userMsg = SessionHistoryMessage(
                 role: "user",
