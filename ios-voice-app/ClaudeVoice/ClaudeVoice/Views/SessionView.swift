@@ -174,9 +174,8 @@ struct SessionView: View {
     private var canRecord: Bool {
         guard isSessionSynced else { return false }
         guard webSocketManager.outputState.canSendVoiceInput else { return false }
-        guard webSocketManager.voiceState == .idle else { return false }
         if case .connected = webSocketManager.connectionState {
-            return speechRecognizer.isAuthorized && !audioPlayer.isPlaying
+            return speechRecognizer.isAuthorized
         }
         return false
     }
@@ -461,6 +460,11 @@ struct SessionView: View {
         if speechRecognizer.isRecording {
             speechRecognizer.stopRecording()
         } else {
+            // Stop any TTS playback so mic can take over
+            if audioPlayer.isPlaying {
+                audioPlayer.stop()
+            }
+            webSocketManager.voiceState = .idle
             do {
                 try speechRecognizer.startRecording()
             } catch {

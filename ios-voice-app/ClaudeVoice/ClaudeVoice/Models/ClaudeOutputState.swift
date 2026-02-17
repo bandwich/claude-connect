@@ -11,9 +11,9 @@ enum ClaudeOutputState: Equatable {
 
     var canSendVoiceInput: Bool {
         switch self {
-        case .idle:
+        case .idle, .thinking, .usingTool, .speaking:
             return true
-        case .thinking, .usingTool, .speaking, .awaitingPermission, .awaitingQuestion:
+        case .awaitingPermission, .awaitingQuestion:
             return false
         }
     }
