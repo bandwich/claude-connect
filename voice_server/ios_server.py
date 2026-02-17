@@ -542,8 +542,16 @@ class VoiceServer:
                 print(f"Error sending user message: {e}")
 
     async def handle_claude_response(self, text):
-        """Handle Claude's response - queue text for TTS"""
+        """Handle Claude's response - queue text for TTS.
+
+        If TTS is currently active (generating or streaming), cancel it
+        so the worker can pick up this new message promptly.
+        """
         print(f"[{time.strftime('%H:%M:%S')}] Claude response queued for TTS: '{text[:100]}...'")
+        if self.tts_active:
+            print(f"[TTS] Interrupting active TTS for new message")
+            self.tts_cancel.set()
+            await self._send_stop_audio()
         await self.tts_queue.put(text)
 
     async def _tts_worker(self):

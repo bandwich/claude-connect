@@ -99,3 +99,49 @@ async def test_handle_claude_response_queues_text(server):
     assert not server.tts_queue.empty()
     text = server.tts_queue.get_nowait()
     assert text == "hello world"
+
+
+@pytest.mark.asyncio
+async def test_handle_claude_response_cancels_active_tts(server):
+    """When TTS is active, handle_claude_response sets cancel event to interrupt it."""
+    server.tts_active = True
+    server.tts_cancel = asyncio.Event()
+    server.clients = set()
+
+    assert not server.tts_cancel.is_set()
+
+    await server.handle_claude_response("new message")
+
+    # Should have set cancel to interrupt active TTS
+    assert server.tts_cancel.is_set()
+    # Should still queue the text
+    assert not server.tts_queue.empty()
+    assert server.tts_queue.get_nowait() == "new message"
+
+
+@pytest.mark.asyncio
+async def test_handle_claude_response_sends_stop_audio_when_active(server):
+    """When TTS is active, handle_claude_response sends stop_audio to clients."""
+    server.tts_active = True
+    server.tts_cancel = asyncio.Event()
+    mock_ws = AsyncMock()
+    server.clients = {mock_ws}
+
+    await server.handle_claude_response("new message")
+
+    # Should have sent stop_audio
+    mock_ws.send.assert_called_once()
+    sent = json.loads(mock_ws.send.call_args[0][0])
+    assert sent["type"] == "stop_audio"
+
+
+@pytest.mark.asyncio
+async def test_handle_claude_response_no_cancel_when_idle(server):
+    """When no TTS is active, handle_claude_response just queues without cancelling."""
+    server.tts_active = False
+    server.tts_cancel = asyncio.Event()
+
+    await server.handle_claude_response("hello")
+
+    assert not server.tts_cancel.is_set()
+    assert server.tts_queue.get_nowait() == "hello"
