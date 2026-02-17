@@ -131,19 +131,23 @@ class TranscriptHandler(FileSystemEventHandler):
                     self.loop
                 )
 
-                text = extract_text_for_tts(new_blocks)
-                if text:
-                    asyncio.run_coroutine_threadsafe(
-                        self.audio_callback(text),
-                        self.loop
-                    )
-                else:
-                    # No TTS text (e.g., only thinking/tool_use blocks)
-                    # Send idle status to reset client's outputState
-                    asyncio.run_coroutine_threadsafe(
-                        self.server.send_idle_to_all_clients(),
-                        self.loop
-                    )
+                # Only generate TTS if the iOS app has this session open
+                # (active_session_id is set when the app opens/resumes a session)
+                # Skip TTS when server exists but no session is active in the app
+                if not self.server or self.server.active_session_id:
+                    text = extract_text_for_tts(new_blocks)
+                    if text:
+                        asyncio.run_coroutine_threadsafe(
+                            self.audio_callback(text),
+                            self.loop
+                        )
+                    else:
+                        # No TTS text (e.g., only thinking/tool_use blocks)
+                        # Send idle status to reset client's outputState
+                        asyncio.run_coroutine_threadsafe(
+                            self.server.send_idle_to_all_clients(),
+                            self.loop
+                        )
 
             if user_texts and self.user_callback:
                 for user_text in user_texts:
@@ -153,7 +157,7 @@ class TranscriptHandler(FileSystemEventHandler):
                     )
 
             # Broadcast context update after processing
-            if self.server.active_session_id:
+            if self.server and getattr(self.server, 'active_session_id', None):
                 self.broadcast_context_update(event.src_path, self.server.active_session_id)
         except Exception as e:
             print(f"Error processing transcript: {e}")
