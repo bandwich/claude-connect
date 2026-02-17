@@ -572,27 +572,9 @@ class VoiceServer:
                     except asyncio.QueueEmpty:
                         break
 
-                # If there's active TTS, cancel it and wait
-                was_interrupted = False
-                if self.tts_active:
-                    print(f"[TTS] Cancelling current TTS for new message")
-                    self.tts_cancel.set()
-                    await self._send_stop_audio()
-                    while self.tts_active:
-                        await asyncio.sleep(0.05)
-                    was_interrupted = True
-
-                # Reset cancel event
+                # Reset cancel event and mark active
                 self.tts_cancel.clear()
                 self.tts_active = True
-
-                # Short gap after interruption
-                if was_interrupted:
-                    await asyncio.sleep(0.5)
-                    # Check if newer message arrived during the gap
-                    if not self.tts_queue.empty():
-                        self.tts_active = False
-                        continue
 
                 try:
                     # Generate TTS in executor (blocking call)
@@ -1118,7 +1100,11 @@ class VoiceServer:
             print(f"WARNING: Could not detect local IP. Server running on port {PORT}")
 
         async with websockets.serve(self.handle_client, "0.0.0.0", PORT, max_size=20 * 1024 * 1024):
-            await asyncio.Future()
+            try:
+                await asyncio.Future()
+            finally:
+                if self._tts_worker_task:
+                    self._tts_worker_task.cancel()
 
 
 def main():
