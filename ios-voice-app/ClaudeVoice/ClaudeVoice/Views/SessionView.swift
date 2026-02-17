@@ -24,31 +24,34 @@ struct SessionView: View {
         VStack(spacing: 0) {
             // Message history
             ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 12) {
-                        ForEach(items) { item in
-                            switch item {
-                            case .textMessage(let message):
-                                MessageBubble(message: message)
+                GeometryReader { geometry in
+                    ScrollView(.vertical, showsIndicators: true) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            ForEach(items) { item in
+                                switch item {
+                                case .textMessage(let message):
+                                    MessageBubble(message: message)
+                                        .id(item.id)
+                                case .toolUse(_, let tool, let result):
+                                    ToolUseView(tool: tool, result: result)
+                                        .id(item.id)
+                                case .permissionPrompt(_, let request):
+                                    PermissionCardView(
+                                        request: request,
+                                        resolved: permissionResolutions[request.requestId],
+                                        onResponse: { response in
+                                            handlePermissionResponse(response, for: request)
+                                        }
+                                    )
                                     .id(item.id)
-                            case .toolUse(_, let tool, let result):
-                                ToolUseView(tool: tool, result: result)
-                                    .id(item.id)
-                            case .permissionPrompt(_, let request):
-                                PermissionCardView(
-                                    request: request,
-                                    resolved: permissionResolutions[request.requestId],
-                                    onResponse: { response in
-                                        handlePermissionResponse(response, for: request)
-                                    }
-                                )
-                                .id(item.id)
+                                }
                             }
                         }
+                        .padding()
+                        .frame(maxWidth: geometry.size.width, alignment: .leading)
                     }
-                    .padding()
+                    .contentMargins(.bottom, 20, for: .scrollContent)
                 }
-                .contentMargins(.bottom, 20, for: .scrollContent)
                 .onChange(of: items.count) { _, _ in
                     guard let lastItem = items.last else { return }
 
@@ -391,6 +394,12 @@ struct SessionView: View {
             DispatchQueue.main.async {
                 items.append(.textMessage(userMsg))
             }
+        }
+
+        // Initialize from existing context stats if available
+        if let stats = webSocketManager.contextStats,
+           stats.sessionId == session.id {
+            self.contextPercentage = stats.contextPercentage
         }
 
         // Subscribe to context updates

@@ -12,23 +12,24 @@ struct CustomNavigationBarInline<TrailingContent: View>: ViewModifier {
         content
             .navigationBarHidden(true)
             .safeAreaInset(edge: .top) {
-                HStack(spacing: 8) {
-                    Button(action: onBack) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(.secondary)
-                    }
-                    VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 8) {
+                        Button(action: onBack) {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(.secondary)
+                        }
                         Text(breadcrumb)
                             .font(.caption)
                             .foregroundColor(.secondary)
-                        Text(title)
-                            .font(.headline)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
+                        Spacer()
+                        trailingContent()
                     }
-                    Spacer()
-                    trailingContent()
+                    Text(title)
+                        .font(.headline)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .padding(.leading, 24)
                 }
                 .padding(.horizontal)
                 .padding(.vertical, 8)
