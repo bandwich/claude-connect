@@ -1027,7 +1027,7 @@ class VoiceServer:
             elif msg_type == 'permission_response':
                 await self.handle_permission_response(data)
             elif msg_type == 'usage_request':
-                await self.handle_usage_request(websocket)
+                asyncio.create_task(self.handle_usage_request(websocket))
         except Exception as e:
             print(f"Error: {e}")
 
