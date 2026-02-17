@@ -10,6 +10,7 @@ class AudioPlayer: NSObject, ObservableObject {
     private var expectedChunks = 0
     private var receivedChunks = 0
     private var scheduledChunks = 0
+    private var completedChunks = 0
     private let minBufferChunks = 3
 
     private var audioFormat: AVAudioFormat?
@@ -23,9 +24,8 @@ class AudioPlayer: NSObject, ObservableObject {
 
     override init() {
         super.init()
-        setupAudioEngine()
-        // Don't set up audio session during UI tests
         if !isRunningUITests {
+            setupAudioEngine()
             setupAudioSession()
         }
     }
@@ -84,6 +84,7 @@ class AudioPlayer: NSObject, ObservableObject {
             isPlaying = false
             receivedChunks = 0
             scheduledChunks = 0
+            completedChunks = 0
             expectedChunks = 0
 
             // Buffer this chunk and start delay
@@ -126,13 +127,11 @@ class AudioPlayer: NSObject, ObservableObject {
 
         // Convert chunk to audio buffer and schedule it
         if let buffer = createAudioBuffer(from: chunkData, isFirstChunk: chunk.chunkIndex == 0) {
-            // Attach completion handler if this is the last chunk we're expecting
-            let isLastExpectedChunk = (receivedChunks == expectedChunks)
-            scheduleAudioBuffer(buffer, isLastChunk: isLastExpectedChunk)
+            scheduleAudioBuffer(buffer)
             scheduledChunks += 1
 
-            print("AudioPlayer: Scheduled chunk \(scheduledChunks), isLast: \(isLastExpectedChunk)")
-            logToFile("📦 Scheduled chunk \(scheduledChunks), isLast: \(isLastExpectedChunk)")
+            print("AudioPlayer: Scheduled chunk \(scheduledChunks)/\(expectedChunks)")
+            logToFile("📦 Scheduled chunk \(scheduledChunks)/\(expectedChunks)")
         } else {
             print("AudioPlayer: Failed to create buffer for chunk \(chunk.chunkIndex + 1)")
             logToFile("❌ Failed to create buffer for chunk \(chunk.chunkIndex + 1)")
@@ -212,16 +211,15 @@ class AudioPlayer: NSObject, ObservableObject {
         return buffer
     }
 
-    private func scheduleAudioBuffer(_ buffer: AVAudioPCMBuffer, isLastChunk: Bool) {
-        if isLastChunk {
-            // Schedule with completion handler for last chunk
-            playerNode.scheduleBuffer(buffer) { [weak self] in
-                DispatchQueue.main.async {
-                    self?.handlePlaybackFinished()
+    private func scheduleAudioBuffer(_ buffer: AVAudioPCMBuffer) {
+        playerNode.scheduleBuffer(buffer) { [weak self] in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                self.completedChunks += 1
+                if self.completedChunks == self.expectedChunks && self.receivedChunks == self.expectedChunks {
+                    self.handlePlaybackFinished()
                 }
             }
-        } else {
-            playerNode.scheduleBuffer(buffer)
         }
     }
 
@@ -268,6 +266,7 @@ class AudioPlayer: NSObject, ObservableObject {
 
         receivedChunks = 0
         scheduledChunks = 0
+        completedChunks = 0
         expectedChunks = 0
 
         print("AudioPlayer: Calling onPlaybackFinished callback")
@@ -284,6 +283,8 @@ class AudioPlayer: NSObject, ObservableObject {
     }
 
     func stop() {
+        let wasPlaying = isPlaying
+
         playerNode.stop()
         interruptionDelay?.cancel()
         interruptionDelay = nil
@@ -291,11 +292,16 @@ class AudioPlayer: NSObject, ObservableObject {
 
         receivedChunks = 0
         scheduledChunks = 0
+        completedChunks = 0
         expectedChunks = 0
         isPlaying = false
 
         print("AudioPlayer: Stopped")
         logToFile("⏹ AudioPlayer: Stopped")
+
+        if wasPlaying {
+            onPlaybackFinished?()
+        }
     }
 
     func reset() {

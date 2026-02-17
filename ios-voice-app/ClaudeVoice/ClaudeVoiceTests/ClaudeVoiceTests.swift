@@ -1075,3 +1075,31 @@ struct EndToEndFlowTests {
         #expect(websocketManager.voiceState == .idle)
     }
 }
+
+@Suite("AudioPlayer State Tests")
+struct AudioPlayerStateTests {
+
+    @Test func testStopCallsOnPlaybackFinished() {
+        let player = AudioPlayer()
+        var callbackCalled = false
+        player.onPlaybackFinished = { callbackCalled = true }
+
+        // Simulate that player was playing
+        player.isPlaying = true
+        player.stop()
+
+        #expect(player.isPlaying == false)
+        #expect(callbackCalled == true)
+    }
+
+    @Test func testStopWhenNotPlayingDoesNotCallCallback() {
+        let player = AudioPlayer()
+        var callbackCalled = false
+        player.onPlaybackFinished = { callbackCalled = true }
+
+        player.stop()
+
+        #expect(player.isPlaying == false)
+        #expect(callbackCalled == false)
+    }
+}
