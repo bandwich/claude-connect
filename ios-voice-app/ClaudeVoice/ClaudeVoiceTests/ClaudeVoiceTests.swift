@@ -347,6 +347,33 @@ struct ConnectionStatusModelTests {
 
         #expect(status.connected == false)
     }
+
+    @Test func testConnectionStatusDecodingWithBranch() throws {
+        let json = """
+        {
+            "type": "connection_status",
+            "connected": true,
+            "active_session_id": "abc123",
+            "branch": "feat/my-feature"
+        }
+        """.data(using: .utf8)!
+
+        let status = try JSONDecoder().decode(ConnectionStatus.self, from: json)
+        #expect(status.branch == "feat/my-feature")
+    }
+
+    @Test func testConnectionStatusDecodingWithoutBranch() throws {
+        let json = """
+        {
+            "type": "connection_status",
+            "connected": true,
+            "active_session_id": "abc123"
+        }
+        """.data(using: .utf8)!
+
+        let status = try JSONDecoder().decode(ConnectionStatus.self, from: json)
+        #expect(status.branch == nil)
+    }
 }
 
 @Suite("SessionHistoryMessage Model Tests")
@@ -1046,5 +1073,33 @@ struct EndToEndFlowTests {
         // 5. Audio finishes -> idle
         websocketManager.voiceState = .idle
         #expect(websocketManager.voiceState == .idle)
+    }
+}
+
+@Suite("AudioPlayer State Tests")
+struct AudioPlayerStateTests {
+
+    @Test func testStopCallsOnPlaybackFinished() {
+        let player = AudioPlayer()
+        var callbackCalled = false
+        player.onPlaybackFinished = { callbackCalled = true }
+
+        // Simulate that player was playing
+        player.isPlaying = true
+        player.stop()
+
+        #expect(player.isPlaying == false)
+        #expect(callbackCalled == true)
+    }
+
+    @Test func testStopWhenNotPlayingDoesNotCallCallback() {
+        let player = AudioPlayer()
+        var callbackCalled = false
+        player.onPlaybackFinished = { callbackCalled = true }
+
+        player.stop()
+
+        #expect(player.isPlaying == false)
+        #expect(callbackCalled == false)
     }
 }

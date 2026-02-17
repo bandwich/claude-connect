@@ -15,7 +15,6 @@ struct SessionView: View {
     @State private var isInitialLoad = true
     @State private var isSyncing = false
     @State private var syncError: String? = nil
-    @State private var branchName: String = "main"  // Placeholder for now
     @State private var contextPercentage: Double? = nil
     @State private var permissionResolutions: [String: PermissionCardResolution] = [:]
     @State private var lastVoiceInputText: String = ""
@@ -25,29 +24,33 @@ struct SessionView: View {
         VStack(spacing: 0) {
             // Message history
             ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 12) {
-                        ForEach(items) { item in
-                            switch item {
-                            case .textMessage(let message):
-                                MessageBubble(message: message)
+                GeometryReader { geometry in
+                    ScrollView(.vertical, showsIndicators: true) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            ForEach(items) { item in
+                                switch item {
+                                case .textMessage(let message):
+                                    MessageBubble(message: message)
+                                        .id(item.id)
+                                case .toolUse(_, let tool, let result):
+                                    ToolUseView(tool: tool, result: result)
+                                        .id(item.id)
+                                case .permissionPrompt(_, let request):
+                                    PermissionCardView(
+                                        request: request,
+                                        resolved: permissionResolutions[request.requestId],
+                                        onResponse: { response in
+                                            handlePermissionResponse(response, for: request)
+                                        }
+                                    )
                                     .id(item.id)
-                            case .toolUse(_, let tool, let result):
-                                ToolUseView(tool: tool, result: result)
-                                    .id(item.id)
-                            case .permissionPrompt(_, let request):
-                                PermissionCardView(
-                                    request: request,
-                                    resolved: permissionResolutions[request.requestId],
-                                    onResponse: { response in
-                                        handlePermissionResponse(response, for: request)
-                                    }
-                                )
-                                .id(item.id)
+                                }
                             }
                         }
+                        .padding()
+                        .frame(maxWidth: geometry.size.width, alignment: .leading)
                     }
-                    .padding()
+                    .contentMargins(.bottom, 20, for: .scrollContent)
                 }
                 .onChange(of: items.count) { _, _ in
                     guard let lastItem = items.last else { return }
@@ -126,7 +129,7 @@ struct SessionView: View {
                     Image(systemName: "arrow.triangle.branch")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    Text(branchName)
+                    Text(webSocketManager.branch ?? "main")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -171,9 +174,8 @@ struct SessionView: View {
     private var canRecord: Bool {
         guard isSessionSynced else { return false }
         guard webSocketManager.outputState.canSendVoiceInput else { return false }
-        guard webSocketManager.voiceState == .idle else { return false }
         if case .connected = webSocketManager.connectionState {
-            return speechRecognizer.isAuthorized && !audioPlayer.isPlaying
+            return speechRecognizer.isAuthorized
         }
         return false
     }
@@ -393,6 +395,12 @@ struct SessionView: View {
             }
         }
 
+        // Initialize from existing context stats if available
+        if let stats = webSocketManager.contextStats,
+           stats.sessionId == session.id {
+            self.contextPercentage = stats.contextPercentage
+        }
+
         // Subscribe to context updates
         webSocketManager.onContextUpdate = { stats in
             // Only update if this is for our session
@@ -452,6 +460,11 @@ struct SessionView: View {
         if speechRecognizer.isRecording {
             speechRecognizer.stopRecording()
         } else {
+            // Stop any TTS playback so mic can take over
+            if audioPlayer.isPlaying {
+                audioPlayer.stop()
+            }
+            webSocketManager.voiceState = .idle
             do {
                 try speechRecognizer.startRecording()
             } catch {

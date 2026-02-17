@@ -430,12 +430,34 @@ class VoiceServer:
             "timestamp": time.time()
         }))
 
+    def _get_current_branch(self) -> str:
+        """Get current git branch for the active session's working directory."""
+        try:
+            if self.active_session_id and self.active_folder_name:
+                cwd = self.session_manager.get_session_cwd(
+                    self.active_folder_name, self.active_session_id
+                )
+                if cwd:
+                    result = subprocess.run(
+                        ["git", "branch", "--show-current"],
+                        cwd=cwd,
+                        capture_output=True,
+                        text=True,
+                        timeout=2
+                    )
+                    if result.returncode == 0:
+                        return result.stdout.strip()
+        except Exception as e:
+            print(f"[DEBUG] _get_current_branch error: {e}")
+        return ""
+
     async def send_connection_status(self, websocket):
         """Send connection status to a single client"""
         response = {
             "type": "connection_status",
             "connected": self.tmux.session_exists(),
-            "active_session_id": self.active_session_id
+            "active_session_id": self.active_session_id,
+            "branch": self._get_current_branch()
         }
         await websocket.send(json.dumps(response))
 

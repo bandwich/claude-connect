@@ -113,10 +113,12 @@ struct ConnectionStatus: Codable {
     let type: String
     let connected: Bool
     let activeSessionId: String?
+    let branch: String?
 
     enum CodingKeys: String, CodingKey {
         case type
         case connected
         case activeSessionId = "active_session_id"
+        case branch
     }
 }
