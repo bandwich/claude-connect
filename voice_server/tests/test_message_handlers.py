@@ -315,6 +315,27 @@ class TestActiveSessionTracking:
         assert server.active_session_id is None
 
 
+class TestConnectionStatusBranch:
+    """Tests for branch field in connection_status"""
+
+    @pytest.mark.asyncio
+    async def test_connection_status_includes_branch(self):
+        """connection_status should include branch field"""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+        mock_ws = AsyncMock()
+        server.tmux = Mock()
+        server.tmux.session_exists = Mock(return_value=True)
+        server.active_session_id = "test-session"
+
+        await server.send_connection_status(mock_ws)
+
+        response = json.loads(mock_ws.send.call_args[0][0])
+        assert "branch" in response
+        assert isinstance(response["branch"], str)
+
+
 class TestConnectionStatusBroadcast:
     """Tests for connection status broadcasting"""
 
