@@ -342,6 +342,9 @@ class VoiceServer:
         self.tts_cancel = None
         self.tts_active = False
         self._tts_worker_task = None
+        # Pane polling for activity status
+        self._pane_poll_task = None
+        self._last_activity_state = None
 
     def find_transcript_path(self):
         """Find the transcript file to watch.
@@ -662,6 +665,36 @@ class VoiceServer:
                 await websocket.send(message_json)
             except Exception:
                 pass
+
+    async def _pane_poll_loop(self):
+        """Poll tmux pane for activity status, broadcast on change."""
+        from voice_server.pane_parser import parse_pane_status
+        try:
+            while True:
+                if self.tmux.session_exists() and self.active_session_id:
+                    pane_text = self.tmux.capture_pane(include_history=False)
+                    state = parse_pane_status(pane_text)
+
+                    # Only broadcast on state change
+                    if self._last_activity_state is None or \
+                       state.state != self._last_activity_state.state or \
+                       state.detail != self._last_activity_state.detail:
+                        self._last_activity_state = state
+                        await self.broadcast_message({
+                            "type": "activity_status",
+                            "state": state.state,
+                            "detail": state.detail
+                        })
+
+                await asyncio.sleep(1.0)
+        except asyncio.CancelledError:
+            pass
+
+    async def handle_interrupt(self):
+        """Handle interrupt request from iOS - send Escape to tmux"""
+        if self.tmux.session_exists():
+            self.tmux.send_escape()
+            print(f"[{time.strftime('%H:%M:%S')}] Sent interrupt (Escape) to tmux")
 
     async def handle_list_projects(self, websocket):
         """Handle list_projects request"""
@@ -1048,6 +1081,8 @@ class VoiceServer:
                 await self.handle_read_file(websocket, data)
             elif msg_type == 'permission_response':
                 await self.handle_permission_response(data)
+            elif msg_type == 'interrupt':
+                await self.handle_interrupt()
             elif msg_type == 'usage_request':
                 asyncio.create_task(self.handle_usage_request(websocket))
         except Exception as e:
@@ -1110,6 +1145,9 @@ class VoiceServer:
         # Start TTS worker
         self._tts_worker_task = asyncio.create_task(self._tts_worker())
 
+        # Start pane polling loop
+        self._pane_poll_task = asyncio.create_task(self._pane_poll_loop())
+
         # Start HTTP server for permission hooks
         http_runner = await start_http_server(self.permission_handler)
 
@@ -1127,6 +1165,8 @@ class VoiceServer:
             finally:
                 if self._tts_worker_task:
                     self._tts_worker_task.cancel()
+                if self._pane_poll_task:
+                    self._pane_poll_task.cancel()
 
 
 def main():

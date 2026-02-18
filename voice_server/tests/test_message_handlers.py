@@ -711,6 +711,45 @@ class TestReadFile:
             assert response["contents"] == "test content"
 
 
+class TestInterruptHandler:
+    """Tests for interrupt message handler"""
+
+    @pytest.mark.asyncio
+    async def test_interrupt_sends_escape_to_tmux(self):
+        """interrupt message should send Escape to tmux"""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+
+        escape_called = False
+        def mock_send_escape():
+            nonlocal escape_called
+            escape_called = True
+            return True
+        server.tmux = Mock()
+        server.tmux.session_exists.return_value = True
+        server.tmux.send_escape = mock_send_escape
+
+        mock_ws = AsyncMock()
+        await server.handle_message(mock_ws, json.dumps({"type": "interrupt"}))
+
+        assert escape_called, "send_escape was not called"
+
+    @pytest.mark.asyncio
+    async def test_interrupt_does_nothing_when_no_session(self):
+        """interrupt should not crash when no tmux session exists"""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+        server.tmux = Mock()
+        server.tmux.session_exists.return_value = False
+
+        mock_ws = AsyncMock()
+        await server.handle_message(mock_ws, json.dumps({"type": "interrupt"}))
+
+        server.tmux.send_escape.assert_not_called()
+
+
 @pytest.mark.asyncio
 async def test_handle_user_message_sends_to_clients():
     """handle_user_message should send user_message JSON to all clients"""
