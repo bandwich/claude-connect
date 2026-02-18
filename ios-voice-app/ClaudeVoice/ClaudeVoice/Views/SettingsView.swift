@@ -5,6 +5,7 @@ struct SettingsView: View {
     @State private var showingScanner = false
     @State private var showingAlert = false
     @State private var alertMessage = ""
+    @AppStorage("ttsEnabled") private var ttsEnabled = true
 
     @Environment(\.dismiss) private var dismiss
 
@@ -97,6 +98,31 @@ struct SettingsView: View {
                         }
                         .cornerRadius(10)
                         .padding(.horizontal)
+                    }
+
+                    // Audio Section
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text("Audio")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                            .textCase(.uppercase)
+                            .padding(.horizontal)
+                            .padding(.top, 24)
+                            .padding(.bottom, 8)
+
+                        VStack(spacing: 0) {
+                            Toggle("Text-to-Speech", isOn: $ttsEnabled)
+                                .padding()
+                                .background(Color(.secondarySystemGroupedBackground))
+                                .accessibilityIdentifier("ttsToggle")
+                        }
+                        .cornerRadius(10)
+                        .padding(.horizontal)
+                    }
+                    .onChange(of: ttsEnabled) { _, newValue in
+                        if case .connected = webSocketManager.connectionState {
+                            webSocketManager.sendPreference(ttsEnabled: newValue)
+                        }
                     }
 
                     // Usage Section (only when connected)
@@ -212,12 +238,14 @@ struct SettingsView: View {
                 // Auto-fetch usage when settings opens (if connected)
                 if case .connected = webSocketManager.connectionState {
                     webSocketManager.requestUsage()
+                    webSocketManager.sendPreference(ttsEnabled: ttsEnabled)
                 }
             }
             .onChange(of: webSocketManager.connectionState) { _, newState in
                 // Fetch usage when connection is established (e.g., after QR scan)
                 if case .connected = newState {
                     webSocketManager.requestUsage()
+                    webSocketManager.sendPreference(ttsEnabled: ttsEnabled)
                 }
             }
         }

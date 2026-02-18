@@ -417,6 +417,40 @@ struct WebSocketManagerTests {
         #expect(manager.voiceState == .idle)
     }
 
+    // MARK: - UserInputMessage / SetPreferenceMessage Tests
+
+    @Test func testUserInputMessageEncodesCorrectly() throws {
+        let message = UserInputMessage(text: "hello", images: [])
+        let data = try JSONEncoder().encode(message)
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+
+        #expect(json["type"] as? String == "user_input")
+        #expect(json["text"] as? String == "hello")
+        #expect((json["images"] as? [Any])?.isEmpty == true)
+        #expect(json["timestamp"] != nil)
+    }
+
+    @Test func testUserInputMessageWithImagesEncodesCorrectly() throws {
+        let img = ImageAttachment(data: "abc123", filename: "photo.jpg")
+        let message = UserInputMessage(text: "look at this", images: [img])
+        let data = try JSONEncoder().encode(message)
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+
+        let images = json["images"] as! [[String: Any]]
+        #expect(images.count == 1)
+        #expect(images[0]["data"] as? String == "abc123")
+        #expect(images[0]["filename"] as? String == "photo.jpg")
+    }
+
+    @Test func testSetPreferenceEncodesCorrectly() throws {
+        let message = SetPreferenceMessage(ttsEnabled: false)
+        let data = try JSONEncoder().encode(message)
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+
+        #expect(json["type"] as? String == "set_preference")
+        #expect(json["tts_enabled"] as? Bool == false)
+    }
+
     @Test func testDisconnectStatePersistsAfterCallbacks() throws {
         let manager = WebSocketManager()
         manager.connectionState = .connected

@@ -217,6 +217,41 @@ class WebSocketManager: NSObject, ObservableObject {
         logToFile("🔵 sendVoiceInput: send() initiated")
     }
 
+    func sendUserInput(text: String, images: [ImageAttachment] = []) {
+        let message = UserInputMessage(text: text, images: images)
+
+        guard let jsonData = try? JSONEncoder().encode(message),
+              let jsonString = String(data: jsonData, encoding: .utf8) else {
+            print("Failed to encode user input message")
+            return
+        }
+
+        let wsMessage = URLSessionWebSocketTask.Message.string(jsonString)
+        webSocketTask?.send(wsMessage) { [weak self] error in
+            if let error = error {
+                if case .disconnected = self?.connectionState { return }
+                print("Send user input error: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func sendPreference(ttsEnabled: Bool) {
+        let message = SetPreferenceMessage(ttsEnabled: ttsEnabled)
+
+        guard let jsonData = try? JSONEncoder().encode(message),
+              let jsonString = String(data: jsonData, encoding: .utf8) else {
+            print("Failed to encode preference message")
+            return
+        }
+
+        let wsMessage = URLSessionWebSocketTask.Message.string(jsonString)
+        webSocketTask?.send(wsMessage) { error in
+            if let error = error {
+                print("Send preference error: \(error)")
+            }
+        }
+    }
+
     // MARK: - Session Management Methods
 
     func requestProjects() {

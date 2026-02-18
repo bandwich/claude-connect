@@ -1,5 +1,6 @@
 // ios-voice-app/ClaudeVoice/ClaudeVoice/Views/SessionView.swift
 import SwiftUI
+import PhotosUI
 
 struct SessionView: View {
     @ObservedObject var webSocketManager: WebSocketManager
@@ -19,6 +20,12 @@ struct SessionView: View {
     @State private var permissionResolutions: [String: PermissionCardResolution] = [:]
     @State private var lastVoiceInputText: String = ""
     @State private var lastVoiceInputTime: Date = .distantPast
+    @State private var messageText = ""
+    @State private var selectedPhotos: [PhotosPickerItem] = []
+    @State private var attachedImages: [AttachedImage] = []
+    @State private var showingPhotoPicker = false
+    @AppStorage("ttsEnabled") private var ttsEnabled = true
+    @FocusState private var isTextFieldFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -91,10 +98,9 @@ struct SessionView: View {
 
             Divider()
 
-            // Bottom mic area
-            VStack(spacing: 16) {
+            // Input bar
+            VStack(spacing: 0) {
                 if let error = syncError {
-                    // Error state - show error instead of mic
                     VStack(spacing: 8) {
                         Image(systemName: "exclamationmark.circle.fill")
                             .font(.system(size: 40))
@@ -104,26 +110,101 @@ struct SessionView: View {
                             .foregroundColor(.red)
                             .multilineTextAlignment(.center)
                     }
+                    .frame(height: 100)
+                    .frame(maxWidth: .infinity)
                     .accessibilityIdentifier("syncError")
                 } else if !isSessionSynced && !session.isNewSession {
-                    // Syncing state
                     VStack(spacing: 8) {
                         ProgressView()
                     }
+                    .frame(height: 100)
+                    .frame(maxWidth: .infinity)
                     .accessibilityIdentifier("syncStatus")
                 } else {
-                    // Normal state - show mic
-                    Button(action: toggleRecording) {
-                        Image(systemName: speechRecognizer.isRecording ? "stop.fill" : "mic")
-                            .font(.system(size: 32))
-                            .foregroundColor(micColor)
+                    VStack(spacing: 0) {
+                        // Image previews
+                        if !attachedImages.isEmpty {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 8) {
+                                    ForEach(attachedImages) { img in
+                                        ZStack(alignment: .topTrailing) {
+                                            Image(uiImage: img.uiImage)
+                                                .resizable()
+                                                .aspectRatio(contentMode: .fill)
+                                                .frame(width: 60, height: 60)
+                                                .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                                            Button {
+                                                attachedImages.removeAll { $0.id == img.id }
+                                            } label: {
+                                                Image(systemName: "xmark.circle.fill")
+                                                    .font(.system(size: 18))
+                                                    .foregroundColor(.white)
+                                                    .background(Circle().fill(Color.black.opacity(0.6)))
+                                            }
+                                            .offset(x: 4, y: -4)
+                                        }
+                                    }
+                                }
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                            }
+                        }
+
+                        // Input area with text field and buttons
+                        HStack(alignment: .bottom, spacing: 8) {
+                            // Image picker button
+                            Button {
+                                showingPhotoPicker = true
+                            } label: {
+                                Image(systemName: "photo")
+                                    .font(.system(size: 20))
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 36, height: 36)
+                            }
+                            .disabled(speechRecognizer.isRecording)
+                            .accessibilityIdentifier("imagePickerButton")
+
+                            // Text field
+                            TextField("Message Claude...", text: $messageText, axis: .vertical)
+                                .lineLimit(1...5)
+                                .textFieldStyle(.plain)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(Color(.systemGray6))
+                                .cornerRadius(20)
+                                .disabled(speechRecognizer.isRecording)
+                                .focused($isTextFieldFocused)
+                                .accessibilityIdentifier("messageTextField")
+
+                            // Mic button (always visible)
+                            Button(action: toggleRecording) {
+                                Image(systemName: speechRecognizer.isRecording ? "stop.fill" : "mic.fill")
+                                    .font(.system(size: 20))
+                                    .foregroundColor(speechRecognizer.isRecording ? .red : .secondary)
+                                    .frame(width: 36, height: 36)
+                            }
+                            .accessibilityLabel(speechRecognizer.isRecording ? "Stop" : "Tap to Talk")
+                            .disabled(!speechRecognizer.isRecording && !canRecord)
+                            .accessibilityIdentifier("micButton")
+
+                            // Send button (visible when there's text or images)
+                            if !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachedImages.isEmpty {
+                                Button(action: sendTextMessage) {
+                                    Image(systemName: "arrow.up.circle.fill")
+                                        .font(.system(size: 30))
+                                        .foregroundColor(canSend ? .blue : .gray)
+                                }
+                                .disabled(!canSend)
+                                .accessibilityLabel("Send")
+                                .accessibilityIdentifier("sendButton")
+                            }
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
                     }
-                    .accessibilityLabel(speechRecognizer.isRecording ? "Stop" : "Tap to Talk")
-                    .disabled(!speechRecognizer.isRecording && !canRecord)
                 }
             }
-            .frame(height: 100)
-            .frame(maxWidth: .infinity)
             .background(Color(.systemBackground))
         }
         .customNavigationBarInline(
@@ -157,6 +238,19 @@ struct SessionView: View {
             }
         }
         .enableSwipeBack()
+        .photosPicker(isPresented: $showingPhotoPicker, selection: $selectedPhotos, maxSelectionCount: 5, matching: .images)
+        .onChange(of: selectedPhotos) { _, newItems in
+            Task {
+                for item in newItems {
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let uiImage = UIImage(data: data) {
+                        let filename = "photo_\(UUID().uuidString.prefix(8)).jpg"
+                        attachedImages.append(AttachedImage(uiImage: uiImage, filename: filename))
+                    }
+                }
+                selectedPhotos = []
+            }
+        }
         .onChange(of: webSocketManager.pendingPermission) { _, newValue in
             if let request = newValue {
                 // Only add if not already in items (prevents duplicates on reconnect)
@@ -186,17 +280,21 @@ struct SessionView: View {
         }
     }
 
-    private var micColor: Color {
-        if speechRecognizer.isRecording { return .red }
-        if !canRecord { return .gray }
-        return .primary
-    }
-
     private var canRecord: Bool {
         guard isSessionSynced else { return false }
         guard webSocketManager.outputState.canSendVoiceInput else { return false }
         if case .connected = webSocketManager.connectionState {
             return speechRecognizer.isAuthorized
+        }
+        return false
+    }
+
+    private var canSend: Bool {
+        guard isSessionSynced else { return false }
+        guard webSocketManager.outputState.canSendVoiceInput else { return false }
+        if case .connected = webSocketManager.connectionState {
+            let hasText = !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            return hasText || !attachedImages.isEmpty
         }
         return false
     }
@@ -320,8 +418,10 @@ struct SessionView: View {
         }
 
         // Setup audio player
-        webSocketManager.onAudioChunk = { chunk in
-            audioPlayer.receiveAudioChunk(chunk)
+        webSocketManager.onAudioChunk = { [self] chunk in
+            if ttsEnabled {
+                audioPlayer.receiveAudioChunk(chunk)
+            }
         }
         webSocketManager.onStopAudio = {
             audioPlayer.stop()
@@ -481,6 +581,8 @@ struct SessionView: View {
         if speechRecognizer.isRecording {
             speechRecognizer.stopRecording()
         } else {
+            // Dismiss keyboard before recording
+            isTextFieldFocused = false
             // Stop any TTS playback so mic can take over
             if audioPlayer.isPlaying {
                 audioPlayer.stop()
@@ -492,6 +594,51 @@ struct SessionView: View {
                 print("Failed to start recording: \(error)")
             }
         }
+    }
+
+    private func sendTextMessage() {
+        let text = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty || !attachedImages.isEmpty else { return }
+
+        // Build display text for conversation (include image count)
+        var displayText = text
+        if !attachedImages.isEmpty {
+            let imgCount = attachedImages.count
+            let suffix = imgCount == 1 ? "1 image" : "\(imgCount) images"
+            if displayText.isEmpty {
+                displayText = "[\(suffix)]"
+            } else {
+                displayText += " [\(suffix)]"
+            }
+        }
+
+        // Add to conversation items locally
+        let userMessage = SessionHistoryMessage(
+            role: "user",
+            content: displayText,
+            timestamp: Date().timeIntervalSince1970
+        )
+        items.append(.textMessage(userMessage))
+
+        // Track for server echo dedup
+        lastVoiceInputText = text
+        lastVoiceInputTime = Date()
+
+        // Encode images as base64 JPEG
+        let imageAttachments = attachedImages.map { img -> ImageAttachment in
+            let jpegData = img.uiImage.jpegData(compressionQuality: 0.7) ?? Data()
+            return ImageAttachment(
+                data: jpegData.base64EncodedString(),
+                filename: img.filename
+            )
+        }
+
+        // Send via WebSocket
+        webSocketManager.sendUserInput(text: text, images: imageAttachments)
+
+        // Clear input
+        messageText = ""
+        attachedImages = []
     }
 
     private func contextColor(_ percentage: Double) -> Color {
@@ -595,6 +742,12 @@ struct ActivityStatusView: View {
             return "Working..."
         }
     }
+}
+
+struct AttachedImage: Identifiable {
+    let id = UUID()
+    let uiImage: UIImage
+    let filename: String
 }
 
 struct MessageBubble: View {

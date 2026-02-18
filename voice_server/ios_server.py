@@ -337,6 +337,7 @@ class VoiceServer:
         self.projects_base_path = PROJECTS_BASE_PATH
         self.active_session_id = None  # Track which session is active in tmux
         self.active_folder_name = None  # Track which project folder is active
+        self.tts_enabled = True  # TTS on by default, toggled via set_preference
         # TTS queue: serializes audio generation/streaming (created in start())
         self.tts_queue = None
         self.tts_cancel = None
@@ -552,6 +553,17 @@ class VoiceServer:
 
     async def handle_user_message(self, text: str):
         """Send user text message to iOS clients (for terminal-typed input)"""
+        # Skip echo of messages we sent from the app (voice_input or user_input)
+        # Use startswith because user_input appends [Image: /path] to the text
+        if self.last_voice_input is not None:
+            if self.last_voice_input == "" and text.startswith("[Image:"):
+                # Image-only send: text was empty, server prompt is just [Image: ...]
+                self.last_voice_input = None
+                return
+            elif self.last_voice_input and text.startswith(self.last_voice_input):
+                self.last_voice_input = None
+                return
+
         message = {
             "type": "user_message",
             "role": "user",
@@ -566,12 +578,70 @@ class VoiceServer:
             except Exception as e:
                 print(f"Error sending user message: {e}")
 
+    async def handle_set_preference(self, data):
+        """Handle preference changes from iOS app"""
+        if 'tts_enabled' in data:
+            self.tts_enabled = data['tts_enabled']
+            print(f"[Preference] TTS enabled: {self.tts_enabled}")
+
+    async def handle_user_input(self, websocket, data):
+        """Handle text + optional image input from iOS"""
+        text = data.get('text', '').strip()
+        images = data.get('images', [])
+
+        if not text and not images:
+            print("Empty user_input received, ignoring")
+            return
+
+        # Save images to temp files and build prompt
+        image_paths = []
+        for img in images:
+            try:
+                import uuid
+                img_data = base64.b64decode(img['data'])
+                ext = os.path.splitext(img.get('filename', 'image.jpg'))[1] or '.jpg'
+                filename = f"claude_voice_img_{uuid.uuid4().hex[:12]}{ext}"
+                filepath = os.path.join('/tmp', filename)
+                with open(filepath, 'wb') as f:
+                    f.write(img_data)
+                image_paths.append(filepath)
+                print(f"[UserInput] Saved image: {filepath} ({len(img_data)} bytes)")
+            except Exception as e:
+                print(f"[UserInput] Failed to save image: {e}")
+
+        # Build prompt with image references
+        prompt = text
+        for path in image_paths:
+            prompt += f"\n[Image: {path}]"
+
+        print(f"[{time.strftime('%H:%M:%S')}] User input: '{prompt[:100]}'")
+
+        self.waiting_for_response = True
+        self.last_voice_input = text  # Track for echo dedup
+
+        for client in list(self.clients):
+            try:
+                await self.send_status(client, "processing", "Sending to Claude...")
+            except Exception:
+                pass
+
+        await self.send_to_terminal(prompt)
+
     async def handle_claude_response(self, text):
         """Handle Claude's response - queue text for TTS.
 
         If TTS is currently active (generating or streaming), cancel it
         so the worker can pick up this new message promptly.
         """
+        if not self.tts_enabled:
+            print(f"[{time.strftime('%H:%M:%S')}] TTS disabled, skipping audio for: '{text[:50]}...'")
+            for client in list(self.clients):
+                try:
+                    await self.send_status(client, "idle", "Ready")
+                except Exception:
+                    pass
+            return
+
         print(f"[{time.strftime('%H:%M:%S')}] Claude response queued for TTS: '{text[:100]}...'")
         if self.tts_active:
             print(f"[TTS] Interrupting active TTS for new message")
@@ -1061,6 +1131,14 @@ class VoiceServer:
 
             if msg_type == 'voice_input':
                 await self.handle_voice_input(websocket, data)
+            elif msg_type == 'user_input':
+                if self.permission_handler.pending_permissions:
+                    await websocket.send(json.dumps({
+                        "type": "error",
+                        "message": "Cannot send input while permission pending"
+                    }))
+                    return
+                await self.handle_user_input(websocket, data)
             elif msg_type == 'list_projects':
                 await self.handle_list_projects(websocket)
             elif msg_type == 'list_sessions':
@@ -1085,6 +1163,8 @@ class VoiceServer:
                 await self.handle_interrupt()
             elif msg_type == 'usage_request':
                 asyncio.create_task(self.handle_usage_request(websocket))
+            elif msg_type == 'set_preference':
+                await self.handle_set_preference(data)
         except Exception as e:
             print(f"Error: {e}")
 
