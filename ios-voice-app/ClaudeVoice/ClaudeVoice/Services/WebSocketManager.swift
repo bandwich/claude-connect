@@ -48,6 +48,7 @@ class WebSocketManager: NSObject, ObservableObject {
     var onContextUpdate: ((ContextStats) -> Void)?
     var onUsageUpdate: ((UsageStats) -> Void)?
     var onUserMessage: ((UserMessage) -> Void)?
+    var onActivityStatus: ((ActivityStatusMessage) -> Void)?
     @Published var pendingPermission: PermissionRequest? = nil {
         didSet {
             print("🔄 pendingPermission didSet: \(oldValue?.requestId ?? "nil") -> \(pendingPermission?.requestId ?? "nil")")
@@ -55,6 +56,7 @@ class WebSocketManager: NSObject, ObservableObject {
     }
     @Published var contextStats: ContextStats? = nil
     @Published var usageStats: UsageStats? = nil
+    @Published var activityState: ActivityStatusMessage? = nil
     @Published var isLoadingUsage: Bool = false
     var isPlayingAudio: Bool = false // Tracks if audio is currently playing
     private var lastContentBlocks: [ContentBlock] = []  // NEW: store for future UI
@@ -166,6 +168,7 @@ class WebSocketManager: NSObject, ObservableObject {
         shouldReconnect = false
         connectionState = .disconnected
         voiceState = .idle
+        activityState = nil
         webSocketTask?.cancel(with: .goingAway, reason: nil)
         webSocketTask = nil
         currentURL = nil
@@ -283,6 +286,11 @@ class WebSocketManager: NSObject, ObservableObject {
             "type": "read_file",
             "path": path
         ]
+        sendJSON(message)
+    }
+
+    func sendInterrupt() {
+        let message = ["type": "interrupt"]
         sendJSON(message)
     }
 
@@ -469,6 +477,13 @@ class WebSocketManager: NSObject, ObservableObject {
                     self.isLoadingUsage = false
                     self.onUsageUpdate?(usageStats)
                 }
+            } else if let activityStatus = try? JSONDecoder().decode(ActivityStatusMessage.self, from: data),
+                      activityStatus.type == "activity_status" {
+                logToFile("✅ Decoded as ActivityStatus: \(activityStatus.state)")
+                DispatchQueue.main.async {
+                    self.activityState = activityStatus
+                    self.onActivityStatus?(activityStatus)
+                }
             } else if let userMessage = try? JSONDecoder().decode(UserMessage.self, from: data),
                       userMessage.type == "user_message" {
                 logToFile("✅ Decoded as UserMessage: \(userMessage.content.prefix(50))")
@@ -654,6 +669,7 @@ extension WebSocketManager: URLSessionWebSocketDelegate, URLSessionTaskDelegate 
         // Already on main thread due to delegateQueue: .main
         connectionState = .connected
         outputState = .idle  // Reset output state on new connection
+        activityState = nil
         reconnectAttempts = 0
     }
 
