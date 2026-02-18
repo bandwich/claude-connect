@@ -46,6 +46,20 @@ struct SessionView: View {
                                     .id(item.id)
                                 }
                             }
+
+                            // Activity status indicator
+                            if let activity = webSocketManager.activityState,
+                               activity.state != "idle" {
+                                ActivityStatusView(
+                                    state: activity.state,
+                                    detail: activity.detail,
+                                    onInterrupt: {
+                                        webSocketManager.sendInterrupt()
+                                    }
+                                )
+                                .id("activity-status")
+                                .transition(.opacity)
+                            }
                         }
                         .padding()
                         .frame(maxWidth: geometry.size.width, alignment: .leading)
@@ -63,6 +77,13 @@ struct SessionView: View {
                     } else {
                         withAnimation {
                             proxy.scrollTo(lastItem.id, anchor: .bottom)
+                        }
+                    }
+                }
+                .onChange(of: webSocketManager.activityState) { _, newValue in
+                    if let activity = newValue, activity.state != "idle" {
+                        withAnimation {
+                            proxy.scrollTo("activity-status", anchor: .bottom)
                         }
                     }
                 }
@@ -526,6 +547,53 @@ struct SessionView: View {
             summary: summary
         )
         webSocketManager.sendPermissionResponse(response)
+    }
+}
+
+struct ActivityStatusView: View {
+    let state: String   // "thinking", "tool_active", "waiting_permission"
+    let detail: String
+    let onInterrupt: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ProgressView()
+                .scaleEffect(0.8)
+
+            Text(displayText)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+
+            Spacer()
+
+            Button(action: onInterrupt) {
+                Image(systemName: "stop.fill")
+                    .font(.system(size: 14))
+                    .foregroundColor(.red)
+                    .padding(6)
+                    .background(Color(.systemGray5))
+                    .clipShape(Circle())
+            }
+            .accessibilityLabel("Interrupt")
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+    }
+
+    private var displayText: String {
+        if !detail.isEmpty {
+            return detail
+        }
+        switch state {
+        case "thinking":
+            return "Thinking..."
+        case "tool_active":
+            return "Working..."
+        case "waiting_permission":
+            return "Waiting for permission..."
+        default:
+            return "Working..."
+        }
     }
 }
 
