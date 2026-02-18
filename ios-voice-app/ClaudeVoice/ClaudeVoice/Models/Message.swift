@@ -12,6 +12,40 @@ struct VoiceInputMessage: Codable {
     }
 }
 
+struct ImageAttachment: Codable {
+    let data: String      // base64-encoded image
+    let filename: String
+}
+
+struct UserInputMessage: Codable {
+    let type: String
+    let text: String
+    let images: [ImageAttachment]
+    let timestamp: Double
+
+    init(text: String, images: [ImageAttachment] = []) {
+        self.type = "user_input"
+        self.text = text
+        self.images = images
+        self.timestamp = Date().timeIntervalSince1970
+    }
+}
+
+struct SetPreferenceMessage: Codable {
+    let type: String
+    let ttsEnabled: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case ttsEnabled = "tts_enabled"
+    }
+
+    init(ttsEnabled: Bool) {
+        self.type = "set_preference"
+        self.ttsEnabled = ttsEnabled
+    }
+}
+
 struct StatusMessage: Codable {
     let type: String
     let state: String
