@@ -19,6 +19,8 @@ struct SessionView: View {
     @State private var permissionResolutions: [String: PermissionCardResolution] = [:]
     @State private var lastVoiceInputText: String = ""
     @State private var lastVoiceInputTime: Date = .distantPast
+    @State private var messageText = ""
+    @AppStorage("ttsEnabled") private var ttsEnabled = true
 
     var body: some View {
         VStack(spacing: 0) {
@@ -91,10 +93,9 @@ struct SessionView: View {
 
             Divider()
 
-            // Bottom mic area
-            VStack(spacing: 16) {
+            // Input bar
+            VStack(spacing: 0) {
                 if let error = syncError {
-                    // Error state - show error instead of mic
                     VStack(spacing: 8) {
                         Image(systemName: "exclamationmark.circle.fill")
                             .font(.system(size: 40))
@@ -104,26 +105,56 @@ struct SessionView: View {
                             .foregroundColor(.red)
                             .multilineTextAlignment(.center)
                     }
+                    .frame(height: 100)
+                    .frame(maxWidth: .infinity)
                     .accessibilityIdentifier("syncError")
                 } else if !isSessionSynced && !session.isNewSession {
-                    // Syncing state
                     VStack(spacing: 8) {
                         ProgressView()
                     }
+                    .frame(height: 100)
+                    .frame(maxWidth: .infinity)
                     .accessibilityIdentifier("syncStatus")
                 } else {
-                    // Normal state - show mic
-                    Button(action: toggleRecording) {
-                        Image(systemName: speechRecognizer.isRecording ? "stop.fill" : "mic")
-                            .font(.system(size: 32))
-                            .foregroundColor(micColor)
+                    // Input area with text field and buttons
+                    HStack(alignment: .bottom, spacing: 8) {
+                        // Text field
+                        TextField("Message Claude...", text: $messageText, axis: .vertical)
+                            .lineLimit(1...5)
+                            .textFieldStyle(.plain)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(Color(.systemGray6))
+                            .cornerRadius(20)
+                            .disabled(speechRecognizer.isRecording)
+                            .accessibilityIdentifier("messageTextField")
+
+                        // Mic button
+                        Button(action: toggleRecording) {
+                            Image(systemName: speechRecognizer.isRecording ? "stop.fill" : "mic.fill")
+                                .font(.system(size: 20))
+                                .foregroundColor(speechRecognizer.isRecording ? .red : .secondary)
+                                .frame(width: 36, height: 36)
+                        }
+                        .accessibilityLabel(speechRecognizer.isRecording ? "Stop" : "Tap to Talk")
+                        .disabled(!speechRecognizer.isRecording && !canRecord)
+                        .accessibilityIdentifier("micButton")
+
+                        // Send button (only when there's text to send)
+                        if canSend {
+                            Button(action: sendTextMessage) {
+                                Image(systemName: "arrow.up.circle.fill")
+                                    .font(.system(size: 30))
+                                    .foregroundColor(.blue)
+                            }
+                            .accessibilityLabel("Send")
+                            .accessibilityIdentifier("sendButton")
+                        }
                     }
-                    .accessibilityLabel(speechRecognizer.isRecording ? "Stop" : "Tap to Talk")
-                    .disabled(!speechRecognizer.isRecording && !canRecord)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
                 }
             }
-            .frame(height: 100)
-            .frame(maxWidth: .infinity)
             .background(Color(.systemBackground))
         }
         .customNavigationBarInline(
@@ -186,17 +217,20 @@ struct SessionView: View {
         }
     }
 
-    private var micColor: Color {
-        if speechRecognizer.isRecording { return .red }
-        if !canRecord { return .gray }
-        return .primary
-    }
-
     private var canRecord: Bool {
         guard isSessionSynced else { return false }
         guard webSocketManager.outputState.canSendVoiceInput else { return false }
         if case .connected = webSocketManager.connectionState {
             return speechRecognizer.isAuthorized
+        }
+        return false
+    }
+
+    private var canSend: Bool {
+        guard isSessionSynced else { return false }
+        guard webSocketManager.outputState.canSendVoiceInput else { return false }
+        if case .connected = webSocketManager.connectionState {
+            return !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
         return false
     }
@@ -320,8 +354,10 @@ struct SessionView: View {
         }
 
         // Setup audio player
-        webSocketManager.onAudioChunk = { chunk in
-            audioPlayer.receiveAudioChunk(chunk)
+        webSocketManager.onAudioChunk = { [self] chunk in
+            if ttsEnabled {
+                audioPlayer.receiveAudioChunk(chunk)
+            }
         }
         webSocketManager.onStopAudio = {
             audioPlayer.stop()
@@ -492,6 +528,29 @@ struct SessionView: View {
                 print("Failed to start recording: \(error)")
             }
         }
+    }
+
+    private func sendTextMessage() {
+        let text = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+
+        // Add to conversation items locally
+        let userMessage = SessionHistoryMessage(
+            role: "user",
+            content: text,
+            timestamp: Date().timeIntervalSince1970
+        )
+        items.append(.textMessage(userMessage))
+
+        // Track for server echo dedup
+        lastVoiceInputText = text
+        lastVoiceInputTime = Date()
+
+        // Send via WebSocket
+        webSocketManager.sendUserInput(text: text)
+
+        // Clear text field
+        messageText = ""
     }
 
     private func contextColor(_ percentage: Double) -> Color {
