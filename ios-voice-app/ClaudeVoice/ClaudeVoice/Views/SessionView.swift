@@ -598,12 +598,24 @@ struct SessionView: View {
 
     private func sendTextMessage() {
         let text = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        guard !text.isEmpty || !attachedImages.isEmpty else { return }
+
+        // Build display text for conversation (include image count)
+        var displayText = text
+        if !attachedImages.isEmpty {
+            let imgCount = attachedImages.count
+            let suffix = imgCount == 1 ? "1 image" : "\(imgCount) images"
+            if displayText.isEmpty {
+                displayText = "[\(suffix)]"
+            } else {
+                displayText += " [\(suffix)]"
+            }
+        }
 
         // Add to conversation items locally
         let userMessage = SessionHistoryMessage(
             role: "user",
-            content: text,
+            content: displayText,
             timestamp: Date().timeIntervalSince1970
         )
         items.append(.textMessage(userMessage))
@@ -612,11 +624,21 @@ struct SessionView: View {
         lastVoiceInputText = text
         lastVoiceInputTime = Date()
 
-        // Send via WebSocket
-        webSocketManager.sendUserInput(text: text)
+        // Encode images as base64 JPEG
+        let imageAttachments = attachedImages.map { img -> ImageAttachment in
+            let jpegData = img.uiImage.jpegData(compressionQuality: 0.7) ?? Data()
+            return ImageAttachment(
+                data: jpegData.base64EncodedString(),
+                filename: img.filename
+            )
+        }
 
-        // Clear text field
+        // Send via WebSocket
+        webSocketManager.sendUserInput(text: text, images: imageAttachments)
+
+        // Clear input
         messageText = ""
+        attachedImages = []
     }
 
     private func contextColor(_ percentage: Double) -> Color {
