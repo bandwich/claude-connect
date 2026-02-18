@@ -553,6 +553,17 @@ class VoiceServer:
 
     async def handle_user_message(self, text: str):
         """Send user text message to iOS clients (for terminal-typed input)"""
+        # Skip echo of messages we sent from the app (voice_input or user_input)
+        # Use startswith because user_input appends [Image: /path] to the text
+        if self.last_voice_input is not None:
+            if self.last_voice_input == "" and text.startswith("[Image:"):
+                # Image-only send: text was empty, server prompt is just [Image: ...]
+                self.last_voice_input = None
+                return
+            elif self.last_voice_input and text.startswith(self.last_voice_input):
+                self.last_voice_input = None
+                return
+
         message = {
             "type": "user_message",
             "role": "user",
