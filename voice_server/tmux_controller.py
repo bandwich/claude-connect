@@ -96,6 +96,19 @@ class TmuxController:
         result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
         return result.returncode == 0
 
+    def send_escape(self) -> bool:
+        """Send Escape key to the Claude session to interrupt current operation.
+
+        Returns:
+            True if sent successfully
+        """
+        result = subprocess.run(
+            ["tmux", "send-keys", "-t", self.SESSION_NAME, "Escape"],
+            capture_output=True,
+            text=True
+        )
+        return result.returncode == 0
+
     def capture_pane(self, include_history: bool = True) -> Optional[str]:
         """Capture the current pane content
 

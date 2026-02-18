@@ -36,6 +36,12 @@ struct StopAudioMessage: Codable {
     let type: String
 }
 
+struct ActivityStatusMessage: Codable, Equatable {
+    let type: String
+    let state: String
+    let detail: String
+}
+
 struct AudioChunkMessage: Codable {
     let type: String
     let format: String
