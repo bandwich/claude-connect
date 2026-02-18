@@ -232,6 +232,23 @@ class TestCapturePaneContent:
         assert content is None
 
 
+class TestSendEscape:
+    """Tests for sending Escape key to tmux sessions"""
+
+    def test_send_escape_succeeds_when_session_exists(self, controller, ensure_no_session):
+        """send_escape should return True when session exists"""
+        controller.start_session()
+        time.sleep(0.3)
+
+        result = controller.send_escape()
+        assert result is True
+
+    def test_send_escape_returns_false_when_no_session(self, controller, ensure_no_session):
+        """send_escape should return False when session doesn't exist"""
+        result = controller.send_escape()
+        assert result is False
+
+
 class TestResumeSession:
     """Tests for resume_id parameter"""
 
