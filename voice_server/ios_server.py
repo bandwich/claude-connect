@@ -337,6 +337,7 @@ class VoiceServer:
         self.projects_base_path = PROJECTS_BASE_PATH
         self.active_session_id = None  # Track which session is active in tmux
         self.active_folder_name = None  # Track which project folder is active
+        self.tts_enabled = True  # TTS on by default, toggled via set_preference
         # TTS queue: serializes audio generation/streaming (created in start())
         self.tts_queue = None
         self.tts_cancel = None
@@ -566,12 +567,27 @@ class VoiceServer:
             except Exception as e:
                 print(f"Error sending user message: {e}")
 
+    async def handle_set_preference(self, data):
+        """Handle preference changes from iOS app"""
+        if 'tts_enabled' in data:
+            self.tts_enabled = data['tts_enabled']
+            print(f"[Preference] TTS enabled: {self.tts_enabled}")
+
     async def handle_claude_response(self, text):
         """Handle Claude's response - queue text for TTS.
 
         If TTS is currently active (generating or streaming), cancel it
         so the worker can pick up this new message promptly.
         """
+        if not self.tts_enabled:
+            print(f"[{time.strftime('%H:%M:%S')}] TTS disabled, skipping audio for: '{text[:50]}...'")
+            for client in list(self.clients):
+                try:
+                    await self.send_status(client, "idle", "Ready")
+                except Exception:
+                    pass
+            return
+
         print(f"[{time.strftime('%H:%M:%S')}] Claude response queued for TTS: '{text[:100]}...'")
         if self.tts_active:
             print(f"[TTS] Interrupting active TTS for new message")
@@ -1085,6 +1101,8 @@ class VoiceServer:
                 await self.handle_interrupt()
             elif msg_type == 'usage_request':
                 asyncio.create_task(self.handle_usage_request(websocket))
+            elif msg_type == 'set_preference':
+                await self.handle_set_preference(data)
         except Exception as e:
             print(f"Error: {e}")
 
