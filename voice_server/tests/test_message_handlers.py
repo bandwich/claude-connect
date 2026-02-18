@@ -775,3 +775,56 @@ async def test_handle_user_message_sends_to_clients():
     assert msg["content"] == "hello from terminal"
     assert msg["session_id"] == "sess-123"
     assert "timestamp" in msg
+
+
+class TestUserInput:
+    """Tests for user_input message handler"""
+
+    @pytest.mark.asyncio
+    async def test_user_input_text_only(self):
+        """user_input with text only should send text to terminal."""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+        server.tmux = Mock()
+        server.tmux.session_exists.return_value = True
+        server.tmux.send_input = Mock(return_value=True)
+
+        mock_ws = AsyncMock()
+        await server.handle_message(
+            mock_ws,
+            json.dumps({"type": "user_input", "text": "hello claude", "images": [], "timestamp": 1234})
+        )
+
+        server.tmux.send_input.assert_called_once_with("hello claude")
+
+    @pytest.mark.asyncio
+    async def test_user_input_with_images_saves_files(self):
+        """user_input with images should save them and include paths in prompt."""
+        from ios_server import VoiceServer
+        import base64
+
+        server = VoiceServer()
+        server.tmux = Mock()
+        server.tmux.session_exists.return_value = True
+        server.tmux.send_input = Mock(return_value=True)
+
+        # Create a tiny valid base64 image
+        img_data = base64.b64encode(b"\x89PNG\r\n\x1a\nfakedata").decode()
+
+        mock_ws = AsyncMock()
+        await server.handle_message(
+            mock_ws,
+            json.dumps({
+                "type": "user_input",
+                "text": "what is this",
+                "images": [{"data": img_data, "filename": "photo.png"}],
+                "timestamp": 1234
+            })
+        )
+
+        # Verify send_input was called with text that includes an image path
+        call_args = server.tmux.send_input.call_args[0][0]
+        assert "what is this" in call_args
+        assert "/tmp/claude_voice_img_" in call_args
+        assert ".png" in call_args
