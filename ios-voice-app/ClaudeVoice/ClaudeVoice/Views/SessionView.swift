@@ -1,5 +1,6 @@
 // ios-voice-app/ClaudeVoice/ClaudeVoice/Views/SessionView.swift
 import SwiftUI
+import PhotosUI
 
 struct SessionView: View {
     @ObservedObject var webSocketManager: WebSocketManager
@@ -20,6 +21,9 @@ struct SessionView: View {
     @State private var lastVoiceInputText: String = ""
     @State private var lastVoiceInputTime: Date = .distantPast
     @State private var messageText = ""
+    @State private var selectedPhotos: [PhotosPickerItem] = []
+    @State private var attachedImages: [AttachedImage] = []
+    @State private var showingPhotoPicker = false
     @AppStorage("ttsEnabled") private var ttsEnabled = true
     @FocusState private var isTextFieldFocused: Bool
 
@@ -117,45 +121,88 @@ struct SessionView: View {
                     .frame(maxWidth: .infinity)
                     .accessibilityIdentifier("syncStatus")
                 } else {
-                    // Input area with text field and buttons
-                    HStack(alignment: .bottom, spacing: 8) {
-                        // Text field
-                        TextField("Message Claude...", text: $messageText, axis: .vertical)
-                            .lineLimit(1...5)
-                            .textFieldStyle(.plain)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(Color(.systemGray6))
-                            .cornerRadius(20)
-                            .disabled(speechRecognizer.isRecording)
-                            .focused($isTextFieldFocused)
-                            .accessibilityIdentifier("messageTextField")
+                    VStack(spacing: 0) {
+                        // Image previews
+                        if !attachedImages.isEmpty {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 8) {
+                                    ForEach(attachedImages) { img in
+                                        ZStack(alignment: .topTrailing) {
+                                            Image(uiImage: img.uiImage)
+                                                .resizable()
+                                                .aspectRatio(contentMode: .fill)
+                                                .frame(width: 60, height: 60)
+                                                .clipShape(RoundedRectangle(cornerRadius: 8))
 
-                        // Mic button (always visible)
-                        Button(action: toggleRecording) {
-                            Image(systemName: speechRecognizer.isRecording ? "stop.fill" : "mic.fill")
-                                .font(.system(size: 20))
-                                .foregroundColor(speechRecognizer.isRecording ? .red : .secondary)
-                                .frame(width: 36, height: 36)
-                        }
-                        .accessibilityLabel(speechRecognizer.isRecording ? "Stop" : "Tap to Talk")
-                        .disabled(!speechRecognizer.isRecording && !canRecord)
-                        .accessibilityIdentifier("micButton")
-
-                        // Send button (visible when there's text)
-                        if !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            Button(action: sendTextMessage) {
-                                Image(systemName: "arrow.up.circle.fill")
-                                    .font(.system(size: 30))
-                                    .foregroundColor(canSend ? .blue : .gray)
+                                            Button {
+                                                attachedImages.removeAll { $0.id == img.id }
+                                            } label: {
+                                                Image(systemName: "xmark.circle.fill")
+                                                    .font(.system(size: 18))
+                                                    .foregroundColor(.white)
+                                                    .background(Circle().fill(Color.black.opacity(0.6)))
+                                            }
+                                            .offset(x: 4, y: -4)
+                                        }
+                                    }
+                                }
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
                             }
-                            .disabled(!canSend)
-                            .accessibilityLabel("Send")
-                            .accessibilityIdentifier("sendButton")
                         }
+
+                        // Input area with text field and buttons
+                        HStack(alignment: .bottom, spacing: 8) {
+                            // Image picker button
+                            Button {
+                                showingPhotoPicker = true
+                            } label: {
+                                Image(systemName: "photo")
+                                    .font(.system(size: 20))
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 36, height: 36)
+                            }
+                            .disabled(speechRecognizer.isRecording)
+                            .accessibilityIdentifier("imagePickerButton")
+
+                            // Text field
+                            TextField("Message Claude...", text: $messageText, axis: .vertical)
+                                .lineLimit(1...5)
+                                .textFieldStyle(.plain)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(Color(.systemGray6))
+                                .cornerRadius(20)
+                                .disabled(speechRecognizer.isRecording)
+                                .focused($isTextFieldFocused)
+                                .accessibilityIdentifier("messageTextField")
+
+                            // Mic button (always visible)
+                            Button(action: toggleRecording) {
+                                Image(systemName: speechRecognizer.isRecording ? "stop.fill" : "mic.fill")
+                                    .font(.system(size: 20))
+                                    .foregroundColor(speechRecognizer.isRecording ? .red : .secondary)
+                                    .frame(width: 36, height: 36)
+                            }
+                            .accessibilityLabel(speechRecognizer.isRecording ? "Stop" : "Tap to Talk")
+                            .disabled(!speechRecognizer.isRecording && !canRecord)
+                            .accessibilityIdentifier("micButton")
+
+                            // Send button (visible when there's text or images)
+                            if !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachedImages.isEmpty {
+                                Button(action: sendTextMessage) {
+                                    Image(systemName: "arrow.up.circle.fill")
+                                        .font(.system(size: 30))
+                                        .foregroundColor(canSend ? .blue : .gray)
+                                }
+                                .disabled(!canSend)
+                                .accessibilityLabel("Send")
+                                .accessibilityIdentifier("sendButton")
+                            }
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
                 }
             }
             .background(Color(.systemBackground))
@@ -191,6 +238,19 @@ struct SessionView: View {
             }
         }
         .enableSwipeBack()
+        .photosPicker(isPresented: $showingPhotoPicker, selection: $selectedPhotos, maxSelectionCount: 5, matching: .images)
+        .onChange(of: selectedPhotos) { _, newItems in
+            Task {
+                for item in newItems {
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let uiImage = UIImage(data: data) {
+                        let filename = "photo_\(UUID().uuidString.prefix(8)).jpg"
+                        attachedImages.append(AttachedImage(uiImage: uiImage, filename: filename))
+                    }
+                }
+                selectedPhotos = []
+            }
+        }
         .onChange(of: webSocketManager.pendingPermission) { _, newValue in
             if let request = newValue {
                 // Only add if not already in items (prevents duplicates on reconnect)
@@ -233,7 +293,8 @@ struct SessionView: View {
         guard isSessionSynced else { return false }
         guard webSocketManager.outputState.canSendVoiceInput else { return false }
         if case .connected = webSocketManager.connectionState {
-            return !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            let hasText = !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            return hasText || !attachedImages.isEmpty
         }
         return false
     }
@@ -659,6 +720,12 @@ struct ActivityStatusView: View {
             return "Working..."
         }
     }
+}
+
+struct AttachedImage: Identifiable {
+    let id = UUID()
+    let uiImage: UIImage
+    let filename: String
 }
 
 struct MessageBubble: View {
