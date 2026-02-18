@@ -21,6 +21,7 @@ struct SessionView: View {
     @State private var lastVoiceInputTime: Date = .distantPast
     @State private var messageText = ""
     @AppStorage("ttsEnabled") private var ttsEnabled = true
+    @FocusState private var isTextFieldFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -127,9 +128,10 @@ struct SessionView: View {
                             .background(Color(.systemGray6))
                             .cornerRadius(20)
                             .disabled(speechRecognizer.isRecording)
+                            .focused($isTextFieldFocused)
                             .accessibilityIdentifier("messageTextField")
 
-                        // Mic button
+                        // Mic button (always visible)
                         Button(action: toggleRecording) {
                             Image(systemName: speechRecognizer.isRecording ? "stop.fill" : "mic.fill")
                                 .font(.system(size: 20))
@@ -140,13 +142,14 @@ struct SessionView: View {
                         .disabled(!speechRecognizer.isRecording && !canRecord)
                         .accessibilityIdentifier("micButton")
 
-                        // Send button (only when there's text to send)
-                        if canSend {
+                        // Send button (visible when there's text)
+                        if !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                             Button(action: sendTextMessage) {
                                 Image(systemName: "arrow.up.circle.fill")
                                     .font(.system(size: 30))
-                                    .foregroundColor(.blue)
+                                    .foregroundColor(canSend ? .blue : .gray)
                             }
+                            .disabled(!canSend)
                             .accessibilityLabel("Send")
                             .accessibilityIdentifier("sendButton")
                         }
@@ -517,6 +520,8 @@ struct SessionView: View {
         if speechRecognizer.isRecording {
             speechRecognizer.stopRecording()
         } else {
+            // Dismiss keyboard before recording
+            isTextFieldFocused = false
             // Stop any TTS playback so mic can take over
             if audioPlayer.isPlaying {
                 audioPlayer.stop()
