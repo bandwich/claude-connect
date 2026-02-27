@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "claude-voice-server"
+name = "claude-connect"
 version = "0.1.0"
-description = "Voice server for Claude Code iOS app"
+description = "Control Claude Code hands-free from your iPhone"
 requires-python = ">=3.9"
 dependencies = [
     "websockets>=10.0",

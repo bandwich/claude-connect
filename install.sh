@@ -1,6 +1,6 @@
 #!/bin/bash
-# Claude Voice Server - Installation Script
-# Installs system dependencies and sets up the claude-connect CLI
+# Claude Connect - Development Setup
+# Installs system dependencies and sets up claude-connect CLI from local source
 
 set -e
 
@@ -14,17 +14,16 @@ fi
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 info() { echo -e "${GREEN}==>${NC} $1"; }
 warn() { echo -e "${YELLOW}==>${NC} $1"; }
 error() { echo -e "${RED}==>${NC} $1"; }
 
-# Get the directory where this script lives
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo ""
-echo "Claude Voice Server - Installation"
+echo "Claude Connect - Development Setup"
 echo "==================================="
 echo ""
 
@@ -44,20 +43,11 @@ fi
 # Install system dependencies
 info "Checking system dependencies..."
 
-BREW_PACKAGES=("tmux" "zbar")
-MISSING_PACKAGES=()
-
-for pkg in "${BREW_PACKAGES[@]}"; do
-    if ! brew list "$pkg" &> /dev/null; then
-        MISSING_PACKAGES+=("$pkg")
-    fi
-done
-
-if [ ${#MISSING_PACKAGES[@]} -gt 0 ]; then
-    info "Installing: ${MISSING_PACKAGES[*]}"
-    brew install "${MISSING_PACKAGES[@]}"
+if ! brew list tmux &> /dev/null; then
+    info "Installing tmux..."
+    brew install tmux
 else
-    info "System dependencies already installed (tmux, zbar)"
+    info "tmux already installed"
 fi
 
 # Check for Python 3.9+
@@ -80,10 +70,7 @@ if ! command -v pipx &> /dev/null; then
     warn "You may need to restart your terminal for pipx to be in PATH"
 fi
 
-# Install the package
-info "Installing claude-connect via pipx..."
-
-# Find system Python 3.9-3.12 (kokoro deps don't have wheels for 3.14 yet)
+# Find system Python 3.9-3.12 (kokoro deps need wheels)
 PYTHON_BIN=""
 for v in 3.12 3.11 3.10 3.9; do
     if command -v "python$v" &> /dev/null; then
@@ -100,16 +87,18 @@ fi
 
 info "Using $PYTHON_BIN for installation"
 
-# Install from local directory with specific Python version
+# Install from local directory
+info "Installing claude-connect from local source..."
 pipx install "$SCRIPT_DIR" --python "$PYTHON_BIN" $FORCE
 
 echo ""
-echo -e "${GREEN}Installation complete!${NC}"
+echo -e "${GREEN}Development setup complete!${NC}"
 echo ""
 echo "Usage:"
-echo "  claude-connect        # Start the server (run from anywhere)"
+echo "  claude-connect        # Start the server"
 echo ""
-echo "The server will display a QR code for your iOS app to scan."
+echo "After changing server code, reinstall:"
+echo "  pipx install --force $SCRIPT_DIR"
 echo ""
 
 # Check for Claude CLI

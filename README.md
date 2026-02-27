@@ -1,31 +1,23 @@
-# Claude Code via iOS
+# Claude Connect
 
 Control Claude Code hands-free from your iPhone. Voice commands with TTS responses, session management, tool output viewing, file browsing, and remote permission approval — all over WebSocket to a Mac server.
 
-## Setup
+## Install
 
 ### Server (Mac)
 
 ```bash
-git clone https://github.com/bandwich/hands-free.git
-cd hands-free
-./install.sh
+pipx install claude-connect
+claude-connect
 ```
 
-Installs system dependencies (tmux, zbar) and the `claude-connect` CLI globally via pipx.
+The server will display a QR code. Scan it from the iOS app to connect.
 
-<details>
-<summary>Manual installation</summary>
-
-```bash
-brew install tmux zbar
-pipx install /path/to/hands-free
-```
-</details>
+If tmux is not installed, `claude-connect` will offer to install it for you.
 
 ### iOS App
 
-Open `ios-voice-app/ClaudeVoice/ClaudeVoice.xcodeproj` in Xcode, build to device.
+Available on the App Store. *(coming soon)*
 
 ## Usage
 
@@ -35,10 +27,15 @@ claude-connect
 
 Scan the QR code from the iOS app to connect.
 
-## Testing
+## Development
 
 ```bash
-# Server tests
+# Clone and install locally
+git clone https://github.com/bandwich/claude-connect.git
+cd claude-connect
+./install.sh
+
+# Run server tests
 cd voice_server/tests && ./run_tests.sh
 
 # iOS unit tests
@@ -51,4 +48,4 @@ xcodebuild test -scheme ClaudeVoice \
 cd ios-voice-app/ClaudeVoice && ./run_e2e_tests.sh
 ```
 
-See [tests/TESTS.md](tests/TESTS.md) for details. See [CLAUDE.md](CLAUDE.md) for architecture, protocol, and dev docs.
+See [tests/TESTS.md](tests/TESTS.md) for test details. See [CLAUDE.md](CLAUDE.md) for architecture and dev docs.

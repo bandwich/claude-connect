@@ -28,7 +28,7 @@ RIGHT:
 
 ---
 
-# Claude Voice Mode
+# Claude Connect
 
 Hands-free voice interaction with Claude Code via iOS app + Mac server.
 
@@ -61,6 +61,7 @@ voice_server/                  # Python server
 ├─ usage_parser.py            # Parser for /usage command output
 ├─ permission_handler.py      # Permission request/response handling
 ├─ http_server.py             # HTTP server for Claude Code hooks
+├─ setup_check.py             # Interactive dependency checking at startup
 ├─ qr_display.py              # QR code generation for iOS connection
 └─ tests/                     # pytest test suite
 
