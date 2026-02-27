@@ -357,16 +357,17 @@ class WebSocketManager: NSObject, ObservableObject {
             return
         }
 
+        // Reset state immediately — user made a decision, UI should unblock
+        // regardless of whether the WebSocket send succeeds
+        self.pendingPermission = nil
+        self.outputState = .idle
+
         let wsMessage = URLSessionWebSocketTask.Message.string(jsonString)
         webSocketTask?.send(wsMessage) { error in
             if let error = error {
                 print("❌ Failed to send permission response: \(error)")
             } else {
                 print("✅ Permission response sent")
-                DispatchQueue.main.async {
-                    self.pendingPermission = nil
-                    self.outputState = .idle  // Reset state after responding
-                }
             }
         }
     }
@@ -480,9 +481,9 @@ class WebSocketManager: NSObject, ObservableObject {
                 DispatchQueue.main.async {
                     self.outputState = .idle
                     self.voiceState = .idle  // Reset voice state when permission resolved
-                    if self.pendingPermission?.requestId == permissionResolved.requestId {
-                        self.pendingPermission = nil
-                    }
+                    // Always clear pending permission — the terminal may resolve with
+                    // a different request_id than what the app has tracked
+                    self.pendingPermission = nil
                     self.onPermissionResolved?(permissionResolved)
                 }
             } else if let directoryListing = try? JSONDecoder().decode(DirectoryListingResponse.self, from: data),
@@ -577,9 +578,7 @@ class WebSocketManager: NSObject, ObservableObject {
                 DispatchQueue.main.async {
                     self.outputState = .idle
                     self.voiceState = .idle  // Reset voice state when permission resolved
-                    if self.pendingPermission?.requestId == permissionResolved.requestId {
-                        self.pendingPermission = nil
-                    }
+                    self.pendingPermission = nil
                     self.onPermissionResolved?(permissionResolved)
                 }
             } else {
@@ -600,10 +599,20 @@ class WebSocketManager: NSObject, ObservableObject {
             guard let self = self else { return }
             let newState = VoiceState(rawValue: message.state) ?? .idle
 
-            // Don't override to idle if audio is currently playing
+            // Always reset outputState when server says idle — server idle means
+            // Claude is done, so any stale permission/tool state should clear.
+            // This is decoupled from audio playback (audio is cosmetic, not blocking).
+            if newState == .idle && self.outputState != .idle {
+                print("🔄 RESETTING outputState to idle")
+                self.logToFile("🔄 outputState -> idle")
+                self.outputState = .idle
+            }
+
+            // Don't override voiceState to idle if audio is still playing
+            // (keeps the "speaking" indicator accurate, but doesn't block interaction)
             if newState == .idle && self.isPlayingAudio {
-                print("🚫 Ignoring idle status - audio still playing")
-                self.logToFile("🚫 Ignoring idle - audio playing")
+                print("🚫 Keeping voiceState=speaking - audio still playing")
+                self.logToFile("🚫 voiceState stays speaking - audio playing")
                 return
             }
 
@@ -612,15 +621,6 @@ class WebSocketManager: NSObject, ObservableObject {
                 print("🔄 UPDATING voiceState to: \(newState.description)")
                 self.logToFile("🔄 voiceState -> \(newState.description)")
                 self.voiceState = newState
-            }
-
-            // Also reset outputState when server says we're idle
-            // Server sends "idle" after connection and after TTS completes
-            // This ensures outputState doesn't get stuck at .thinking/.usingTool
-            if newState == .idle && !self.outputState.expectsPermissionResponse && self.outputState != .idle {
-                print("🔄 RESETTING outputState to idle")
-                self.logToFile("🔄 outputState -> idle")
-                self.outputState = .idle
             }
         }
         onStatusUpdate?(message)

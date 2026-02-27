@@ -636,7 +636,9 @@ struct SessionView: View {
         // Send via WebSocket
         webSocketManager.sendUserInput(text: text, images: imageAttachments)
 
-        // Clear input
+        // Clear input — resign focus first to prevent TextField's active editing
+        // session from overriding the binding update back to the old value
+        isTextFieldFocused = false
         messageText = ""
         attachedImages = []
     }
