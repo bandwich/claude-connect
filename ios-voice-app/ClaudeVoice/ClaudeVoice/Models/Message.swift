@@ -59,10 +59,12 @@ struct UserMessage: Codable {
     let content: String
     let timestamp: Double
     let sessionId: String?
+    let branch: String?
 
     enum CodingKeys: String, CodingKey {
         case type, role, content, timestamp
         case sessionId = "session_id"
+        case branch
     }
 }
 
