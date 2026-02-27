@@ -523,6 +523,9 @@ class WebSocketManager: NSObject, ObservableObject {
                       userMessage.type == "user_message" {
                 logToFile("✅ Decoded as UserMessage: \(userMessage.content.prefix(50))")
                 DispatchQueue.main.async {
+                    if let messageBranch = userMessage.branch, !messageBranch.isEmpty {
+                        self.branch = messageBranch
+                    }
                     self.onUserMessage?(userMessage)
                 }
             } else {
@@ -631,6 +634,11 @@ class WebSocketManager: NSObject, ObservableObject {
     private func handleAssistantResponse(_ message: AssistantResponseMessage) {
         print("📦 RECEIVED ASSISTANT RESPONSE: \(message.contentBlocks.count) blocks")
         logToFile("📦 ASSISTANT RESPONSE: \(message.contentBlocks.count) blocks")
+
+        // Update branch if provided
+        if let messageBranch = message.branch, !messageBranch.isEmpty {
+            DispatchQueue.main.async { self.branch = messageBranch }
+        }
 
         // Store content blocks
         lastContentBlocks = message.contentBlocks

@@ -190,6 +190,10 @@ class TranscriptHandler(FileSystemEventHandler):
         for line in new_lines:
             try:
                 entry = json.loads(line.strip())
+                # Track git branch from transcript entries
+                branch = entry.get('gitBranch', '')
+                if branch:
+                    self.server.current_branch = branch
                 msg = entry.get('message', {})
                 role = msg.get('role') or entry.get('role')
 
@@ -337,6 +341,7 @@ class VoiceServer:
         self.projects_base_path = PROJECTS_BASE_PATH
         self.active_session_id = None  # Track which session is active in tmux
         self.active_folder_name = None  # Track which project folder is active
+        self.current_branch = ""  # Track git branch from transcript
         self.tts_enabled = True  # TTS on by default, toggled via set_preference
         # TTS queue: serializes audio generation/streaming (created in start())
         self.tts_queue = None
@@ -543,6 +548,8 @@ class VoiceServer:
         # Serialize using Pydantic and add session tracking
         message = response.model_dump()
         message["session_id"] = self.active_session_id  # Include session for filtering
+        if self.current_branch:
+            message["branch"] = self.current_branch
 
         for websocket in list(self.clients):
             try:
@@ -571,6 +578,8 @@ class VoiceServer:
             "timestamp": time.time(),
             "session_id": self.active_session_id,
         }
+        if self.current_branch:
+            message["branch"] = self.current_branch
 
         for websocket in list(self.clients):
             try:
@@ -846,6 +855,7 @@ class VoiceServer:
         # Reset session tracking
         self.active_session_id = None
         self.active_folder_name = None
+        self.current_branch = ""
         self.transcript_path = None
 
         # Reset transcript handler
@@ -1251,6 +1261,8 @@ class VoiceServer:
 
 def main():
     """Entry point for claude-connect command."""
+    from voice_server.setup_check import ensure_dependencies
+    ensure_dependencies()
     asyncio.run(VoiceServer().start())
 
 
