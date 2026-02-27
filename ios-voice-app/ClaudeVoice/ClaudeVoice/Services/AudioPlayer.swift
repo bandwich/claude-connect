@@ -133,8 +133,17 @@ class AudioPlayer: NSObject, ObservableObject {
             print("AudioPlayer: Scheduled chunk \(scheduledChunks)/\(expectedChunks)")
             logToFile("📦 Scheduled chunk \(scheduledChunks)/\(expectedChunks)")
         } else {
-            print("AudioPlayer: Failed to create buffer for chunk \(chunk.chunkIndex + 1)")
-            logToFile("❌ Failed to create buffer for chunk \(chunk.chunkIndex + 1)")
+            // Count failed chunks toward expected total so playback can still finish.
+            // Without this, completedChunks never reaches expectedChunks and
+            // handlePlaybackFinished never fires, leaving isPlaying stuck true.
+            completedChunks += 1
+            print("AudioPlayer: Failed to create buffer for chunk \(chunk.chunkIndex + 1), counting as completed (\(completedChunks)/\(expectedChunks))")
+            logToFile("❌ Failed to create buffer for chunk \(chunk.chunkIndex + 1), counted as completed")
+
+            // Check if this was the last chunk
+            if completedChunks == expectedChunks && receivedChunks == expectedChunks {
+                handlePlaybackFinished()
+            }
         }
 
         // Start playback (playerNode.play()) after buffering minimum chunks
