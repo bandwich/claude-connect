@@ -225,3 +225,46 @@ class TestSequenceNumbers:
         assert len(blocks2) == 2
 
         loop.close()
+
+
+class TestResyncHandler:
+    """Tests for the server-side resync message handler"""
+
+    @pytest.mark.asyncio
+    async def test_resync_replays_from_sequence(self, tmp_path):
+        """resync request replays all content from the given sequence number"""
+        from voice_server.ios_server import VoiceServer
+        from unittest.mock import AsyncMock, patch
+
+        # Create transcript with 10 lines
+        transcript_file = tmp_path / "session.jsonl"
+        with open(transcript_file, "w") as f:
+            for i in range(10):
+                msg = {
+                    "type": "assistant",
+                    "message": {"role": "assistant", "content": [{"type": "text", "text": f"Msg {i}"}]},
+                    "timestamp": "2026-01-01T00:00:00Z"
+                }
+                f.write(json.dumps(msg) + "\n")
+
+        # Patch VoiceServer.__init__ to avoid side effects (tmux, http server, etc.)
+        with patch.object(VoiceServer, '__init__', lambda self: None):
+            server = VoiceServer()
+            server.transcript_path = str(transcript_file)
+
+        # Mock websocket
+        ws = AsyncMock()
+        sent_messages = []
+        async def capture_send(data):
+            sent_messages.append(json.loads(data))
+        ws.send = capture_send
+
+        # Request resync from line 7 (should get lines 7, 8, 9)
+        await server.handle_resync(ws, {"from_seq": 7})
+
+        # Should have received messages with content from lines 7-9
+        assert len(sent_messages) >= 1
+        resync_msg = sent_messages[0]
+        assert resync_msg["type"] == "resync_response"
+        assert resync_msg["from_seq"] == 7
+        assert len(resync_msg["messages"]) == 3  # lines 7, 8, 9

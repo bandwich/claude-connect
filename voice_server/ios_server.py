@@ -679,6 +679,52 @@ class VoiceServer:
             except Exception as e:
                 print(f"Error sending user message: {e}")
 
+    async def handle_resync(self, websocket, data):
+        """Handle resync request — replay content from a given sequence number.
+
+        The client sends from_seq (a transcript line number). We re-read the
+        transcript from that line forward and send the content as a resync_response.
+        """
+        from_seq = data.get("from_seq", 0)
+        print(f"[RESYNC] Client requested resync from seq {from_seq}")
+
+        if not self.transcript_path or not os.path.exists(self.transcript_path):
+            await websocket.send(json.dumps({
+                "type": "resync_response",
+                "from_seq": from_seq,
+                "messages": []
+            }))
+            return
+
+        messages = []
+        with open(self.transcript_path, 'r') as f:
+            lines = f.readlines()
+
+        for line_num, line in enumerate(lines):
+            if line_num < from_seq:
+                continue
+            try:
+                entry = json.loads(line.strip())
+                msg = entry.get('message', {})
+                role = msg.get('role') or entry.get('role')
+                content = msg.get('content', entry.get('content', ''))
+
+                messages.append({
+                    "seq": line_num,
+                    "role": role,
+                    "content": content,
+                    "timestamp": entry.get('timestamp', 0)
+                })
+            except json.JSONDecodeError:
+                continue
+
+        await websocket.send(json.dumps({
+            "type": "resync_response",
+            "from_seq": from_seq,
+            "messages": messages
+        }))
+        print(f"[RESYNC] Sent {len(messages)} messages from seq {from_seq}")
+
     async def handle_set_preference(self, data):
         """Handle preference changes from iOS app"""
         if 'tts_enabled' in data:
@@ -1291,6 +1337,8 @@ class VoiceServer:
                 asyncio.create_task(self.handle_usage_request(websocket))
             elif msg_type == 'set_preference':
                 await self.handle_set_preference(data)
+            elif msg_type == 'resync':
+                await self.handle_resync(websocket, data)
         except Exception as e:
             print(f"Error: {e}")
 
