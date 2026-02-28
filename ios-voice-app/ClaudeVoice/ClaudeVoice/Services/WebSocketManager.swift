@@ -58,6 +58,8 @@ class WebSocketManager: NSObject, ObservableObject {
     @Published var usageStats: UsageStats? = nil
     @Published var activityState: ActivityStatusMessage? = nil
     @Published var isLoadingUsage: Bool = false
+    @Published var lastReceivedSeq: Int = 0
+    var onResyncReceived: ((ResyncResponse) -> Void)?
     var isPlayingAudio: Bool = false // Tracks if audio is currently playing
     private var lastContentBlocks: [ContentBlock] = []  // NEW: store for future UI
 
@@ -329,6 +331,14 @@ class WebSocketManager: NSObject, ObservableObject {
         sendJSON(message)
     }
 
+    func requestResync() {
+        let message: [String: Any] = [
+            "type": "resync",
+            "from_seq": lastReceivedSeq
+        ]
+        sendJSON(message)
+    }
+
     func requestUsage() {
         isLoadingUsage = true
         let message = ["type": "usage_request"]
@@ -522,12 +532,21 @@ class WebSocketManager: NSObject, ObservableObject {
                 }
             } else if let userMessage = try? JSONDecoder().decode(UserMessage.self, from: data),
                       userMessage.type == "user_message" {
-                logToFile("✅ Decoded as UserMessage: \(userMessage.content.prefix(50))")
+                logToFile("✅ Decoded as UserMessage: \(userMessage.content.prefix(50)) (seq=\(userMessage.seq ?? -1))")
                 DispatchQueue.main.async {
+                    if let seq = userMessage.seq, seq >= self.lastReceivedSeq {
+                        self.lastReceivedSeq = seq
+                    }
                     if let messageBranch = userMessage.branch, !messageBranch.isEmpty {
                         self.branch = messageBranch
                     }
                     self.onUserMessage?(userMessage)
+                }
+            } else if let resyncResponse = try? JSONDecoder().decode(ResyncResponse.self, from: data),
+                      resyncResponse.type == "resync_response" {
+                logToFile("✅ Decoded as ResyncResponse: \(resyncResponse.messages.count) messages from seq \(resyncResponse.fromSeq)")
+                DispatchQueue.main.async {
+                    self.onResyncReceived?(resyncResponse)
                 }
             } else {
                 print("❌ Failed to decode message as any known type")
@@ -632,8 +651,13 @@ class WebSocketManager: NSObject, ObservableObject {
     }
 
     private func handleAssistantResponse(_ message: AssistantResponseMessage) {
-        print("📦 RECEIVED ASSISTANT RESPONSE: \(message.contentBlocks.count) blocks")
-        logToFile("📦 ASSISTANT RESPONSE: \(message.contentBlocks.count) blocks")
+        print("📦 RECEIVED ASSISTANT RESPONSE: \(message.contentBlocks.count) blocks (seq=\(message.seq ?? -1))")
+        logToFile("📦 ASSISTANT RESPONSE: \(message.contentBlocks.count) blocks (seq=\(message.seq ?? -1))")
+
+        // Track sequence number for gap detection
+        if let seq = message.seq, seq >= lastReceivedSeq {
+            DispatchQueue.main.async { self.lastReceivedSeq = seq }
+        }
 
         // Update branch if provided
         if let messageBranch = message.branch, !messageBranch.isEmpty {
