@@ -17,6 +17,7 @@ import subprocess
 import time
 import glob
 import base64
+import threading
 from typing import Optional
 
 from watchdog.observers import Observer
@@ -99,6 +100,7 @@ class TranscriptHandler(FileSystemEventHandler):
         self.expected_session_file = None  # Only process events from this file
         self.context_tracker = ContextTracker()
         self.hidden_tool_ids = set()  # Track IDs of hidden tool_use blocks
+        self._lock = threading.Lock()  # Protects processed_line_count and expected_session_file
 
     def on_modified(self, event):
         if event.is_directory or not event.src_path.endswith('.jsonl'):
@@ -109,16 +111,24 @@ class TranscriptHandler(FileSystemEventHandler):
         if filename.startswith('agent-'):
             return
 
-        # Only process events from the expected session file
-        # Use realpath to normalize paths - watchdog may report resolved paths
-        # while expected_session_file uses unresolved paths (e.g., /tmp vs /private/tmp on macOS)
-        if self.expected_session_file:
-            if os.path.realpath(event.src_path) != os.path.realpath(self.expected_session_file):
+        with self._lock:
+            # Only process events from the expected session file
+            # Use realpath to normalize paths - watchdog may report resolved paths
+            # while expected_session_file uses unresolved paths (e.g., /tmp vs /private/tmp on macOS)
+            if self.expected_session_file:
+                if os.path.realpath(event.src_path) != os.path.realpath(self.expected_session_file):
+                    return
+
+            try:
+                new_blocks, user_texts = self.extract_new_content(event.src_path)
+            except Exception as e:
+                print(f"Error processing transcript: {e}")
+                import traceback
+                traceback.print_exc()
                 return
 
+        # Send callbacks OUTSIDE the lock (they schedule async work)
         try:
-            new_blocks, user_texts = self.extract_new_content(event.src_path)
-
             if new_blocks:
                 response = AssistantResponse(
                     content_blocks=new_blocks,
@@ -305,20 +315,22 @@ class TranscriptHandler(FileSystemEventHandler):
         When switching sessions, we initialize the line count to the current
         number of lines in the file, so only NEW content triggers callbacks.
         """
-        self.expected_session_file = file_path
-        self.hidden_tool_ids = set()  # Reset on session switch
-        if file_path and os.path.exists(file_path):
-            with open(file_path, 'r') as f:
-                self.processed_line_count = sum(1 for _ in f)
-            print(f"[INFO] Watching session file: {file_path} (starting at line {self.processed_line_count})")
-        else:
-            self.processed_line_count = 0
-            print(f"[INFO] Watching session file: {file_path} (new file)")
+        with self._lock:
+            self.expected_session_file = file_path
+            self.hidden_tool_ids = set()  # Reset on session switch
+            if file_path and os.path.exists(file_path):
+                with open(file_path, 'r') as f:
+                    self.processed_line_count = sum(1 for _ in f)
+                print(f"[INFO] Watching session file: {file_path} (starting at line {self.processed_line_count})")
+            else:
+                self.processed_line_count = 0
+                print(f"[INFO] Watching session file: {file_path} (new file)")
 
     def reset_tracking_state(self):
         """Reset tracking state (legacy - prefer set_session_file)"""
-        self.processed_line_count = 0
-        self.expected_session_file = None
+        with self._lock:
+            self.processed_line_count = 0
+            self.expected_session_file = None
 
 class VoiceServer:
     """WebSocket server for iOS voice mode"""

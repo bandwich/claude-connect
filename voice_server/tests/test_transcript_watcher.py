@@ -8,6 +8,7 @@ import json
 import time
 import os
 import sys
+import threading
 
 from watchdog.observers import Observer
 from voice_server.ios_server import TranscriptHandler
@@ -250,3 +251,74 @@ class TestTranscriptHandlerRealFiles:
 
         assert len(audio_received) > 0, \
             f"Path comparison bug: expected_session_file={user_path} but watchdog reports {watchdog_path}"
+
+
+class TestTranscriptHandlerThreadSafety:
+    """Tests for thread-safe access to processed_line_count and expected_session_file"""
+
+    def test_concurrent_set_session_and_on_modified(self, tmp_path):
+        """set_session_file and on_modified can run concurrently without corruption"""
+        transcript_file = tmp_path / "session.jsonl"
+        transcript_file.write_text("")
+
+        content_received = []
+
+        async def content_callback(response):
+            content_received.append(response)
+
+        async def audio_callback(text):
+            pass
+
+        loop = asyncio.new_event_loop()
+
+        handler = TranscriptHandler(
+            content_callback=content_callback,
+            audio_callback=audio_callback,
+            loop=loop,
+            server=None
+        )
+        handler.set_session_file(str(transcript_file))
+
+        # Write 100 lines to the file
+        with open(transcript_file, "a") as f:
+            for i in range(100):
+                msg = {
+                    "type": "assistant",
+                    "message": {"role": "assistant", "content": f"Message {i}"},
+                    "timestamp": "2026-01-01T00:00:00Z"
+                }
+                f.write(json.dumps(msg) + "\n")
+
+        # Simulate concurrent access: on_modified from watchdog thread
+        # while set_session_file runs from main thread
+        errors = []
+
+        class FakeEvent:
+            is_directory = False
+            src_path = str(transcript_file)
+
+        def call_on_modified():
+            try:
+                for _ in range(50):
+                    handler.on_modified(FakeEvent())
+            except Exception as e:
+                errors.append(e)
+
+        def call_set_session():
+            try:
+                for _ in range(50):
+                    handler.set_session_file(str(transcript_file))
+            except Exception as e:
+                errors.append(e)
+
+        t1 = threading.Thread(target=call_on_modified)
+        t2 = threading.Thread(target=call_set_session)
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        loop.close()
+        assert not errors, f"Concurrent access raised: {errors}"
+        # Verify handler has a lock attribute
+        assert hasattr(handler, '_lock')
