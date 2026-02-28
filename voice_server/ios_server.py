@@ -347,6 +347,17 @@ class TranscriptHandler(FileSystemEventHandler):
                 self.processed_line_count = 0
                 print(f"[INFO] Watching session file: {file_path} (new file)")
 
+    def reconcile(self):
+        """Check for lines that watchdog missed and extract their content.
+
+        Returns:
+            (content_blocks, user_texts) — same format as extract_new_content
+        """
+        with self._lock:
+            if not self.expected_session_file or not os.path.exists(self.expected_session_file):
+                return [], []
+            return self.extract_new_content(self.expected_session_file)
+
     def reset_tracking_state(self):
         """Reset tracking state (legacy - prefer set_session_file)"""
         with self._lock:
@@ -384,6 +395,8 @@ class VoiceServer:
         # Pane polling for activity status
         self._pane_poll_task = None
         self._last_activity_state = None
+        # Reconciliation loop for catching missed watchdog events
+        self._reconciliation_task = None
 
     def find_transcript_path(self):
         """Find the transcript file to watch.
@@ -461,7 +474,41 @@ class VoiceServer:
         if self.transcript_handler and new_path:
             self.transcript_handler.broadcast_context_update(new_path, session_id)
 
+        # Start reconciliation loop if not already running
+        if self._reconciliation_task is None or self._reconciliation_task.done():
+            self._reconciliation_task = asyncio.ensure_future(self._reconciliation_loop())
+
         return True
+
+    async def _reconciliation_loop(self):
+        """Periodically check for lines watchdog missed and send them to clients."""
+        try:
+            while True:
+                await asyncio.sleep(3.0)
+                if not self.active_session_id or not self.transcript_handler:
+                    continue
+
+                new_blocks, user_texts = self.transcript_handler.reconcile()
+
+                if new_blocks:
+                    print(f"[RECONCILE] Found {len(new_blocks)} missed blocks")
+                    response = AssistantResponse(
+                        content_blocks=new_blocks,
+                        timestamp=time.time(),
+                        is_incremental=True
+                    )
+                    await self.handle_content_response(response)
+
+                    if not self.tts_enabled:
+                        await self.send_idle_to_all_clients()
+
+                if user_texts:
+                    print(f"[RECONCILE] Found {len(user_texts)} missed user messages")
+                    for text in user_texts:
+                        await self.handle_user_message(text)
+
+        except asyncio.CancelledError:
+            pass
 
     async def send_status(self, websocket, state, message):
         """Send status update to client"""
@@ -864,6 +911,11 @@ class VoiceServer:
 
     async def handle_close_session(self, websocket):
         """Handle close_session request - kills the active tmux session"""
+        # Stop reconciliation loop before clearing session
+        if self._reconciliation_task and not self._reconciliation_task.done():
+            self._reconciliation_task.cancel()
+            self._reconciliation_task = None
+
         success = self.tmux.kill_session()
         if success:
             self.active_session_id = None

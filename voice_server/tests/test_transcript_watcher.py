@@ -377,3 +377,139 @@ class TestSessionFilePolling:
             interval=0.1
         )
         assert result is None
+
+
+class TestReconciliationLoop:
+    """Tests for the reconciliation loop that catches missed watchdog events"""
+
+    def test_reconciliation_detects_gap(self, tmp_path):
+        """reconcile() finds and returns lines that watchdog missed"""
+        transcript_file = tmp_path / "session.jsonl"
+        transcript_file.write_text("")
+
+        async def content_callback(response):
+            pass
+
+        async def audio_callback(text):
+            pass
+
+        loop = asyncio.new_event_loop()
+
+        handler = TranscriptHandler(
+            content_callback=content_callback,
+            audio_callback=audio_callback,
+            loop=loop,
+            server=None
+        )
+        handler.set_session_file(str(transcript_file))
+
+        # Write lines WITHOUT triggering on_modified (simulating watchdog miss)
+        with open(transcript_file, "a") as f:
+            for i in range(5):
+                msg = {
+                    "type": "assistant",
+                    "message": {"role": "assistant", "content": [{"type": "text", "text": f"Missed msg {i}"}]},
+                    "timestamp": "2026-01-01T00:00:00Z"
+                }
+                f.write(json.dumps(msg) + "\n")
+
+        # processed_line_count is still 0, but file has 5 lines
+        assert handler.processed_line_count == 0
+
+        # Run reconciliation
+        new_blocks, user_texts = handler.reconcile()
+        assert len(new_blocks) == 5
+        assert handler.processed_line_count == 5
+
+        loop.close()
+
+    def test_reconciliation_no_gap(self, tmp_path):
+        """reconcile() returns empty when no lines were missed"""
+        transcript_file = tmp_path / "session.jsonl"
+        transcript_file.write_text("")
+
+        async def content_callback(response):
+            pass
+
+        async def audio_callback(text):
+            pass
+
+        loop = asyncio.new_event_loop()
+
+        handler = TranscriptHandler(
+            content_callback=content_callback,
+            audio_callback=audio_callback,
+            loop=loop,
+            server=None
+        )
+        handler.set_session_file(str(transcript_file))
+
+        # No lines written — no gap
+        new_blocks, user_texts = handler.reconcile()
+        assert len(new_blocks) == 0
+        assert len(user_texts) == 0
+
+        loop.close()
+
+    def test_reconciliation_with_lock(self, tmp_path):
+        """reconcile() acquires the lock to prevent races with on_modified"""
+        transcript_file = tmp_path / "session.jsonl"
+        transcript_file.write_text("")
+
+        async def content_callback(response):
+            pass
+
+        async def audio_callback(text):
+            pass
+
+        loop = asyncio.new_event_loop()
+
+        handler = TranscriptHandler(
+            content_callback=content_callback,
+            audio_callback=audio_callback,
+            loop=loop,
+            server=None
+        )
+        handler.set_session_file(str(transcript_file))
+
+        # Write a line
+        with open(transcript_file, "a") as f:
+            msg = {
+                "type": "assistant",
+                "message": {"role": "assistant", "content": [{"type": "text", "text": "Test"}]},
+                "timestamp": "2026-01-01T00:00:00Z"
+            }
+            f.write(json.dumps(msg) + "\n")
+
+        # Hold the lock — reconcile should block
+        acquired = threading.Event()
+        released = threading.Event()
+
+        def hold_lock():
+            with handler._lock:
+                acquired.set()
+                released.wait(timeout=5.0)
+
+        t = threading.Thread(target=hold_lock)
+        t.start()
+        acquired.wait()
+
+        # reconcile should block because lock is held
+        result = [None]
+        def run_reconcile():
+            result[0] = handler.reconcile()
+        t2 = threading.Thread(target=run_reconcile)
+        t2.start()
+
+        # Give t2 a moment to start, then release
+        time.sleep(0.1)
+        assert t2.is_alive(), "reconcile should be blocked waiting for lock"
+        released.set()
+
+        t.join()
+        t2.join()
+
+        blocks, texts = result[0]
+        assert len(blocks) == 1  # Got the line after lock was released
+
+        loop.close()
