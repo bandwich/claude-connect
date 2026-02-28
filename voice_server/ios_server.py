@@ -79,6 +79,27 @@ def rewrite_user_text(text: str) -> str:
     return stripped
 
 
+async def poll_for_session_file(find_fn, timeout=10.0, interval=0.2):
+    """Poll for a session transcript file to appear.
+
+    Args:
+        find_fn: Callable that returns file path/session ID or None
+        timeout: Max seconds to wait
+        interval: Seconds between polls
+
+    Returns:
+        Result from find_fn, or None if timeout
+    """
+    elapsed = 0.0
+    while elapsed < timeout:
+        result = find_fn()
+        if result:
+            return result
+        await asyncio.sleep(interval)
+        elapsed += interval
+    return None
+
+
 class TranscriptHandler(FileSystemEventHandler):
     """Monitors transcript file for new assistant messages
 
@@ -886,13 +907,17 @@ class VoiceServer:
 
         if success:
             self.active_session_id = None  # New session has no ID yet
-            await asyncio.sleep(2.0)  # Wait for Claude to initialize
 
             # Find and watch the new session's transcript
             if project_path:
                 folder_name = self.session_manager.encode_path_to_folder(project_path)
                 print(f"[DEBUG] Encoded folder name: {folder_name}")
-                session_id = self.session_manager.find_newest_session(folder_name)
+
+                session_id = await poll_for_session_file(
+                    find_fn=lambda: self.session_manager.find_newest_session(folder_name),
+                    timeout=10.0,
+                    interval=0.2
+                )
                 if session_id:
                     print(f"[DEBUG] Found new session: {session_id}")
                     self.active_session_id = session_id
@@ -925,7 +950,16 @@ class VoiceServer:
 
             if success:
                 self.active_session_id = session_id
-                await asyncio.sleep(2.0)  # Wait for Claude to initialize
+
+                # Wait for transcript file to exist (Claude may need a moment to start writing)
+                transcript_path = self.get_session_transcript_path(folder_name, session_id)
+                if not transcript_path:
+                    transcript_path = await poll_for_session_file(
+                        find_fn=lambda: self.get_session_transcript_path(folder_name, session_id),
+                        timeout=10.0,
+                        interval=0.2
+                    )
+
                 if folder_name:
                     self.switch_watched_session(folder_name, session_id)
             else:
@@ -1066,7 +1100,13 @@ class VoiceServer:
             success = self.tmux.start_session(working_dir=project_path)
 
             if success:
-                await asyncio.sleep(2.0)  # Wait for Claude to initialize
+                # Wait for Claude to initialize by polling for transcript
+                folder_name = self.session_manager.encode_path_to_folder(project_path)
+                await poll_for_session_file(
+                    find_fn=lambda: self.session_manager.find_newest_session(folder_name),
+                    timeout=10.0,
+                    interval=0.2
+                )
                 # Send Enter to accept any prompts
                 self.tmux.send_input("")
 

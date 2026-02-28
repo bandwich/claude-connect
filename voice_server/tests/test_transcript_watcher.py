@@ -322,3 +322,58 @@ class TestTranscriptHandlerThreadSafety:
         assert not errors, f"Concurrent access raised: {errors}"
         # Verify handler has a lock attribute
         assert hasattr(handler, '_lock')
+
+
+class TestSessionFilePolling:
+    """Tests for poll-based session file discovery"""
+
+    @pytest.mark.asyncio
+    async def test_poll_for_session_file_finds_existing(self, tmp_path):
+        """poll_for_session_file returns immediately for existing file"""
+        from voice_server.ios_server import poll_for_session_file
+
+        transcript = tmp_path / "session.jsonl"
+        transcript.write_text("")
+
+        result = await poll_for_session_file(
+            find_fn=lambda: str(transcript),
+            timeout=2.0,
+            interval=0.1
+        )
+        assert result == str(transcript)
+
+    @pytest.mark.asyncio
+    async def test_poll_for_session_file_waits_for_creation(self, tmp_path):
+        """poll_for_session_file waits until file appears"""
+        from voice_server.ios_server import poll_for_session_file
+
+        transcript = tmp_path / "session.jsonl"
+        call_count = 0
+
+        def delayed_find():
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 3:
+                transcript.write_text("")
+                return str(transcript)
+            return None
+
+        result = await poll_for_session_file(
+            find_fn=delayed_find,
+            timeout=5.0,
+            interval=0.1
+        )
+        assert result == str(transcript)
+        assert call_count >= 3
+
+    @pytest.mark.asyncio
+    async def test_poll_for_session_file_returns_none_on_timeout(self):
+        """poll_for_session_file returns None if file never appears"""
+        from voice_server.ios_server import poll_for_session_file
+
+        result = await poll_for_session_file(
+            find_fn=lambda: None,
+            timeout=0.5,
+            interval=0.1
+        )
+        assert result is None
