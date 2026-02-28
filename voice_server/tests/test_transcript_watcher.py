@@ -24,7 +24,7 @@ class TestTranscriptHandlerRealFiles:
 
         audio_received = []
 
-        async def content_callback(response):
+        async def content_callback(response, start_line=0):
             pass
 
         async def audio_callback(text):
@@ -83,7 +83,7 @@ class TestTranscriptHandlerRealFiles:
 
         audio_received = []
 
-        async def content_callback(response):
+        async def content_callback(response, start_line=0):
             pass
 
         async def audio_callback(text):
@@ -137,7 +137,7 @@ class TestTranscriptHandlerRealFiles:
 
         audio_received = []
 
-        async def content_callback(response):
+        async def content_callback(response, start_line=0):
             pass
 
         async def audio_callback(text):
@@ -209,7 +209,7 @@ class TestTranscriptHandlerRealFiles:
 
         audio_received = []
 
-        async def content_callback(response):
+        async def content_callback(response, start_line=0):
             pass
 
         async def audio_callback(text):
@@ -387,7 +387,7 @@ class TestReconciliationLoop:
         transcript_file = tmp_path / "session.jsonl"
         transcript_file.write_text("")
 
-        async def content_callback(response):
+        async def content_callback(response, start_line=0):
             pass
 
         async def audio_callback(text):
@@ -417,7 +417,7 @@ class TestReconciliationLoop:
         assert handler.processed_line_count == 0
 
         # Run reconciliation
-        new_blocks, user_texts = handler.reconcile()
+        new_blocks, user_texts, _ = handler.reconcile()
         assert len(new_blocks) == 5
         assert handler.processed_line_count == 5
 
@@ -428,7 +428,7 @@ class TestReconciliationLoop:
         transcript_file = tmp_path / "session.jsonl"
         transcript_file.write_text("")
 
-        async def content_callback(response):
+        async def content_callback(response, start_line=0):
             pass
 
         async def audio_callback(text):
@@ -445,7 +445,7 @@ class TestReconciliationLoop:
         handler.set_session_file(str(transcript_file))
 
         # No lines written — no gap
-        new_blocks, user_texts = handler.reconcile()
+        new_blocks, user_texts, _ = handler.reconcile()
         assert len(new_blocks) == 0
         assert len(user_texts) == 0
 
@@ -456,7 +456,7 @@ class TestReconciliationLoop:
         transcript_file = tmp_path / "session.jsonl"
         transcript_file.write_text("")
 
-        async def content_callback(response):
+        async def content_callback(response, start_line=0):
             pass
 
         async def audio_callback(text):
@@ -509,7 +509,7 @@ class TestReconciliationLoop:
         t.join()
         t2.join()
 
-        blocks, texts = result[0]
+        blocks, texts, _ = result[0]
         assert len(blocks) == 1  # Got the line after lock was released
 
         loop.close()

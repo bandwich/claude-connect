@@ -501,7 +501,7 @@ class TestTranscriptHandlerGlobalTracking:
         server.last_voice_input = None  # The bug condition
 
         content_received = []
-        async def mock_content_callback(response):
+        async def mock_content_callback(response, start_line=0):
             content_received.append(response)
 
         async def mock_audio_callback(text):
@@ -538,7 +538,7 @@ class TestTranscriptHandlerGlobalTracking:
         server.last_voice_input = None
 
         content_received = []
-        async def mock_content_callback(response):
+        async def mock_content_callback(response, start_line=0):
             content_received.append(response)
 
         async def mock_audio_callback(text):
@@ -587,7 +587,7 @@ class TestTranscriptHandlerGlobalTracking:
         server.last_voice_input = None
 
         content_received = []
-        async def mock_content_callback(response):
+        async def mock_content_callback(response, start_line=0):
             content_received.append(response)
 
         async def mock_audio_callback(text):

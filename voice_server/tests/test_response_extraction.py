@@ -76,7 +76,7 @@ def test_streaming_sends_blocks_incrementally():
         # Track what was sent
         sent_responses = []
 
-        async def mock_content_callback(response):
+        async def mock_content_callback(response, start_line=0):
             sent_responses.append(response)
 
         mock_server = type('obj', (), {

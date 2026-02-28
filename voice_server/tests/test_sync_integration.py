@@ -25,7 +25,7 @@ class TestSyncReliability:
 
         received_texts = []
 
-        async def content_callback(response):
+        async def content_callback(response, start_line=0):
             for block in response.content_blocks:
                 if hasattr(block, 'text'):
                     received_texts.append(block.text)
@@ -69,7 +69,7 @@ class TestSyncReliability:
             loop.run_until_complete(asyncio.sleep(0.1))
 
             # Run reconciliation to catch any lines watchdog missed
-            missed_blocks, _ = handler.reconcile()
+            missed_blocks, _, _ = handler.reconcile()
             if missed_blocks:
                 for block in missed_blocks:
                     if hasattr(block, 'text'):
@@ -93,7 +93,7 @@ class TestSyncReliability:
 
         received_blocks = []
 
-        async def content_callback(response):
+        async def content_callback(response, start_line=0):
             received_blocks.extend(response.content_blocks)
 
         async def audio_callback(text):
@@ -157,7 +157,7 @@ class TestSyncReliability:
             loop.run_until_complete(asyncio.sleep(0.1))
 
             # Reconcile to catch any missed
-            missed, _ = handler.reconcile()
+            missed, _, _ = handler.reconcile()
             received_blocks.extend(missed)
 
         finally:
@@ -169,3 +169,59 @@ class TestSyncReliability:
         types = [b.type for b in received_blocks]
         assert "tool_use" in types, f"Missing tool_use, got: {types}"
         assert "tool_result" in types, f"Missing tool_result, got: {types}"
+
+
+class TestSequenceNumbers:
+    """Tests for sequence number tracking on messages"""
+
+    def test_extract_new_content_returns_line_numbers(self, tmp_path):
+        """extract_new_content_with_seq returns the starting line number of new content"""
+        transcript_file = tmp_path / "session.jsonl"
+        transcript_file.write_text("")
+
+        async def content_callback(response, start_line=0):
+            pass
+
+        async def audio_callback(text):
+            pass
+
+        loop = asyncio.new_event_loop()
+
+        handler = TranscriptHandler(
+            content_callback=content_callback,
+            audio_callback=audio_callback,
+            loop=loop,
+            server=None
+        )
+        handler.set_session_file(str(transcript_file))
+
+        # Write 3 lines
+        with open(transcript_file, "a") as f:
+            for i in range(3):
+                msg = {
+                    "type": "assistant",
+                    "message": {"role": "assistant", "content": [{"type": "text", "text": f"Msg {i}"}]},
+                    "timestamp": "2026-01-01T00:00:00Z"
+                }
+                f.write(json.dumps(msg) + "\n")
+
+        blocks, user_texts, start_line = handler.extract_new_content_with_seq(str(transcript_file))
+        assert start_line == 0  # Started from line 0
+        assert len(blocks) == 3
+        assert handler.processed_line_count == 3
+
+        # Write 2 more
+        with open(transcript_file, "a") as f:
+            for i in range(2):
+                msg = {
+                    "type": "assistant",
+                    "message": {"role": "assistant", "content": [{"type": "text", "text": f"Msg {3+i}"}]},
+                    "timestamp": "2026-01-01T00:00:00Z"
+                }
+                f.write(json.dumps(msg) + "\n")
+
+        blocks2, _, start_line2 = handler.extract_new_content_with_seq(str(transcript_file))
+        assert start_line2 == 3  # Started from line 3
+        assert len(blocks2) == 2
+
+        loop.close()

@@ -141,7 +141,7 @@ class TranscriptHandler(FileSystemEventHandler):
                     return
 
             try:
-                new_blocks, user_texts = self.extract_new_content(event.src_path)
+                new_blocks, user_texts, start_line = self.extract_new_content_with_seq(event.src_path)
             except Exception as e:
                 print(f"Error processing transcript: {e}")
                 import traceback
@@ -158,7 +158,7 @@ class TranscriptHandler(FileSystemEventHandler):
                 )
 
                 asyncio.run_coroutine_threadsafe(
-                    self.content_callback(response),
+                    self.content_callback(response, start_line),
                     self.loop
                 )
 
@@ -181,9 +181,9 @@ class TranscriptHandler(FileSystemEventHandler):
                         )
 
             if user_texts and self.user_callback:
-                for user_text in user_texts:
+                for idx, user_text in enumerate(user_texts):
                     asyncio.run_coroutine_threadsafe(
-                        self.user_callback(user_text),
+                        self.user_callback(user_text, start_line + idx),
                         self.loop
                     )
 
@@ -194,6 +194,16 @@ class TranscriptHandler(FileSystemEventHandler):
             print(f"Error processing transcript: {e}")
             import traceback
             traceback.print_exc()
+
+    def extract_new_content_with_seq(self, filepath) -> tuple:
+        """Like extract_new_content but also returns the starting line number.
+
+        Returns:
+            (content_blocks, user_texts, start_line_number)
+        """
+        start_line = self.processed_line_count
+        blocks, user_texts = self.extract_new_content(filepath)
+        return blocks, user_texts, start_line
 
     def extract_new_assistant_content(self, filepath) -> list[ContentBlock]:
         """Legacy wrapper — returns only content blocks."""
@@ -351,12 +361,12 @@ class TranscriptHandler(FileSystemEventHandler):
         """Check for lines that watchdog missed and extract their content.
 
         Returns:
-            (content_blocks, user_texts) — same format as extract_new_content
+            (content_blocks, user_texts, start_line) — same as extract_new_content_with_seq
         """
         with self._lock:
             if not self.expected_session_file or not os.path.exists(self.expected_session_file):
-                return [], []
-            return self.extract_new_content(self.expected_session_file)
+                return [], [], 0
+            return self.extract_new_content_with_seq(self.expected_session_file)
 
     def reset_tracking_state(self):
         """Reset tracking state (legacy - prefer set_session_file)"""
@@ -488,24 +498,24 @@ class VoiceServer:
                 if not self.active_session_id or not self.transcript_handler:
                     continue
 
-                new_blocks, user_texts = self.transcript_handler.reconcile()
+                new_blocks, user_texts, start_line = self.transcript_handler.reconcile()
 
                 if new_blocks:
-                    print(f"[RECONCILE] Found {len(new_blocks)} missed blocks")
+                    print(f"[RECONCILE] Found {len(new_blocks)} missed blocks (seq={start_line})")
                     response = AssistantResponse(
                         content_blocks=new_blocks,
                         timestamp=time.time(),
                         is_incremental=True
                     )
-                    await self.handle_content_response(response)
+                    await self.handle_content_response(response, seq=start_line)
 
                     if not self.tts_enabled:
                         await self.send_idle_to_all_clients()
 
                 if user_texts:
                     print(f"[RECONCILE] Found {len(user_texts)} missed user messages")
-                    for text in user_texts:
-                        await self.handle_user_message(text)
+                    for idx, text in enumerate(user_texts):
+                        await self.handle_user_message(text, seq=start_line + idx)
 
         except asyncio.CancelledError:
             pass
@@ -621,13 +631,14 @@ class VoiceServer:
         else:
             print("Empty text received, ignoring")
 
-    async def handle_content_response(self, response: AssistantResponse):
+    async def handle_content_response(self, response: AssistantResponse, seq: int = 0):
         """Send structured content to iOS clients"""
-        print(f"[{time.strftime('%H:%M:%S')}] Sending structured content: {len(response.content_blocks)} blocks")
+        print(f"[{time.strftime('%H:%M:%S')}] Sending structured content: {len(response.content_blocks)} blocks (seq={seq})")
 
         # Serialize using Pydantic and add session tracking
         message = response.model_dump()
         message["session_id"] = self.active_session_id  # Include session for filtering
+        message["seq"] = seq
         if self.current_branch:
             message["branch"] = self.current_branch
 
@@ -638,7 +649,7 @@ class VoiceServer:
             except Exception as e:
                 print(f"Error sending content: {e}")
 
-    async def handle_user_message(self, text: str):
+    async def handle_user_message(self, text: str, seq: int = 0):
         """Send user text message to iOS clients (for terminal-typed input)"""
         # Skip echo of messages we sent from the app (voice_input or user_input)
         # Use startswith because user_input appends [Image: /path] to the text
@@ -657,6 +668,7 @@ class VoiceServer:
             "content": text,
             "timestamp": time.time(),
             "session_id": self.active_session_id,
+            "seq": seq,
         }
         if self.current_branch:
             message["branch"] = self.current_branch
