@@ -24,6 +24,7 @@ struct SessionView: View {
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var attachedImages: [AttachedImage] = []
     @State private var showingPhotoPicker = false
+    @State private var lastProcessedSeq: Int = -1
     @AppStorage("ttsEnabled") private var ttsEnabled = true
     @FocusState private var isTextFieldFocused: Bool
 
@@ -273,8 +274,14 @@ struct SessionView: View {
             // Retry sync when connection is established (for resumed sessions)
             if case .connected = newState, !session.isNewSession {
                 print("[SessionView] Connection established, attempting sync")
-                // Re-fetch session history to clear stale "Running..." tool_use items
-                webSocketManager.requestSessionHistory(folderName: project.folderName, sessionId: session.id)
+                if webSocketManager.lastReceivedSeq > 0 {
+                    // We had a prior connection — use resync to fill gaps
+                    print("[SessionView] Using resync from seq \(webSocketManager.lastReceivedSeq)")
+                    webSocketManager.requestResync()
+                } else {
+                    // First connection — load full history
+                    webSocketManager.requestSessionHistory(folderName: project.folderName, sessionId: session.id)
+                }
                 syncSession()
             }
         }
@@ -312,6 +319,10 @@ struct SessionView: View {
 
     private func setupView() {
         print("[SessionView] setupView called, isNewSession=\(session.isNewSession)")
+
+        // Reset seq tracking for this new view
+        lastProcessedSeq = -1
+        webSocketManager.lastReceivedSeq = 0
 
         // Load message history and sync (skip for new sessions - no history yet)
         if !session.isNewSession {
@@ -452,6 +463,12 @@ struct SessionView: View {
                 if response.sessionId != session.id { return }
             }
 
+            // Seq-based dedup: skip if we already processed this seq
+            if let seq = response.seq {
+                if seq <= lastProcessedSeq { return }
+                lastProcessedSeq = seq
+            }
+
             for block in response.contentBlocks {
                 switch block {
                 case .text(let textBlock):
@@ -497,6 +514,12 @@ struct SessionView: View {
                 if message.sessionId != session.id { return }
             }
 
+            // Seq-based dedup: skip if we already processed this seq
+            if let seq = message.seq {
+                if seq <= lastProcessedSeq { return }
+                lastProcessedSeq = seq
+            }
+
             guard !message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
             // Skip server echo of voice input we already added locally
@@ -513,6 +536,79 @@ struct SessionView: View {
             )
             DispatchQueue.main.async {
                 items.append(.textMessage(userMsg))
+            }
+        }
+
+        // Handle resync responses (gap recovery on reconnect)
+        webSocketManager.onResyncReceived = { [self] resyncResponse in
+            print("[SessionView] Resync received: \(resyncResponse.messages.count) messages from seq \(resyncResponse.fromSeq)")
+            for msg in resyncResponse.messages {
+                // Skip already-processed sequences
+                if msg.seq <= lastProcessedSeq { continue }
+                lastProcessedSeq = msg.seq
+
+                guard let role = msg.role else { continue }
+
+                if role == "assistant" {
+                    // Process assistant content blocks
+                    switch msg.content {
+                    case .blocks(let blocks):
+                        for block in blocks {
+                            switch block {
+                            case .text(let textBlock):
+                                guard !textBlock.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+                                let message = SessionHistoryMessage(
+                                    role: "assistant",
+                                    content: textBlock.text,
+                                    timestamp: 0
+                                )
+                                DispatchQueue.main.async {
+                                    items.append(.textMessage(message))
+                                }
+                            case .toolUse(let toolBlock):
+                                DispatchQueue.main.async {
+                                    items.append(.toolUse(toolId: toolBlock.id, tool: toolBlock, result: nil))
+                                }
+                            case .toolResult(let resultBlock):
+                                DispatchQueue.main.async {
+                                    if let idx = items.firstIndex(where: {
+                                        if case .toolUse(let tid, _, _) = $0 { return tid == resultBlock.toolUseId }
+                                        return false
+                                    }) {
+                                        if case .toolUse(let tid, let tool, _) = items[idx] {
+                                            items[idx] = .toolUse(toolId: tid, tool: tool, result: resultBlock)
+                                        }
+                                    }
+                                }
+                            default:
+                                break
+                            }
+                        }
+                    case .string(let text):
+                        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+                        let message = SessionHistoryMessage(
+                            role: "assistant",
+                            content: text,
+                            timestamp: 0
+                        )
+                        DispatchQueue.main.async {
+                            items.append(.textMessage(message))
+                        }
+                    }
+                } else if role == "user" {
+                    // Process user messages
+                    if case .string(let text) = msg.content,
+                       !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        let userMsg = SessionHistoryMessage(
+                            role: "user",
+                            content: text,
+                            timestamp: 0
+                        )
+                        DispatchQueue.main.async {
+                            items.append(.textMessage(userMsg))
+                        }
+                    }
+                }
             }
         }
 
