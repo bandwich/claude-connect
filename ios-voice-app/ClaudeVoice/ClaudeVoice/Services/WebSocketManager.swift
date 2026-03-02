@@ -510,7 +510,6 @@ class WebSocketManager: NSObject, ObservableObject {
             } else if let permissionRequest = try? JSONDecoder().decode(PermissionRequest.self, from: data) {
                 logToFile("✅ Decoded as PermissionRequest: \(permissionRequest.requestId)")
                 DispatchQueue.main.async {
-                    self.outputState = .awaitingPermission(permissionRequest.requestId)
                     self.pendingPermission = permissionRequest
                     self.handleInputBarPermission(permissionRequest)
                     self.onPermissionRequest?(permissionRequest)
@@ -619,7 +618,6 @@ class WebSocketManager: NSObject, ObservableObject {
                 }
             } else if let permissionRequest = try? JSONDecoder().decode(PermissionRequest.self, from: data) {
                 DispatchQueue.main.async {
-                    self.outputState = .awaitingPermission(permissionRequest.requestId)
                     self.pendingPermission = permissionRequest
                     self.handleInputBarPermission(permissionRequest)
                     self.onPermissionRequest?(permissionRequest)
