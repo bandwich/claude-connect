@@ -598,6 +598,46 @@ class VoiceServer:
         result = self.tmux.send_input(text)
         print(f"[DEBUG] send_input returned: {result}")
 
+    async def verify_delivery(self, text: str, timeout: float = 5.0) -> bool:
+        """Poll transcript file to verify a user message was written by Claude Code.
+
+        Returns True if a user-role line containing `text` appears within timeout.
+        """
+        if not self.transcript_handler or not self.transcript_handler.expected_session_file:
+            return False
+
+        filepath = self.transcript_handler.expected_session_file
+        start_line = self.transcript_handler.processed_line_count
+        deadline = time.time() + timeout
+        poll_interval = 0.5
+
+        while time.time() < deadline:
+            try:
+                with open(filepath, 'r') as f:
+                    lines = f.readlines()
+
+                for line in lines[start_line:]:
+                    try:
+                        entry = json.loads(line.strip())
+                        msg = entry.get('message', {})
+                        role = msg.get('role') or entry.get('role')
+                        if role == 'user':
+                            content = msg.get('content', '')
+                            if isinstance(content, str) and text in content:
+                                return True
+                            elif isinstance(content, list):
+                                for block in content:
+                                    if isinstance(block, dict) and text in block.get('text', ''):
+                                        return True
+                    except (json.JSONDecodeError, KeyError):
+                        continue
+            except FileNotFoundError:
+                pass
+
+            await asyncio.sleep(poll_interval)
+
+        return False
+
     async def stream_audio(self, websocket, wav_bytes, cancel_event):
         """Stream pre-generated WAV audio to client. Returns False if cancelled."""
         try:
@@ -652,6 +692,22 @@ class VoiceServer:
 
             await self.send_to_terminal(text)
             print(f"[{time.strftime('%H:%M:%S')}] Sent to terminal successfully")
+
+            # Verify delivery — check if message appears in transcript
+            delivered = await self.verify_delivery(text)
+            delivery_msg = {
+                "type": "delivery_status",
+                "status": "confirmed" if delivered else "failed",
+                "text": text
+            }
+            for client in list(self.clients):
+                try:
+                    await client.send(json.dumps(delivery_msg))
+                except Exception:
+                    pass
+
+            if not delivered:
+                print(f"[SYNC WARNING] Message delivery not confirmed: '{text[:50]}'")
         else:
             print("Empty text received, ignoring")
 

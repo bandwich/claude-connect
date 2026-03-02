@@ -432,6 +432,69 @@ class TestUserMessageSync:
         assert "Missed user msg" in missed_users, f"Should have found user message, got: {missed_users}"
 
 
+class TestDeliveryVerification:
+    """Tests for delivery verification after sending input"""
+
+    @pytest.mark.asyncio
+    async def test_verify_delivery_finds_user_message(self, tmp_path):
+        """verify_delivery returns True when user message appears in transcript"""
+        from voice_server.ios_server import VoiceServer
+        from unittest.mock import patch, Mock
+
+        transcript_file = tmp_path / "session.jsonl"
+        transcript_file.write_text("")
+
+        with patch.object(VoiceServer, '__init__', lambda self: None):
+            server = VoiceServer()
+
+        # Set up minimal transcript handler
+        handler = TranscriptHandler(
+            content_callback=lambda r, s=0: None,
+            audio_callback=lambda t: None,
+            loop=asyncio.get_event_loop(),
+            server=server
+        )
+        handler.set_session_file(str(transcript_file))
+        server.transcript_handler = handler
+
+        # Simulate: user message appears after 0.5s
+        async def write_after_delay():
+            await asyncio.sleep(0.5)
+            with open(transcript_file, "a") as f:
+                f.write(json.dumps({
+                    "message": {"role": "user", "content": [{"type": "text", "text": "hello world"}]},
+                    "timestamp": "2026-01-01T00:00:00Z"
+                }) + "\n")
+
+        asyncio.create_task(write_after_delay())
+        result = await server.verify_delivery("hello world", timeout=3)
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_verify_delivery_times_out(self, tmp_path):
+        """verify_delivery returns False when message never appears"""
+        from voice_server.ios_server import VoiceServer
+        from unittest.mock import patch
+
+        transcript_file = tmp_path / "session.jsonl"
+        transcript_file.write_text("")
+
+        with patch.object(VoiceServer, '__init__', lambda self: None):
+            server = VoiceServer()
+
+        handler = TranscriptHandler(
+            content_callback=lambda r, s=0: None,
+            audio_callback=lambda t: None,
+            loop=asyncio.get_event_loop(),
+            server=server
+        )
+        handler.set_session_file(str(transcript_file))
+        server.transcript_handler = handler
+
+        result = await server.verify_delivery("never appears", timeout=1)
+        assert result is False
+
+
 class TestResyncHandler:
     """Tests for the server-side resync message handler"""
 
