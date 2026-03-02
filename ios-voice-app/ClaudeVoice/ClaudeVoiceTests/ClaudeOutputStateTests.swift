@@ -4,30 +4,19 @@ import Testing
 @Suite("ClaudeOutputState Tests")
 struct ClaudeOutputStateTests {
 
-    @Test func testIdleAllowsVoiceInput() {
-        let state = ClaudeOutputState.idle
-        #expect(state.canSendVoiceInput == true)
-        #expect(state.expectsPermissionResponse == false)
+    @Test func idleHasNoStatusText() {
+        #expect(ClaudeOutputState.idle.statusText == nil)
     }
 
-    @Test func testAwaitingPermissionBlocksVoiceAllowsResponse() {
-        let state = ClaudeOutputState.awaitingPermission("req-123")
-        #expect(state.canSendVoiceInput == false)
-        #expect(state.expectsPermissionResponse == true)
+    @Test func thinkingShowsStatusText() {
+        #expect(ClaudeOutputState.thinking.statusText == "Thinking...")
     }
 
-    @Test func testThinkingBlocksVoiceInput() {
-        let state = ClaudeOutputState.thinking
-        #expect(state.canSendVoiceInput == false)
+    @Test func usingToolShowsToolName() {
+        #expect(ClaudeOutputState.usingTool("Bash").statusText == "Using Bash...")
     }
 
-    @Test func testUsingToolBlocksVoiceInput() {
-        let state = ClaudeOutputState.usingTool("Bash")
-        #expect(state.canSendVoiceInput == false)
-    }
-
-    @Test func testSpeakingBlocksVoiceInput() {
-        let state = ClaudeOutputState.speaking
-        #expect(state.canSendVoiceInput == false)
+    @Test func speakingShowsStatusText() {
+        #expect(ClaudeOutputState.speaking.statusText == "Speaking...")
     }
 }

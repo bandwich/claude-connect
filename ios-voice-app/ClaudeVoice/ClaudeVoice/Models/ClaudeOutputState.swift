@@ -6,26 +6,6 @@ enum ClaudeOutputState: Equatable {
     case thinking
     case usingTool(String)              // tool name
     case speaking
-    case awaitingPermission(String)     // request_id
-    case awaitingQuestion(String)       // request_id
-
-    var canSendVoiceInput: Bool {
-        switch self {
-        case .idle, .thinking, .usingTool, .speaking:
-            return true
-        case .awaitingPermission, .awaitingQuestion:
-            return false
-        }
-    }
-
-    var expectsPermissionResponse: Bool {
-        switch self {
-        case .awaitingPermission, .awaitingQuestion:
-            return true
-        default:
-            return false
-        }
-    }
 
     /// Status text to display (nil = no status indicator)
     var statusText: String? {
@@ -38,8 +18,6 @@ enum ClaudeOutputState: Equatable {
             return "Using \(name)..."
         case .speaking:
             return "Speaking..."
-        case .awaitingPermission, .awaitingQuestion:
-            return nil  // Permission sheet handles this
         }
     }
 }

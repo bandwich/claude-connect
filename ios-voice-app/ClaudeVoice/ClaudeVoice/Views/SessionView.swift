@@ -25,6 +25,7 @@ struct SessionView: View {
     @State private var attachedImages: [AttachedImage] = []
     @State private var showingPhotoPicker = false
     @State private var lastProcessedSeq: Int = -1
+    @State private var promptTimeoutTask: Task<Void, Never>? = nil
     @AppStorage("ttsEnabled") private var ttsEnabled = true
     @FocusState private var isTextFieldFocused: Bool
 
@@ -44,14 +45,23 @@ struct SessionView: View {
                                     ToolUseView(tool: tool, result: result)
                                         .id(item.id)
                                 case .permissionPrompt(_, let request):
-                                    PermissionCardView(
-                                        request: request,
-                                        resolved: permissionResolutions[request.requestId],
-                                        onResponse: { response in
-                                            handlePermissionResponse(response, for: request)
+                                    // Resolved permission summary (inline cards removed — input bar handles prompts)
+                                    if let resolution = permissionResolutions[request.requestId] {
+                                        HStack(spacing: 6) {
+                                            Image(systemName: resolution.allowed ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                                .foregroundColor(resolution.allowed ? .green : .red)
+                                                .font(.caption)
+                                            Text(resolution.summary)
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                                .lineLimit(1)
                                         }
-                                    )
-                                    .id(item.id)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 8)
+                                        .background(Color(.systemGray6))
+                                        .cornerRadius(8)
+                                        .accessibilityIdentifier("permissionResolved")
+                                    }
                                 }
                             }
 
@@ -114,95 +124,38 @@ struct SessionView: View {
                     .frame(height: 100)
                     .frame(maxWidth: .infinity)
                     .accessibilityIdentifier("syncError")
-                } else if !isSessionSynced && !session.isNewSession {
-                    VStack(spacing: 8) {
-                        ProgressView()
-                    }
-                    .frame(height: 100)
-                    .frame(maxWidth: .infinity)
-                    .accessibilityIdentifier("syncStatus")
                 } else {
-                    VStack(spacing: 0) {
-                        // Image previews
-                        if !attachedImages.isEmpty {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 8) {
-                                    ForEach(attachedImages) { img in
-                                        ZStack(alignment: .topTrailing) {
-                                            Image(uiImage: img.uiImage)
-                                                .resizable()
-                                                .aspectRatio(contentMode: .fill)
-                                                .frame(width: 60, height: 60)
-                                                .clipShape(RoundedRectangle(cornerRadius: 8))
-
-                                            Button {
-                                                attachedImages.removeAll { $0.id == img.id }
-                                            } label: {
-                                                Image(systemName: "xmark.circle.fill")
-                                                    .font(.system(size: 18))
-                                                    .foregroundColor(.white)
-                                                    .background(Circle().fill(Color.black.opacity(0.6)))
-                                            }
-                                            .offset(x: 4, y: -4)
-                                        }
-                                    }
-                                }
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
-                            }
+                    switch webSocketManager.inputBarMode {
+                    case .disconnected, .syncing:
+                        VStack(spacing: 8) {
+                            ProgressView()
                         }
+                        .frame(height: 100)
+                        .frame(maxWidth: .infinity)
+                        .accessibilityIdentifier("syncStatus")
 
-                        // Input area with text field and buttons
-                        HStack(alignment: .bottom, spacing: 8) {
-                            // Image picker button
-                            Button {
-                                showingPhotoPicker = true
-                            } label: {
-                                Image(systemName: "photo")
-                                    .font(.system(size: 20))
-                                    .foregroundColor(.secondary)
-                                    .frame(width: 36, height: 36)
+                    case .permissionPrompt(let request):
+                        PermissionCardView(
+                            request: request,
+                            onResponse: { response in
+                                handlePermissionResponse(response, for: request)
                             }
-                            .disabled(speechRecognizer.isRecording)
-                            .accessibilityIdentifier("imagePickerButton")
-
-                            // Text field
-                            TextField("Message Claude...", text: $messageText, axis: .vertical)
-                                .lineLimit(1...5)
-                                .textFieldStyle(.plain)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .background(Color(.systemGray6))
-                                .cornerRadius(20)
-                                .disabled(speechRecognizer.isRecording)
-                                .focused($isTextFieldFocused)
-                                .accessibilityIdentifier("messageTextField")
-
-                            // Mic button (always visible)
-                            Button(action: toggleRecording) {
-                                Image(systemName: speechRecognizer.isRecording ? "stop.fill" : "mic.fill")
-                                    .font(.system(size: 20))
-                                    .foregroundColor(speechRecognizer.isRecording ? .red : .secondary)
-                                    .frame(width: 36, height: 36)
-                            }
-                            .accessibilityLabel(speechRecognizer.isRecording ? "Stop" : "Tap to Talk")
-                            .disabled(!speechRecognizer.isRecording && !canRecord)
-                            .accessibilityIdentifier("micButton")
-
-                            // Send button (visible when there's text or images)
-                            if !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachedImages.isEmpty {
-                                Button(action: sendTextMessage) {
-                                    Image(systemName: "arrow.up.circle.fill")
-                                        .font(.system(size: 30))
-                                        .foregroundColor(canSend ? .blue : .gray)
-                                }
-                                .disabled(!canSend)
-                                .accessibilityLabel("Send")
-                                .accessibilityIdentifier("sendButton")
-                            }
-                        }
+                        )
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
+
+                    case .questionPrompt(let request):
+                        PermissionCardView(
+                            request: request,
+                            onResponse: { response in
+                                handlePermissionResponse(response, for: request)
+                            }
+                        )
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+
+                    case .normal:
+                        normalInputBar
                     }
                 }
             }
@@ -274,6 +227,7 @@ struct SessionView: View {
             // Retry sync when connection is established (for resumed sessions)
             if case .connected = newState, !session.isNewSession {
                 print("[SessionView] Connection established, attempting sync")
+                webSocketManager.handleInputBarSyncing()
                 if webSocketManager.lastReceivedSeq > 0 {
                     // We had a prior connection — use resync to fill gaps
                     print("[SessionView] Using resync from seq \(webSocketManager.lastReceivedSeq)")
@@ -285,25 +239,114 @@ struct SessionView: View {
                 syncSession()
             }
         }
+        .onChange(of: webSocketManager.inputBarMode) { _, newMode in
+            promptTimeoutTask?.cancel()
+            if newMode.showsPrompt {
+                promptTimeoutTask = Task {
+                    try? await Task.sleep(for: .seconds(180))
+                    if !Task.isCancelled && webSocketManager.inputBarMode.showsPrompt {
+                        webSocketManager.handleInputBarResolved()
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var normalInputBar: some View {
+        VStack(spacing: 0) {
+            // Image previews
+            if !attachedImages.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(attachedImages) { img in
+                            ZStack(alignment: .topTrailing) {
+                                Image(uiImage: img.uiImage)
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                                    .frame(width: 60, height: 60)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                                Button {
+                                    attachedImages.removeAll { $0.id == img.id }
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.system(size: 18))
+                                        .foregroundColor(.white)
+                                        .background(Circle().fill(Color.black.opacity(0.6)))
+                                }
+                                .offset(x: 4, y: -4)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                }
+            }
+
+            // Input area with text field and buttons
+            HStack(alignment: .bottom, spacing: 8) {
+                // Image picker button
+                Button {
+                    showingPhotoPicker = true
+                } label: {
+                    Image(systemName: "photo")
+                        .font(.system(size: 20))
+                        .foregroundColor(.secondary)
+                        .frame(width: 36, height: 36)
+                }
+                .disabled(speechRecognizer.isRecording)
+                .accessibilityIdentifier("imagePickerButton")
+
+                // Text field
+                TextField("Message Claude...", text: $messageText, axis: .vertical)
+                    .lineLimit(1...5)
+                    .textFieldStyle(.plain)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Color(.systemGray6))
+                    .cornerRadius(20)
+                    .disabled(speechRecognizer.isRecording)
+                    .focused($isTextFieldFocused)
+                    .accessibilityIdentifier("messageTextField")
+
+                // Mic button
+                Button(action: toggleRecording) {
+                    Image(systemName: speechRecognizer.isRecording ? "stop.fill" : "mic.fill")
+                        .font(.system(size: 20))
+                        .foregroundColor(speechRecognizer.isRecording ? .red : .secondary)
+                        .frame(width: 36, height: 36)
+                }
+                .accessibilityLabel(speechRecognizer.isRecording ? "Stop" : "Tap to Talk")
+                .disabled(!speechRecognizer.isRecording && !canRecord)
+                .accessibilityIdentifier("micButton")
+
+                // Send button
+                if !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachedImages.isEmpty {
+                    Button(action: sendTextMessage) {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.system(size: 30))
+                            .foregroundColor(canSend ? .blue : .gray)
+                    }
+                    .disabled(!canSend)
+                    .accessibilityLabel("Send")
+                    .accessibilityIdentifier("sendButton")
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+        }
     }
 
     private var canRecord: Bool {
-        guard isSessionSynced else { return false }
-        guard webSocketManager.outputState.canSendVoiceInput else { return false }
-        if case .connected = webSocketManager.connectionState {
-            return speechRecognizer.isAuthorized
-        }
-        return false
+        guard case .connected = webSocketManager.connectionState else { return false }
+        return speechRecognizer.isAuthorized
     }
 
     private var canSend: Bool {
-        guard isSessionSynced else { return false }
-        guard webSocketManager.outputState.canSendVoiceInput else { return false }
-        if case .connected = webSocketManager.connectionState {
-            let hasText = !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            return hasText || !attachedImages.isEmpty
-        }
-        return false
+        guard case .connected = webSocketManager.connectionState else { return false }
+        let hasText = !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return hasText || !attachedImages.isEmpty
     }
 
     private var isSessionSynced: Bool {
@@ -326,6 +369,7 @@ struct SessionView: View {
 
         // Load message history and sync (skip for new sessions - no history yet)
         if !session.isNewSession {
+            webSocketManager.handleInputBarSyncing()
             webSocketManager.onSessionHistoryReceived = { richMessages in
                 var newItems: [ConversationItem] = []
                 for msg in richMessages {
@@ -375,12 +419,6 @@ struct SessionView: View {
                             content: msg.content,
                             timestamp: msg.timestamp
                         )))
-                    }
-                }
-                // Re-add pending permission card if history reload would wipe it
-                if let pending = self.webSocketManager.pendingPermission {
-                    if self.permissionResolutions[pending.requestId] == nil {
-                        newItems.append(.permissionPrompt(requestId: pending.requestId, request: pending))
                     }
                 }
                 self.items = newItems
@@ -664,6 +702,7 @@ struct SessionView: View {
             if response.success {
                 // Session synced - connection_status broadcast will update activeSessionId
                 print("[SessionView] Session synced successfully")
+                webSocketManager.handleInputBarSynced()
             } else {
                 syncError = response.error ?? "Failed to sync"
                 print("[SessionView] Failed to sync session: \(response.error ?? "Unknown error")")
@@ -793,6 +832,11 @@ struct SessionView: View {
         )
         webSocketManager.sendPermissionResponse(response)
     }
+}
+
+struct PermissionCardResolution {
+    let allowed: Bool
+    let summary: String
 }
 
 struct ActivityStatusView: View {

@@ -3,37 +3,11 @@ import SwiftUI
 
 struct PermissionCardView: View {
     let request: PermissionRequest
-    let resolved: PermissionCardResolution?
     let onResponse: (PermissionResponse) -> Void
 
     var body: some View {
-        if let resolved = resolved {
-            resolvedView(resolved)
-        } else {
-            pendingView
-        }
+        pendingView
     }
-
-    // MARK: - Resolved (collapsed) state
-
-    private func resolvedView(_ resolution: PermissionCardResolution) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: resolution.allowed ? "checkmark.circle.fill" : "xmark.circle.fill")
-                .foregroundColor(resolution.allowed ? .green : .red)
-                .font(.caption)
-            Text(resolution.summary)
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .lineLimit(1)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(Color(.systemGray6))
-        .cornerRadius(8)
-        .accessibilityIdentifier("permissionResolved")
-    }
-
-    // MARK: - Pending (interactive) state
 
     private var pendingView: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -247,11 +221,6 @@ struct PermissionCardView: View {
     }
 }
 
-struct PermissionCardResolution {
-    let allowed: Bool
-    let summary: String
-}
-
 #Preview("Bash - Pending") {
     PermissionCardView(
         request: PermissionRequest(
@@ -272,26 +241,6 @@ struct PermissionCardResolution {
             ],
             timestamp: Date().timeIntervalSince1970
         ),
-        resolved: nil,
-        onResponse: { _ in }
-    )
-    .padding()
-}
-
-#Preview("Bash - Resolved") {
-    PermissionCardView(
-        request: PermissionRequest(
-            type: "permission_request",
-            requestId: "preview-2",
-            promptType: .bash,
-            toolName: "Bash",
-            toolInput: ToolInput(command: "npm install"),
-            context: nil,
-            question: nil,
-            permissionSuggestions: nil,
-            timestamp: Date().timeIntervalSince1970
-        ),
-        resolved: PermissionCardResolution(allowed: true, summary: "Allowed: `npm install`"),
         onResponse: { _ in }
     )
     .padding()

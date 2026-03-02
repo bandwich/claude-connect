@@ -451,6 +451,71 @@ struct WebSocketManagerTests {
         #expect(json["tts_enabled"] as? Bool == false)
     }
 
+    // MARK: - InputBarMode Tests
+
+    @Test func inputBarModeStartsNormal() {
+        let manager = WebSocketManager()
+        #expect(manager.inputBarMode == .normal)
+    }
+
+    @Test func inputBarModeTransitionsToPermissionOnRequest() {
+        let manager = WebSocketManager()
+        let request = PermissionRequest(
+            type: "permission_request",
+            requestId: "req-1",
+            promptType: .bash,
+            toolName: "Bash",
+            toolInput: ToolInput(command: "ls"),
+            context: nil,
+            question: nil,
+            permissionSuggestions: nil,
+            timestamp: 0
+        )
+        manager.handleInputBarPermission(request)
+        #expect(manager.inputBarMode == .permissionPrompt(request))
+    }
+
+    @Test func inputBarModeTransitionsToQuestionOnQuestionRequest() {
+        let manager = WebSocketManager()
+        let request = PermissionRequest(
+            type: "permission_request",
+            requestId: "req-2",
+            promptType: .question,
+            toolName: "AskUserQuestion",
+            toolInput: nil,
+            context: nil,
+            question: PermissionQuestion(text: "Pick one", options: ["A"]),
+            permissionSuggestions: nil,
+            timestamp: 0
+        )
+        manager.handleInputBarPermission(request)
+        #expect(manager.inputBarMode == .questionPrompt(request))
+    }
+
+    @Test func inputBarModeResetsToNormalOnResolution() {
+        let manager = WebSocketManager()
+        let request = PermissionRequest(
+            type: "permission_request",
+            requestId: "req-3",
+            promptType: .bash,
+            toolName: "Bash",
+            toolInput: ToolInput(command: "ls"),
+            context: nil,
+            question: nil,
+            permissionSuggestions: nil,
+            timestamp: 0
+        )
+        manager.handleInputBarPermission(request)
+        manager.handleInputBarResolved()
+        #expect(manager.inputBarMode == .normal)
+    }
+
+    @Test func inputBarModeTransitionsToDisconnected() {
+        let manager = WebSocketManager()
+        manager.handleInputBarDisconnected()
+        #expect(manager.inputBarMode == .disconnected)
+    }
+
     @Test func testDisconnectStatePersistsAfterCallbacks() throws {
         let manager = WebSocketManager()
         manager.connectionState = .connected
