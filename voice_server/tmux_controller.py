@@ -92,7 +92,14 @@ class TmuxController:
         # Must send text and Enter as a single shell command for it to work
         # Escape single quotes in text for shell safety
         escaped_text = text.replace("'", "'\"'\"'")
-        cmd = f"tmux send-keys -t {self.SESSION_NAME} '{escaped_text}' && tmux send-keys -t {self.SESSION_NAME} Enter"
+        # Multi-line text triggers Claude Code's paste detection, which shows
+        # "[Pasted text #1 +N lines]" and waits for Enter to confirm the paste,
+        # then waits for another Enter to submit. Send two Enters for multi-line.
+        has_newlines = '\n' in text
+        enter_cmd = f"tmux send-keys -t {self.SESSION_NAME} Enter"
+        cmd = f"tmux send-keys -t {self.SESSION_NAME} '{escaped_text}' && {enter_cmd}"
+        if has_newlines:
+            cmd += f" && sleep 0.3 && {enter_cmd}"
         result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
         return result.returncode == 0
 
