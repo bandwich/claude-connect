@@ -56,6 +56,7 @@ class WebSocketManager: NSObject, ObservableObject {
     }
     @Published var contextStats: ContextStats? = nil
     @Published var usageStats: UsageStats? = nil
+    @Published var inputBarMode: InputBarMode = .normal
     @Published var activityState: ActivityStatusMessage? = nil
     @Published var isLoadingUsage: Bool = false
     @Published var lastReceivedSeq: Int = 0
@@ -371,6 +372,7 @@ class WebSocketManager: NSObject, ObservableObject {
         // regardless of whether the WebSocket send succeeds
         self.pendingPermission = nil
         self.outputState = .idle
+        self.handleInputBarResolved()
 
         let wsMessage = URLSessionWebSocketTask.Message.string(jsonString)
         webSocketTask?.send(wsMessage) { error in
@@ -380,6 +382,32 @@ class WebSocketManager: NSObject, ObservableObject {
                 print("✅ Permission response sent")
             }
         }
+    }
+
+    // MARK: - Input bar state transitions
+
+    func handleInputBarPermission(_ request: PermissionRequest) {
+        if request.promptType == .question {
+            inputBarMode = .questionPrompt(request)
+        } else {
+            inputBarMode = .permissionPrompt(request)
+        }
+    }
+
+    func handleInputBarResolved() {
+        inputBarMode = .normal
+    }
+
+    func handleInputBarDisconnected() {
+        inputBarMode = .disconnected
+    }
+
+    func handleInputBarSyncing() {
+        inputBarMode = .syncing
+    }
+
+    func handleInputBarSynced() {
+        inputBarMode = .normal
     }
 
     private func receiveMessage() {
@@ -484,6 +512,7 @@ class WebSocketManager: NSObject, ObservableObject {
                 DispatchQueue.main.async {
                     self.outputState = .awaitingPermission(permissionRequest.requestId)
                     self.pendingPermission = permissionRequest
+                    self.handleInputBarPermission(permissionRequest)
                     self.onPermissionRequest?(permissionRequest)
                 }
             } else if let permissionResolved = try? JSONDecoder().decode(PermissionResolved.self, from: data) {
@@ -494,6 +523,7 @@ class WebSocketManager: NSObject, ObservableObject {
                     // Always clear pending permission — the terminal may resolve with
                     // a different request_id than what the app has tracked
                     self.pendingPermission = nil
+                    self.handleInputBarResolved()
                     self.onPermissionResolved?(permissionResolved)
                 }
             } else if let directoryListing = try? JSONDecoder().decode(DirectoryListingResponse.self, from: data),
@@ -591,6 +621,7 @@ class WebSocketManager: NSObject, ObservableObject {
                 DispatchQueue.main.async {
                     self.outputState = .awaitingPermission(permissionRequest.requestId)
                     self.pendingPermission = permissionRequest
+                    self.handleInputBarPermission(permissionRequest)
                     self.onPermissionRequest?(permissionRequest)
                 }
             } else if let permissionResolved = try? JSONDecoder().decode(PermissionResolved.self, from: data) {
@@ -598,6 +629,7 @@ class WebSocketManager: NSObject, ObservableObject {
                     self.outputState = .idle
                     self.voiceState = .idle  // Reset voice state when permission resolved
                     self.pendingPermission = nil
+                    self.handleInputBarResolved()
                     self.onPermissionResolved?(permissionResolved)
                 }
             } else {
@@ -743,6 +775,7 @@ extension WebSocketManager: URLSessionWebSocketDelegate, URLSessionTaskDelegate 
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
         // Already on main thread due to delegateQueue: .main
         connectionState = .disconnected
+        handleInputBarDisconnected()
 
         if shouldReconnect {
             attemptReconnect()
@@ -755,6 +788,7 @@ extension WebSocketManager: URLSessionWebSocketDelegate, URLSessionTaskDelegate 
         if case .disconnected = connectionState { return }
         print("❌ WEBSOCKET CONNECTION FAILED: \(error.localizedDescription)")
         connectionState = .error("Connection failed")
+        handleInputBarDisconnected()
         shouldReconnect = false
     }
 }
