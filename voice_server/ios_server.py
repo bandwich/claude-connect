@@ -140,6 +140,7 @@ class TranscriptHandler(FileSystemEventHandler):
                 if os.path.realpath(event.src_path) != os.path.realpath(self.expected_session_file):
                     return
 
+            line_count_before = self.processed_line_count
             try:
                 new_blocks, user_texts, start_line = self.extract_new_content_with_seq(event.src_path)
             except Exception as e:
@@ -147,6 +148,13 @@ class TranscriptHandler(FileSystemEventHandler):
                 import traceback
                 traceback.print_exc()
                 return
+
+            line_count_after = self.processed_line_count
+            if new_blocks or user_texts:
+                print(f"[SYNC] on_modified: lines {line_count_before}→{line_count_after}, "
+                      f"blocks={len(new_blocks)}, user_texts={len(user_texts)}")
+            elif line_count_after > line_count_before:
+                print(f"[SYNC] on_modified: lines {line_count_before}→{line_count_after} (no extractable content)")
 
         # Send callbacks OUTSIDE the lock (they schedule async work)
         try:
@@ -180,12 +188,15 @@ class TranscriptHandler(FileSystemEventHandler):
                             self.loop
                         )
 
+            if new_blocks:
+                print(f"[SYNC] Scheduled content_callback (seq={start_line})")
             if user_texts and self.user_callback:
                 for idx, user_text in enumerate(user_texts):
                     asyncio.run_coroutine_threadsafe(
                         self.user_callback(user_text, start_line + idx),
                         self.loop
                     )
+                print(f"[SYNC] Scheduled {len(user_texts)} user_callbacks")
 
             # Broadcast context update after processing
             if self.server and getattr(self.server, 'active_session_id', None):
@@ -492,11 +503,22 @@ class VoiceServer:
 
     async def _reconciliation_loop(self):
         """Periodically check for lines watchdog missed and send them to clients."""
+        last_watchdog_time = time.time()
         try:
             while True:
                 await asyncio.sleep(3.0)
                 if not self.active_session_id or not self.transcript_handler:
                     continue
+
+                # Check if watchdog has been silent while file changed
+                if self.transcript_handler.expected_session_file:
+                    try:
+                        file_mtime = os.path.getmtime(self.transcript_handler.expected_session_file)
+                        if file_mtime > last_watchdog_time + 10:
+                            print(f"[SYNC WARNING] No watchdog events for {time.time() - last_watchdog_time:.0f}s "
+                                  f"but file mtime is newer")
+                    except OSError:
+                        pass
 
                 new_blocks, user_texts, start_line = self.transcript_handler.reconcile()
 
@@ -516,6 +538,8 @@ class VoiceServer:
                     print(f"[RECONCILE] Found {len(user_texts)} missed user messages")
                     for idx, text in enumerate(user_texts):
                         await self.handle_user_message(text, seq=start_line + idx)
+
+                last_watchdog_time = time.time()
 
         except asyncio.CancelledError:
             pass
