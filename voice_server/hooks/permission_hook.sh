@@ -7,15 +7,18 @@
 
 SERVER_URL="${VOICE_SERVER_URL:-http://127.0.0.1:8766}"
 
-# Read JSON payload from stdin first
-PAYLOAD=$(cat)
+# Save stdin to a temp file to avoid shell variable expansion mangling
+# JSON with special characters ($, backticks, quotes, backslashes)
+TMPFILE=$(mktemp)
+trap 'rm -f "$TMPFILE"' EXIT
+cat > "$TMPFILE"
 
 # POST to permission endpoint with 3 minute timeout
 # Use 127.0.0.1 to avoid DNS resolution delays
 # If server is down, curl fails fast and we fall back to terminal
 RESPONSE=$(curl -s -X POST \
   -H "Content-Type: application/json" \
-  -d "$PAYLOAD" \
+  --data-binary @"$TMPFILE" \
   --connect-timeout 3 \
   --max-time 185 \
   "${SERVER_URL}/permission" 2>/dev/null) || {

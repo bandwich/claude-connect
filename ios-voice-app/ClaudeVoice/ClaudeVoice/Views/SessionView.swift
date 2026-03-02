@@ -44,14 +44,23 @@ struct SessionView: View {
                                     ToolUseView(tool: tool, result: result)
                                         .id(item.id)
                                 case .permissionPrompt(_, let request):
-                                    PermissionCardView(
-                                        request: request,
-                                        resolved: permissionResolutions[request.requestId],
-                                        onResponse: { response in
-                                            handlePermissionResponse(response, for: request)
+                                    // Resolved permission summary (inline cards removed — input bar handles prompts)
+                                    if let resolution = permissionResolutions[request.requestId] {
+                                        HStack(spacing: 6) {
+                                            Image(systemName: resolution.allowed ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                                .foregroundColor(resolution.allowed ? .green : .red)
+                                                .font(.caption)
+                                            Text(resolution.summary)
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                                .lineLimit(1)
                                         }
-                                    )
-                                    .id(item.id)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 8)
+                                        .background(Color(.systemGray6))
+                                        .cornerRadius(8)
+                                        .accessibilityIdentifier("permissionResolved")
+                                    }
                                 }
                             }
 
@@ -400,12 +409,6 @@ struct SessionView: View {
                             content: msg.content,
                             timestamp: msg.timestamp
                         )))
-                    }
-                }
-                // Re-add pending permission card if history reload would wipe it
-                if let pending = self.webSocketManager.pendingPermission {
-                    if self.permissionResolutions[pending.requestId] == nil {
-                        newItems.append(.permissionPrompt(requestId: pending.requestId, request: pending))
                     }
                 }
                 self.items = newItems
@@ -813,16 +816,10 @@ struct SessionView: View {
     private func handlePermissionResponse(_ response: PermissionResponse, for request: PermissionRequest) {
         let allowed = response.decision == .allow
         let summary = "\(allowed ? "Allowed" : "Denied"): \(permissionDescription(for: request))"
-
-        // Add compact resolved summary to conversation
-        let resolvedMessage = SessionHistoryMessage(
-            role: "system",
-            content: summary,
-            timestamp: Date().timeIntervalSince1970
+        permissionResolutions[request.requestId] = PermissionCardResolution(
+            allowed: allowed,
+            summary: summary
         )
-        items.append(.textMessage(resolvedMessage))
-
-        // Send response (this also resets inputBarMode to .normal via WebSocketManager)
         webSocketManager.sendPermissionResponse(response)
     }
 }
