@@ -140,6 +140,7 @@ struct AssistantResponseMessage: Codable {
     let timestamp: Double
     let sessionId: String?  // Session this message belongs to (for filtering)
     let branch: String?
+    let seq: Int?  // Transcript line number for gap detection
 
     enum CodingKeys: String, CodingKey {
         case type
@@ -147,5 +148,85 @@ struct AssistantResponseMessage: Codable {
         case timestamp
         case sessionId = "session_id"
         case branch
+        case seq
+    }
+}
+
+// MARK: - Resync Response
+
+struct ResyncMessage: Codable {
+    let seq: Int
+    let role: String?
+    let content: ResyncContent
+    let timestamp: ResyncTimestamp
+
+    enum CodingKeys: String, CodingKey {
+        case seq, role, content, timestamp
+    }
+}
+
+// Content can be a string or an array of content blocks
+enum ResyncContent: Codable {
+    case string(String)
+    case blocks([ContentBlock])
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let str = try? container.decode(String.self) {
+            self = .string(str)
+        } else if let blocks = try? container.decode([ContentBlock].self) {
+            self = .blocks(blocks)
+        } else {
+            self = .string("")
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .string(let str):
+            try container.encode(str)
+        case .blocks(let blocks):
+            try container.encode(blocks)
+        }
+    }
+}
+
+// Timestamp can be a string or a number
+enum ResyncTimestamp: Codable {
+    case string(String)
+    case number(Double)
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let num = try? container.decode(Double.self) {
+            self = .number(num)
+        } else if let str = try? container.decode(String.self) {
+            self = .string(str)
+        } else {
+            self = .number(0)
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .string(let str):
+            try container.encode(str)
+        case .number(let num):
+            try container.encode(num)
+        }
+    }
+}
+
+struct ResyncResponse: Codable {
+    let type: String
+    let fromSeq: Int
+    let messages: [ResyncMessage]
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case fromSeq = "from_seq"
+        case messages
     }
 }

@@ -17,6 +17,7 @@ import subprocess
 import time
 import glob
 import base64
+import threading
 from typing import Optional
 
 from watchdog.observers import Observer
@@ -78,6 +79,27 @@ def rewrite_user_text(text: str) -> str:
     return stripped
 
 
+async def poll_for_session_file(find_fn, timeout=10.0, interval=0.2):
+    """Poll for a session transcript file to appear.
+
+    Args:
+        find_fn: Callable that returns file path/session ID or None
+        timeout: Max seconds to wait
+        interval: Seconds between polls
+
+    Returns:
+        Result from find_fn, or None if timeout
+    """
+    elapsed = 0.0
+    while elapsed < timeout:
+        result = find_fn()
+        if result:
+            return result
+        await asyncio.sleep(interval)
+        elapsed += interval
+    return None
+
+
 class TranscriptHandler(FileSystemEventHandler):
     """Monitors transcript file for new assistant messages
 
@@ -99,6 +121,7 @@ class TranscriptHandler(FileSystemEventHandler):
         self.expected_session_file = None  # Only process events from this file
         self.context_tracker = ContextTracker()
         self.hidden_tool_ids = set()  # Track IDs of hidden tool_use blocks
+        self._lock = threading.Lock()  # Protects processed_line_count and expected_session_file
 
     def on_modified(self, event):
         if event.is_directory or not event.src_path.endswith('.jsonl'):
@@ -109,16 +132,24 @@ class TranscriptHandler(FileSystemEventHandler):
         if filename.startswith('agent-'):
             return
 
-        # Only process events from the expected session file
-        # Use realpath to normalize paths - watchdog may report resolved paths
-        # while expected_session_file uses unresolved paths (e.g., /tmp vs /private/tmp on macOS)
-        if self.expected_session_file:
-            if os.path.realpath(event.src_path) != os.path.realpath(self.expected_session_file):
+        with self._lock:
+            # Only process events from the expected session file
+            # Use realpath to normalize paths - watchdog may report resolved paths
+            # while expected_session_file uses unresolved paths (e.g., /tmp vs /private/tmp on macOS)
+            if self.expected_session_file:
+                if os.path.realpath(event.src_path) != os.path.realpath(self.expected_session_file):
+                    return
+
+            try:
+                new_blocks, user_texts, start_line = self.extract_new_content_with_seq(event.src_path)
+            except Exception as e:
+                print(f"Error processing transcript: {e}")
+                import traceback
+                traceback.print_exc()
                 return
 
+        # Send callbacks OUTSIDE the lock (they schedule async work)
         try:
-            new_blocks, user_texts = self.extract_new_content(event.src_path)
-
             if new_blocks:
                 response = AssistantResponse(
                     content_blocks=new_blocks,
@@ -127,7 +158,7 @@ class TranscriptHandler(FileSystemEventHandler):
                 )
 
                 asyncio.run_coroutine_threadsafe(
-                    self.content_callback(response),
+                    self.content_callback(response, start_line),
                     self.loop
                 )
 
@@ -150,9 +181,9 @@ class TranscriptHandler(FileSystemEventHandler):
                         )
 
             if user_texts and self.user_callback:
-                for user_text in user_texts:
+                for idx, user_text in enumerate(user_texts):
                     asyncio.run_coroutine_threadsafe(
-                        self.user_callback(user_text),
+                        self.user_callback(user_text, start_line + idx),
                         self.loop
                     )
 
@@ -163,6 +194,16 @@ class TranscriptHandler(FileSystemEventHandler):
             print(f"Error processing transcript: {e}")
             import traceback
             traceback.print_exc()
+
+    def extract_new_content_with_seq(self, filepath) -> tuple:
+        """Like extract_new_content but also returns the starting line number.
+
+        Returns:
+            (content_blocks, user_texts, start_line_number)
+        """
+        start_line = self.processed_line_count
+        blocks, user_texts = self.extract_new_content(filepath)
+        return blocks, user_texts, start_line
 
     def extract_new_assistant_content(self, filepath) -> list[ContentBlock]:
         """Legacy wrapper — returns only content blocks."""
@@ -305,20 +346,33 @@ class TranscriptHandler(FileSystemEventHandler):
         When switching sessions, we initialize the line count to the current
         number of lines in the file, so only NEW content triggers callbacks.
         """
-        self.expected_session_file = file_path
-        self.hidden_tool_ids = set()  # Reset on session switch
-        if file_path and os.path.exists(file_path):
-            with open(file_path, 'r') as f:
-                self.processed_line_count = sum(1 for _ in f)
-            print(f"[INFO] Watching session file: {file_path} (starting at line {self.processed_line_count})")
-        else:
-            self.processed_line_count = 0
-            print(f"[INFO] Watching session file: {file_path} (new file)")
+        with self._lock:
+            self.expected_session_file = file_path
+            self.hidden_tool_ids = set()  # Reset on session switch
+            if file_path and os.path.exists(file_path):
+                with open(file_path, 'r') as f:
+                    self.processed_line_count = sum(1 for _ in f)
+                print(f"[INFO] Watching session file: {file_path} (starting at line {self.processed_line_count})")
+            else:
+                self.processed_line_count = 0
+                print(f"[INFO] Watching session file: {file_path} (new file)")
+
+    def reconcile(self):
+        """Check for lines that watchdog missed and extract their content.
+
+        Returns:
+            (content_blocks, user_texts, start_line) — same as extract_new_content_with_seq
+        """
+        with self._lock:
+            if not self.expected_session_file or not os.path.exists(self.expected_session_file):
+                return [], [], 0
+            return self.extract_new_content_with_seq(self.expected_session_file)
 
     def reset_tracking_state(self):
         """Reset tracking state (legacy - prefer set_session_file)"""
-        self.processed_line_count = 0
-        self.expected_session_file = None
+        with self._lock:
+            self.processed_line_count = 0
+            self.expected_session_file = None
 
 class VoiceServer:
     """WebSocket server for iOS voice mode"""
@@ -351,6 +405,8 @@ class VoiceServer:
         # Pane polling for activity status
         self._pane_poll_task = None
         self._last_activity_state = None
+        # Reconciliation loop for catching missed watchdog events
+        self._reconciliation_task = None
 
     def find_transcript_path(self):
         """Find the transcript file to watch.
@@ -428,7 +484,41 @@ class VoiceServer:
         if self.transcript_handler and new_path:
             self.transcript_handler.broadcast_context_update(new_path, session_id)
 
+        # Start reconciliation loop if not already running
+        if self._reconciliation_task is None or self._reconciliation_task.done():
+            self._reconciliation_task = asyncio.ensure_future(self._reconciliation_loop())
+
         return True
+
+    async def _reconciliation_loop(self):
+        """Periodically check for lines watchdog missed and send them to clients."""
+        try:
+            while True:
+                await asyncio.sleep(3.0)
+                if not self.active_session_id or not self.transcript_handler:
+                    continue
+
+                new_blocks, user_texts, start_line = self.transcript_handler.reconcile()
+
+                if new_blocks:
+                    print(f"[RECONCILE] Found {len(new_blocks)} missed blocks (seq={start_line})")
+                    response = AssistantResponse(
+                        content_blocks=new_blocks,
+                        timestamp=time.time(),
+                        is_incremental=True
+                    )
+                    await self.handle_content_response(response, seq=start_line)
+
+                    if not self.tts_enabled:
+                        await self.send_idle_to_all_clients()
+
+                if user_texts:
+                    print(f"[RECONCILE] Found {len(user_texts)} missed user messages")
+                    for idx, text in enumerate(user_texts):
+                        await self.handle_user_message(text, seq=start_line + idx)
+
+        except asyncio.CancelledError:
+            pass
 
     async def send_status(self, websocket, state, message):
         """Send status update to client"""
@@ -541,13 +631,14 @@ class VoiceServer:
         else:
             print("Empty text received, ignoring")
 
-    async def handle_content_response(self, response: AssistantResponse):
+    async def handle_content_response(self, response: AssistantResponse, seq: int = 0):
         """Send structured content to iOS clients"""
-        print(f"[{time.strftime('%H:%M:%S')}] Sending structured content: {len(response.content_blocks)} blocks")
+        print(f"[{time.strftime('%H:%M:%S')}] Sending structured content: {len(response.content_blocks)} blocks (seq={seq})")
 
         # Serialize using Pydantic and add session tracking
         message = response.model_dump()
         message["session_id"] = self.active_session_id  # Include session for filtering
+        message["seq"] = seq
         if self.current_branch:
             message["branch"] = self.current_branch
 
@@ -558,7 +649,7 @@ class VoiceServer:
             except Exception as e:
                 print(f"Error sending content: {e}")
 
-    async def handle_user_message(self, text: str):
+    async def handle_user_message(self, text: str, seq: int = 0):
         """Send user text message to iOS clients (for terminal-typed input)"""
         # Skip echo of messages we sent from the app (voice_input or user_input)
         # Use startswith because user_input appends [Image: /path] to the text
@@ -577,6 +668,7 @@ class VoiceServer:
             "content": text,
             "timestamp": time.time(),
             "session_id": self.active_session_id,
+            "seq": seq,
         }
         if self.current_branch:
             message["branch"] = self.current_branch
@@ -586,6 +678,52 @@ class VoiceServer:
                 await websocket.send(json.dumps(message))
             except Exception as e:
                 print(f"Error sending user message: {e}")
+
+    async def handle_resync(self, websocket, data):
+        """Handle resync request — replay content from a given sequence number.
+
+        The client sends from_seq (a transcript line number). We re-read the
+        transcript from that line forward and send the content as a resync_response.
+        """
+        from_seq = data.get("from_seq", 0)
+        print(f"[RESYNC] Client requested resync from seq {from_seq}")
+
+        if not self.transcript_path or not os.path.exists(self.transcript_path):
+            await websocket.send(json.dumps({
+                "type": "resync_response",
+                "from_seq": from_seq,
+                "messages": []
+            }))
+            return
+
+        messages = []
+        with open(self.transcript_path, 'r') as f:
+            lines = f.readlines()
+
+        for line_num, line in enumerate(lines):
+            if line_num < from_seq:
+                continue
+            try:
+                entry = json.loads(line.strip())
+                msg = entry.get('message', {})
+                role = msg.get('role') or entry.get('role')
+                content = msg.get('content', entry.get('content', ''))
+
+                messages.append({
+                    "seq": line_num,
+                    "role": role,
+                    "content": content,
+                    "timestamp": entry.get('timestamp', 0)
+                })
+            except json.JSONDecodeError:
+                continue
+
+        await websocket.send(json.dumps({
+            "type": "resync_response",
+            "from_seq": from_seq,
+            "messages": messages
+        }))
+        print(f"[RESYNC] Sent {len(messages)} messages from seq {from_seq}")
 
     async def handle_set_preference(self, data):
         """Handle preference changes from iOS app"""
@@ -831,6 +969,11 @@ class VoiceServer:
 
     async def handle_close_session(self, websocket):
         """Handle close_session request - kills the active tmux session"""
+        # Stop reconciliation loop before clearing session
+        if self._reconciliation_task and not self._reconciliation_task.done():
+            self._reconciliation_task.cancel()
+            self._reconciliation_task = None
+
         success = self.tmux.kill_session()
         if success:
             self.active_session_id = None
@@ -874,13 +1017,17 @@ class VoiceServer:
 
         if success:
             self.active_session_id = None  # New session has no ID yet
-            await asyncio.sleep(2.0)  # Wait for Claude to initialize
 
             # Find and watch the new session's transcript
             if project_path:
                 folder_name = self.session_manager.encode_path_to_folder(project_path)
                 print(f"[DEBUG] Encoded folder name: {folder_name}")
-                session_id = self.session_manager.find_newest_session(folder_name)
+
+                session_id = await poll_for_session_file(
+                    find_fn=lambda: self.session_manager.find_newest_session(folder_name),
+                    timeout=10.0,
+                    interval=0.2
+                )
                 if session_id:
                     print(f"[DEBUG] Found new session: {session_id}")
                     self.active_session_id = session_id
@@ -913,7 +1060,16 @@ class VoiceServer:
 
             if success:
                 self.active_session_id = session_id
-                await asyncio.sleep(2.0)  # Wait for Claude to initialize
+
+                # Wait for transcript file to exist (Claude may need a moment to start writing)
+                transcript_path = self.get_session_transcript_path(folder_name, session_id)
+                if not transcript_path:
+                    transcript_path = await poll_for_session_file(
+                        find_fn=lambda: self.get_session_transcript_path(folder_name, session_id),
+                        timeout=10.0,
+                        interval=0.2
+                    )
+
                 if folder_name:
                     self.switch_watched_session(folder_name, session_id)
             else:
@@ -1054,7 +1210,13 @@ class VoiceServer:
             success = self.tmux.start_session(working_dir=project_path)
 
             if success:
-                await asyncio.sleep(2.0)  # Wait for Claude to initialize
+                # Wait for Claude to initialize by polling for transcript
+                folder_name = self.session_manager.encode_path_to_folder(project_path)
+                await poll_for_session_file(
+                    find_fn=lambda: self.session_manager.find_newest_session(folder_name),
+                    timeout=10.0,
+                    interval=0.2
+                )
                 # Send Enter to accept any prompts
                 self.tmux.send_input("")
 
@@ -1175,6 +1337,8 @@ class VoiceServer:
                 asyncio.create_task(self.handle_usage_request(websocket))
             elif msg_type == 'set_preference':
                 await self.handle_set_preference(data)
+            elif msg_type == 'resync':
+                await self.handle_resync(websocket, data)
         except Exception as e:
             print(f"Error: {e}")
 
