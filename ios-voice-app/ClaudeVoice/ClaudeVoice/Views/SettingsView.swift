@@ -6,6 +6,8 @@ struct SettingsView: View {
     @State private var showingAlert = false
     @State private var alertMessage = ""
     @AppStorage("ttsEnabled") private var ttsEnabled = true
+    @AppStorage("serverIP") private var serverIP = ""
+    @AppStorage("serverPort") private var serverPort = 8765
 
     @Environment(\.dismiss) private var dismiss
 
@@ -35,17 +37,23 @@ struct SettingsView: View {
                                     .padding()
                                     .background(Color(.secondarySystemGroupedBackground))
                                 }
+                            } else if case .connecting = webSocketManager.connectionState {
+                                // Non-interactive connecting state
+                                HStack {
+                                    Spacer()
+                                    ProgressView()
+                                        .padding(.trailing, 8)
+                                    Text("Connecting...")
+                                        .foregroundColor(.secondary)
+                                    Spacer()
+                                }
+                                .padding()
+                                .background(Color(.secondarySystemGroupedBackground))
                             } else {
                                 Button(action: { showingScanner = true }) {
                                     HStack {
                                         Spacer()
-                                        if case .connecting = webSocketManager.connectionState {
-                                            ProgressView()
-                                                .padding(.trailing, 8)
-                                            Text("Connecting...")
-                                        } else {
-                                            Text("Connect")
-                                        }
+                                        Text("Connect")
                                         Spacer()
                                     }
                                 }
@@ -227,6 +235,12 @@ struct SettingsView: View {
                 QRScannerView(
                     onCodeScanned: { url in
                         showingScanner = false
+                        // Persist host/port for auto-connect on next launch
+                        if let parsed = URL(string: url),
+                           let host = parsed.host {
+                            serverIP = host
+                            serverPort = parsed.port ?? 8765
+                        }
                         webSocketManager.connect(url: url)
                     },
                     onCancel: {

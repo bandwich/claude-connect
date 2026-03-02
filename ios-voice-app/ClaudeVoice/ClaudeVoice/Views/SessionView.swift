@@ -39,8 +39,16 @@ struct SessionView: View {
                             ForEach(items) { item in
                                 switch item {
                                 case .textMessage(let message):
-                                    MessageBubble(message: message)
-                                        .id(item.id)
+                                    VStack(alignment: .trailing, spacing: 2) {
+                                        MessageBubble(message: message)
+                                        if message.role == "user" && message.deliveryFailed {
+                                            Text("Failed to send")
+                                                .font(.caption2)
+                                                .foregroundColor(.red)
+                                                .padding(.trailing, 8)
+                                        }
+                                    }
+                                    .id(item.id)
                                 case .toolUse(_, let tool, let result):
                                     ToolUseView(tool: tool, result: result)
                                         .id(item.id)
@@ -661,6 +669,21 @@ struct SessionView: View {
             // Only update if this is for our session
             if stats.sessionId == session.id || (session.isNewSession && webSocketManager.activeSessionId == nil) {
                 self.contextPercentage = stats.contextPercentage
+            }
+        }
+
+        // Handle delivery status (mark failed messages)
+        webSocketManager.onDeliveryStatus = { [self] status in
+            if status.status == "failed" {
+                for i in stride(from: items.count - 1, through: 0, by: -1) {
+                    if case .textMessage(var msg) = items[i],
+                       msg.role == "user",
+                       msg.content.contains(status.text) {
+                        msg.deliveryFailed = true
+                        items[i] = .textMessage(msg)
+                        break
+                    }
+                }
             }
         }
 

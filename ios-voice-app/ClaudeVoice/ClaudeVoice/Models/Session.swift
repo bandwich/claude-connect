@@ -37,8 +37,14 @@ struct SessionHistoryMessage: Codable, Identifiable {
     let role: String
     let content: String
     let timestamp: Double
+    var deliveryFailed: Bool = false
 
     var id: Double { timestamp }
+
+    enum CodingKeys: String, CodingKey {
+        case role, content, timestamp
+        // deliveryFailed excluded — local-only state
+    }
 }
 
 struct SessionHistoryMessageRich: Codable, Identifiable {
