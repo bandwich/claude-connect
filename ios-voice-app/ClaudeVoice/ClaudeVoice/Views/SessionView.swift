@@ -25,6 +25,7 @@ struct SessionView: View {
     @State private var attachedImages: [AttachedImage] = []
     @State private var showingPhotoPicker = false
     @State private var lastProcessedSeq: Int = -1
+    @State private var promptTimeoutTask: Task<Void, Never>? = nil
     @AppStorage("ttsEnabled") private var ttsEnabled = true
     @FocusState private var isTextFieldFocused: Bool
 
@@ -238,6 +239,17 @@ struct SessionView: View {
                     webSocketManager.requestSessionHistory(folderName: project.folderName, sessionId: session.id)
                 }
                 syncSession()
+            }
+        }
+        .onChange(of: webSocketManager.inputBarMode) { _, newMode in
+            promptTimeoutTask?.cancel()
+            if newMode.showsPrompt {
+                promptTimeoutTask = Task {
+                    try? await Task.sleep(for: .seconds(180))
+                    if !Task.isCancelled && webSocketManager.inputBarMode.showsPrompt {
+                        webSocketManager.handleInputBarResolved()
+                    }
+                }
             }
         }
     }
