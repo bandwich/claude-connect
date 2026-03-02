@@ -137,7 +137,6 @@ struct SessionView: View {
                     case .permissionPrompt(let request):
                         PermissionCardView(
                             request: request,
-                            resolved: nil,
                             onResponse: { response in
                                 handlePermissionResponse(response, for: request)
                             }
@@ -148,7 +147,6 @@ struct SessionView: View {
                     case .questionPrompt(let request):
                         PermissionCardView(
                             request: request,
-                            resolved: nil,
                             onResponse: { response in
                                 handlePermissionResponse(response, for: request)
                             }
@@ -834,6 +832,11 @@ struct SessionView: View {
         )
         webSocketManager.sendPermissionResponse(response)
     }
+}
+
+struct PermissionCardResolution {
+    let allowed: Bool
+    let summary: String
 }
 
 struct ActivityStatusView: View {
