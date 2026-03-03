@@ -1115,26 +1115,34 @@ class VoiceServer:
         """Handle new_session request - starts claude in tmux"""
         project_path = data.get("project_path", "")
         print(f"[DEBUG] handle_new_session: project_path={project_path}")
+
+        # Snapshot existing session IDs BEFORE starting Claude (avoids race condition)
+        existing_ids = set()
+        folder_name = None
+        if project_path:
+            folder_name = self.session_manager.encode_path_to_folder(project_path)
+            existing_ids = self.session_manager.list_session_ids(folder_name)
+            print(f"[DEBUG] Snapshot: {len(existing_ids)} existing sessions in {folder_name}")
+
         success = self.tmux.start_session(working_dir=project_path if project_path else None)
         print(f"[DEBUG] start_session returned: {success}, session_exists: {self.tmux.session_exists()}")
 
         if success:
             self.active_session_id = None  # New session has no ID yet
 
-            # Find and watch the new session's transcript
-            if project_path:
-                folder_name = self.session_manager.encode_path_to_folder(project_path)
-                print(f"[DEBUG] Encoded folder name: {folder_name}")
-
+            # Poll for a NEW session ID not in the snapshot
+            if folder_name:
                 session_id = await poll_for_session_file(
-                    find_fn=lambda: self.session_manager.find_newest_session(folder_name),
+                    find_fn=lambda: self.session_manager.find_new_session(folder_name, existing_ids),
                     timeout=10.0,
                     interval=0.2
                 )
                 if session_id:
                     print(f"[DEBUG] Found new session: {session_id}")
                     self.active_session_id = session_id
-                    self.switch_watched_session(folder_name, session_id)
+                    self.switch_watched_session(folder_name, session_id, from_beginning=True)
+                else:
+                    print(f"[WARN] Timed out waiting for new session file")
 
         response = {
             "type": "session_created",
