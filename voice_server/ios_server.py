@@ -1315,8 +1315,14 @@ class VoiceServer:
         """Handle permission response from iOS"""
         request_id = data.get('request_id', '')
         decision = data.get('decision', 'deny')
+        print(f"[PERM] Received permission_response: id={request_id}, decision={decision}")
 
-        if self.permission_handler.is_request_pending(request_id):
+        is_pending = self.permission_handler.is_request_pending(request_id)
+        is_timed_out = self.permission_handler.is_request_timed_out(request_id)
+        print(f"[PERM] Request state: pending={is_pending}, timed_out={is_timed_out}, "
+              f"all_pending={list(self.permission_handler.pending_permissions.keys())}")
+
+        if is_pending:
             # Normal flow - resolve the waiting hook
             self.permission_handler.resolve_request(request_id, {
                 "decision": decision,
@@ -1324,15 +1330,19 @@ class VoiceServer:
                 "selected_option": data.get('selected_option'),
                 "updated_permissions": data.get('updated_permissions')
             })
+            print(f"[PERM] Resolved request {request_id}")
             # Notify iOS that the permission was resolved
             await self.permission_handler.broadcast({
                 "type": "permission_resolved",
                 "request_id": request_id,
                 "answered_in": "ios"
             })
-        elif self.permission_handler.is_request_timed_out(request_id):
+        elif is_timed_out:
             # Late response - inject into terminal
+            print(f"[PERM] Late response for timed-out request {request_id}")
             await self.inject_terminal_response(decision, data)
+        else:
+            print(f"[PERM] WARNING: Request {request_id} is neither pending nor timed out — response dropped")
 
     async def inject_terminal_response(self, decision, data):
         """Inject permission response into terminal after timeout"""
@@ -1364,8 +1374,11 @@ class VoiceServer:
             # Validate permission_response has a pending request
             if msg_type == 'permission_response':
                 request_id = data.get('request_id', '')
-                if not self.permission_handler.is_request_pending(request_id) and \
-                   not self.permission_handler.is_request_timed_out(request_id):
+                pending = self.permission_handler.is_request_pending(request_id)
+                timed_out = self.permission_handler.is_request_timed_out(request_id)
+                print(f"[PERM VALIDATE] permission_response id={request_id}, pending={pending}, timed_out={timed_out}")
+                if not pending and not timed_out:
+                    print(f"[PERM VALIDATE] REJECTED — no matching request")
                     await websocket.send(json.dumps({
                         "type": "error",
                         "message": "No pending permission request"

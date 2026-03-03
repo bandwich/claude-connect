@@ -61,13 +61,17 @@ def create_http_app(permission_handler: PermissionHandler) -> web.Application:
             "timestamp": payload.get("timestamp", 0),
         }
 
+        print(f"[PERM HTTP] Broadcasting permission_request: id={request_id}, tool={tool_name}")
         await permission_handler.broadcast(ios_message)
+        print(f"[PERM HTTP] Waiting for response (timeout={timeout}s)...")
 
         response = await permission_handler.wait_for_response(request_id, timeout=timeout)
 
         if response is None:
+            print(f"[PERM HTTP] wait_for_response returned None for {request_id} — falling back to terminal")
             return web.json_response({"behavior": "ask"})
 
+        print(f"[PERM HTTP] Got response for {request_id}: {response.get('decision', '?')}")
         permission_handler.cleanup_request(request_id)
 
         # Format response for Claude Code hook (expects hookSpecificOutput wrapper)
@@ -85,6 +89,7 @@ def create_http_app(permission_handler: PermissionHandler) -> web.Application:
         if updated_perms:
             hook_response["hookSpecificOutput"]["decision"]["updatedPermissions"] = updated_perms
 
+        print(f"[PERM HTTP] Returning hook response for {request_id}")
         return web.json_response(hook_response)
 
     async def handle_permission_resolved(request: web.Request) -> web.Response:
