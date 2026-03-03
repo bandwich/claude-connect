@@ -236,7 +236,7 @@ struct SessionView: View {
             // Retry sync when connection is established (for resumed sessions)
             if case .connected = newState, !session.isNewSession {
                 print("[SessionView] Connection established, attempting sync")
-                webSocketManager.handleInputBarSyncing()
+                // Don't show spinner — sync in background, input bar stays usable
                 if webSocketManager.lastReceivedSeq > 0 {
                     // We had a prior connection — use resync to fill gaps
                     print("[SessionView] Using resync from seq \(webSocketManager.lastReceivedSeq)")
@@ -378,7 +378,7 @@ struct SessionView: View {
 
         // Load message history and sync (skip for new sessions - no history yet)
         if !session.isNewSession {
-            webSocketManager.handleInputBarSyncing()
+            // Don't show spinner — load history in background, input bar stays usable
             webSocketManager.onSessionHistoryReceived = { richMessages in
                 var newItems: [ConversationItem] = []
                 for msg in richMessages {
