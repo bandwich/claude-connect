@@ -173,6 +173,32 @@ class SpeechRecognizer: ObservableObject {
         // and call the callback with isFinal=true, which will trigger onFinalTranscription
     }
 
+    /// Cancel recording without triggering onFinalTranscription.
+    /// Used when the message has already been sent and we don't want
+    /// the recognizer to re-populate the text field.
+    func cancelRecording() {
+        print("🎤 SpeechRecognizer: cancelRecording() called")
+
+        audioEngine.stop()
+        audioEngine.inputNode.removeTap(onBus: 0)
+
+        recognitionTask?.cancel()
+        recognitionTask = nil
+        recognitionRequest = nil
+        transcribedText = ""
+
+        do {
+            try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        } catch {
+            print("🎤 SpeechRecognizer: Failed to deactivate audio session: \(error)")
+        }
+
+        DispatchQueue.main.async {
+            self.isRecording = false
+            self.onRecordingStopped?()
+        }
+    }
+
     enum RecognitionError: Error {
         case recognizerNotAvailable
         case unableToCreateRequest
