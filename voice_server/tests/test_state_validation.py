@@ -32,8 +32,8 @@ class TestMessageValidation:
         assert sent["type"] == "error"
 
     @pytest.mark.asyncio
-    async def test_rejects_voice_input_while_permission_pending(self):
-        """voice_input while permission pending should error"""
+    async def test_allows_voice_input_while_permission_pending(self):
+        """voice_input while permission pending should proceed normally"""
         from ios_server import VoiceServer
 
         server = VoiceServer()
@@ -51,6 +51,7 @@ class TestMessageValidation:
 
         await server.handle_message(websocket, message)
 
-        websocket.send.assert_called()
-        sent = json.loads(websocket.send.call_args[0][0])
-        assert sent["type"] == "error"
+        # Should NOT return an error — voice input is allowed during permissions
+        for call in websocket.send.call_args_list:
+            sent = json.loads(call[0][0])
+            assert sent["type"] != "error"
