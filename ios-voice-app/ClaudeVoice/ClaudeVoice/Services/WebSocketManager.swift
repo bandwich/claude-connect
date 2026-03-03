@@ -415,27 +415,37 @@ class WebSocketManager: NSObject, ObservableObject {
     // MARK: - Input bar state transitions
 
     func handleInputBarPermission(_ request: PermissionRequest) {
+        let oldMode = inputBarMode
         if request.promptType == .question {
             inputBarMode = .questionPrompt(request)
         } else {
             inputBarMode = .permissionPrompt(request)
         }
+        logToFile("🔀 inputBarMode: \(oldMode) → \(inputBarMode)")
     }
 
     func handleInputBarResolved() {
+        let oldMode = inputBarMode
         inputBarMode = .normal
+        logToFile("🔀 inputBarMode: \(oldMode) → .normal (resolved)")
     }
 
     func handleInputBarDisconnected() {
+        let oldMode = inputBarMode
         inputBarMode = .disconnected
+        logToFile("🔀 inputBarMode: \(oldMode) → .disconnected")
     }
 
     func handleInputBarSyncing() {
+        let oldMode = inputBarMode
         inputBarMode = .syncing
+        logToFile("🔀 inputBarMode: \(oldMode) → .syncing")
     }
 
     func handleInputBarSynced() {
+        let oldMode = inputBarMode
         inputBarMode = .normal
+        logToFile("🔀 inputBarMode: \(oldMode) → .normal (synced)")
     }
 
     private func receiveMessage() {
@@ -477,6 +487,16 @@ class WebSocketManager: NSObject, ObservableObject {
             } else {
                 try? data.write(to: URL(fileURLWithPath: logFile))
             }
+        }
+
+        // Also send inputBarMode/connectionState transitions to server for debugging
+        if message.contains("inputBarMode") || message.contains("connectionState") {
+            let safeMessage = message
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "\"", with: "'")
+                .replacingOccurrences(of: "\n", with: " ")
+            let debugMsg = "{\"type\":\"debug_log\",\"message\":\"\(safeMessage)\"}"
+            webSocketTask?.send(.string(debugMsg)) { _ in }
         }
     }
 
@@ -834,6 +854,7 @@ class WebSocketManager: NSObject, ObservableObject {
 extension WebSocketManager: URLSessionWebSocketDelegate, URLSessionTaskDelegate {
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol protocol: String?) {
         print("✅ WEBSOCKET CONNECTED")
+        logToFile("🔌 connectionState: \(connectionState) → .connected (didOpen)")
         // Already on main thread due to delegateQueue: .main
         connectionState = .connected
         outputState = .idle  // Reset output state on new connection
@@ -843,6 +864,7 @@ extension WebSocketManager: URLSessionWebSocketDelegate, URLSessionTaskDelegate 
 
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
         // Already on main thread due to delegateQueue: .main
+        logToFile("🔌 connectionState: \(connectionState) → .disconnected (didClose, code=\(closeCode.rawValue))")
         connectionState = .disconnected
         handleInputBarDisconnected()
 
@@ -856,6 +878,7 @@ extension WebSocketManager: URLSessionWebSocketDelegate, URLSessionTaskDelegate 
         // Don't set error state if we intentionally disconnected
         if case .disconnected = connectionState { return }
         print("❌ WEBSOCKET CONNECTION FAILED: \(error.localizedDescription)")
+        logToFile("🔌 connectionState: \(connectionState) → .error (didComplete, error=\(error.localizedDescription))")
         connectionState = .error("Connection failed")
         handleInputBarDisconnected()
         shouldReconnect = false
