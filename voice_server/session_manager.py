@@ -241,8 +241,8 @@ class SessionManager:
             session_id = os.path.splitext(os.path.basename(filepath))[0]
             title, message_count, timestamp = self._parse_session_file(filepath)
 
-            # Filter out Warmup sessions (subagent warmups) and empty sessions
-            if title.startswith("Warmup") or message_count == 0:
+            # Filter out Warmup sessions, empty sessions, and system-only sessions
+            if title.startswith("Warmup") or title == "Untitled" or message_count == 0:
                 continue
 
             sessions.append(Session(
@@ -257,6 +257,16 @@ class SessionManager:
                 break
 
         return sessions
+
+    @staticmethod
+    def _is_system_injected(text: str) -> bool:
+        """Check if a user message is actually system-injected, not real user input."""
+        stripped = text.strip()
+        return (
+            stripped.startswith('<local-command-caveat>')
+            or stripped.startswith('<task-notification')
+            or stripped.startswith('Base directory for this skill:')
+        )
 
     def _parse_session_file(self, filepath: str) -> tuple[str, int, float]:
         """Parse session file to extract title, message count, and timestamp
@@ -279,15 +289,18 @@ class SessionManager:
                         if role in ('user', 'assistant'):
                             message_count += 1
 
-                            # Get title from first user message
+                            # Get title from first real user message
                             if role == 'user' and title == "Untitled":
                                 content = msg.get('content', entry.get('content', ''))
                                 if isinstance(content, str):
-                                    title = content[:50]
+                                    if not self._is_system_injected(content):
+                                        title = content[:50]
                                 elif isinstance(content, list):
                                     for block in content:
                                         if isinstance(block, dict) and block.get('type') == 'text':
-                                            title = block.get('text', '')[:50]
+                                            text = block.get('text', '')
+                                            if not self._is_system_injected(text):
+                                                title = text[:50]
                                             break
                     except json.JSONDecodeError:
                         continue
@@ -419,12 +432,8 @@ class SessionManager:
                             continue
 
                         # Skip skill expansions and system-injected messages
-                        if role == 'user':
-                            stripped = content.strip()
-                            if stripped.startswith('Base directory for this skill:'):
-                                continue
-                            if stripped.startswith('<task-notification'):
-                                continue
+                        if role == 'user' and self._is_system_injected(content):
+                            continue
 
                         messages.append(SessionMessage(
                             role=role,
