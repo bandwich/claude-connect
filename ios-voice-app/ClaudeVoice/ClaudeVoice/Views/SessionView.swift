@@ -909,6 +909,9 @@ struct SessionView: View {
             summary: summary
         )
         webSocketManager.sendPermissionResponse(response)
+        // Reset input bar immediately — don't wait for server roundtrip
+        webSocketManager.pendingPermission = nil
+        webSocketManager.handleInputBarResolved()
     }
 }
 

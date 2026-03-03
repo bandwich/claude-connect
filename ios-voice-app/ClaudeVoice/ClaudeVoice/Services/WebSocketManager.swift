@@ -355,6 +355,9 @@ class WebSocketManager: NSObject, ObservableObject {
     func sendInterrupt() {
         let message = ["type": "interrupt"]
         sendJSON(message)
+        // Reset input bar in case we're interrupting a permission prompt
+        pendingPermission = nil
+        handleInputBarResolved()
     }
 
     func requestResync() {
