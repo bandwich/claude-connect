@@ -83,12 +83,19 @@ def create_http_app(permission_handler: PermissionHandler) -> web.Application:
         permission_handler.cleanup_request(request_id)
 
         # Format response for Claude Code hook (expects hookSpecificOutput wrapper)
+        decision_behavior = response.get("decision", "deny")
+        hook_decision = {
+            "behavior": decision_behavior
+        }
+
+        # Include message for deny so Claude understands it was user-initiated
+        if decision_behavior == "deny":
+            hook_decision["message"] = "The user denied this action from the iOS app. Do not retry the same action — ask the user what they'd like instead."
+
         hook_response = {
             "hookSpecificOutput": {
                 "hookEventName": "PermissionRequest",
-                "decision": {
-                    "behavior": response.get("decision", "deny")
-                }
+                "decision": hook_decision
             }
         }
 
