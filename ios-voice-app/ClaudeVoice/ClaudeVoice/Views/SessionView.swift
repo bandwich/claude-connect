@@ -850,11 +850,18 @@ struct SessionView: View {
         // Send via WebSocket
         webSocketManager.sendUserInput(text: text, images: imageAttachments)
 
+        // Cancel recording if active — must happen before clearing text so
+        // onFinalTranscription doesn't re-populate messageText after send
+        if speechRecognizer.isRecording {
+            speechRecognizer.cancelRecording()
+        }
+
         // Clear input — resign focus first to prevent TextField's active editing
         // session from overriding the binding update back to the old value
         isTextFieldFocused = false
         messageText = ""
         attachedImages = []
+        preRecordingText = ""
     }
 
     private func contextColor(_ percentage: Double) -> Color {
