@@ -55,16 +55,23 @@ class PermissionHandler:
     ) -> Optional[dict]:
         """Wait for a response to a permission request"""
         if request_id not in self.pending_permissions:
+            print(f"[PERM WAIT] {request_id} not in pending_permissions — returning None")
             return None
 
         event = self.pending_permissions[request_id]
 
         try:
             await asyncio.wait_for(event.wait(), timeout=timeout)
-            return self.permission_responses.get(request_id)
+            response = self.permission_responses.get(request_id)
+            print(f"[PERM WAIT] {request_id} resolved: {response.get('decision', '?') if response else 'None'}")
+            return response
         except asyncio.TimeoutError:
+            print(f"[PERM WAIT] {request_id} timed out after {timeout}s")
             self.mark_timed_out(request_id)
             return None
+        except asyncio.CancelledError:
+            print(f"[PERM WAIT] {request_id} CANCELLED — HTTP connection dropped?")
+            raise
 
     def cleanup_request(self, request_id: str):
         """Clean up all state for a request"""

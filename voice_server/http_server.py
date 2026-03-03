@@ -1,6 +1,7 @@
 # voice_server/http_server.py
 """HTTP server for Claude Code permission hooks and E2E test support"""
 
+import asyncio
 import json
 from aiohttp import web
 from voice_server.permission_handler import PermissionHandler
@@ -61,13 +62,24 @@ def create_http_app(permission_handler: PermissionHandler) -> web.Application:
             "timestamp": payload.get("timestamp", 0),
         }
 
+        print(f"[PERM HTTP] Broadcasting permission_request: id={request_id}, tool={tool_name}")
+        print(f"[PERM HTTP] permission_suggestions from Claude Code: {json.dumps(payload.get('permission_suggestions'))}")
         await permission_handler.broadcast(ios_message)
+        print(f"[PERM HTTP] Waiting for response (timeout={timeout}s)...")
 
-        response = await permission_handler.wait_for_response(request_id, timeout=timeout)
+        try:
+            response = await permission_handler.wait_for_response(request_id, timeout=timeout)
+        except asyncio.CancelledError:
+            # HTTP connection dropped (Claude Code killed the hook)
+            print(f"[PERM HTTP] Connection dropped for {request_id} — cleaning up")
+            permission_handler.cleanup_request(request_id)
+            raise
 
         if response is None:
+            print(f"[PERM HTTP] wait_for_response returned None for {request_id} — falling back to terminal")
             return web.json_response({"behavior": "ask"})
 
+        print(f"[PERM HTTP] Got response for {request_id}: {response.get('decision', '?')}")
         permission_handler.cleanup_request(request_id)
 
         # Format response for Claude Code hook (expects hookSpecificOutput wrapper)
@@ -85,6 +97,7 @@ def create_http_app(permission_handler: PermissionHandler) -> web.Application:
         if updated_perms:
             hook_response["hookSpecificOutput"]["decision"]["updatedPermissions"] = updated_perms
 
+        print(f"[PERM HTTP] Returning hook response for {request_id}: {json.dumps(hook_response)}")
         return web.json_response(hook_response)
 
     async def handle_permission_resolved(request: web.Request) -> web.Response:
@@ -97,6 +110,10 @@ def create_http_app(permission_handler: PermissionHandler) -> web.Application:
         # PostToolUse payload from Claude Code won't have our server-generated
         # request_id, so fall back to the latest pending request
         request_id = payload.get("request_id", "") or permission_handler.latest_request_id or ""
+
+        # Resolve the pending permission so the waiting HTTP handler returns immediately
+        # (e.g., tool was auto-allowed, or user answered in terminal)
+        permission_handler.resolve_request(request_id, {"decision": "allow"})
 
         await permission_handler.broadcast({
             "type": "permission_resolved",

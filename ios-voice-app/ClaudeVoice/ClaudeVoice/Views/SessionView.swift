@@ -21,6 +21,7 @@ struct SessionView: View {
     @State private var lastVoiceInputText: String = ""
     @State private var lastVoiceInputTime: Date = .distantPast
     @State private var messageText = ""
+    @State private var preRecordingText = ""
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var attachedImages: [AttachedImage] = []
     @State private var showingPhotoPicker = false
@@ -39,8 +40,16 @@ struct SessionView: View {
                             ForEach(items) { item in
                                 switch item {
                                 case .textMessage(let message):
-                                    MessageBubble(message: message)
-                                        .id(item.id)
+                                    VStack(alignment: .trailing, spacing: 2) {
+                                        MessageBubble(message: message)
+                                        if message.role == "user" && message.deliveryFailed {
+                                            Text("Failed to send")
+                                                .font(.caption2)
+                                                .foregroundColor(.red)
+                                                .padding(.trailing, 8)
+                                        }
+                                    }
+                                    .id(item.id)
                                 case .toolUse(_, let tool, let result):
                                     ToolUseView(tool: tool, result: result)
                                         .id(item.id)
@@ -421,6 +430,20 @@ struct SessionView: View {
                         )))
                     }
                 }
+                // Mark any tool_use blocks without results as stale
+                // (e.g., app reinstalled mid-tool, or result was missed)
+                // TODO: duplicated at ~lines 551, 645 — extract into a helper
+                for i in 0..<newItems.count {
+                    if case .toolUse(let tid, let tool, let result) = newItems[i], result == nil {
+                        let staleResult = ToolResultBlock(
+                            type: "tool_result",
+                            toolUseId: tid,
+                            content: "(result not available)",
+                            isError: false
+                        )
+                        newItems[i] = .toolUse(toolId: tid, tool: tool, result: staleResult)
+                    }
+                }
                 self.items = newItems
             }
             webSocketManager.requestSessionHistory(folderName: project.folderName, sessionId: session.id)
@@ -445,25 +468,26 @@ struct SessionView: View {
             }
         }
 
-        speechRecognizer.onFinalTranscription = { text in
-            currentTranscript = text
-            lastVoiceInputText = text
-            lastVoiceInputTime = Date()
-
-            let userMessage = SessionHistoryMessage(
-                role: "user",
-                content: text,
-                timestamp: Date().timeIntervalSince1970
-            )
-            items.append(.textMessage(userMessage))
-
-            webSocketManager.sendVoiceInput(text: text)
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                if currentTranscript == text {
-                    currentTranscript = ""
-                }
+        speechRecognizer.onPartialTranscription = { text in
+            // Live update: show partial transcription in text field as user speaks
+            let base = preRecordingText
+            if base.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                messageText = text
+            } else {
+                messageText = base + " " + text
             }
+        }
+
+        speechRecognizer.onFinalTranscription = { text in
+            // Final result: set definitive text and reset base
+            let base = preRecordingText
+            if base.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                messageText = text
+            } else {
+                messageText = base + " " + text
+            }
+            preRecordingText = messageText
+            currentTranscript = ""
         }
 
         // Setup audio player
@@ -523,6 +547,18 @@ struct SessionView: View {
                     break
                 case .toolUse(let toolBlock):
                     DispatchQueue.main.async {
+                        // Mark any previous tool_use without a result as done
+                        for i in stride(from: items.count - 1, through: 0, by: -1) {
+                            if case .toolUse(let tid, let tool, nil) = items[i] {
+                                let staleResult = ToolResultBlock(
+                                    type: "tool_result",
+                                    toolUseId: tid,
+                                    content: "(result not available)",
+                                    isError: false
+                                )
+                                items[i] = .toolUse(toolId: tid, tool: tool, result: staleResult)
+                            }
+                        }
                         items.append(.toolUse(toolId: toolBlock.id, tool: toolBlock, result: nil))
                     }
                 case .toolResult(let resultBlock):
@@ -605,6 +641,18 @@ struct SessionView: View {
                                 }
                             case .toolUse(let toolBlock):
                                 DispatchQueue.main.async {
+                                    // Mark any previous tool_use without a result as done
+                                    for i in stride(from: items.count - 1, through: 0, by: -1) {
+                                        if case .toolUse(let tid, let tool, nil) = items[i] {
+                                            let staleResult = ToolResultBlock(
+                                                type: "tool_result",
+                                                toolUseId: tid,
+                                                content: "(result not available)",
+                                                isError: false
+                                            )
+                                            items[i] = .toolUse(toolId: tid, tool: tool, result: staleResult)
+                                        }
+                                    }
                                     items.append(.toolUse(toolId: toolBlock.id, tool: toolBlock, result: nil))
                                 }
                             case .toolResult(let resultBlock):
@@ -664,6 +712,21 @@ struct SessionView: View {
             }
         }
 
+        // Handle delivery status (mark failed messages)
+        webSocketManager.onDeliveryStatus = { [self] status in
+            if status.status == "failed" {
+                for i in stride(from: items.count - 1, through: 0, by: -1) {
+                    if case .textMessage(var msg) = items[i],
+                       msg.role == "user",
+                       msg.content.contains(status.text) {
+                        msg.deliveryFailed = true
+                        items[i] = .textMessage(msg)
+                        break
+                    }
+                }
+            }
+        }
+
         // Handle permission resolved from terminal (only if not already resolved from app)
         webSocketManager.onPermissionResolved = { resolved in
             DispatchQueue.main.async {
@@ -687,9 +750,17 @@ struct SessionView: View {
             return
         }
 
-        // Don't sync again if already syncing or synced
-        guard !isSyncing && !isSessionSynced else {
-            print("[SessionView] syncSession: Already syncing or synced, skipping")
+        // If already synced, ensure input bar reflects that
+        if isSessionSynced {
+            print("[SessionView] syncSession: Already synced, ensuring input bar is ready")
+            isSyncing = false
+            webSocketManager.handleInputBarSynced()
+            return
+        }
+
+        // Don't sync again if already syncing
+        guard !isSyncing else {
+            print("[SessionView] syncSession: Already syncing, skipping")
             return
         }
 
@@ -710,19 +781,27 @@ struct SessionView: View {
         }
 
         webSocketManager.resumeSession(sessionId: session.id, folderName: project.folderName)
+
+        // Timeout: if sync doesn't complete in 10s, fall back to normal input
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [self] in
+            if isSyncing {
+                print("[SessionView] syncSession: Timed out, falling back to normal input")
+                isSyncing = false
+                webSocketManager.handleInputBarSynced()
+            }
+        }
     }
 
     private func toggleRecording() {
         if speechRecognizer.isRecording {
             speechRecognizer.stopRecording()
         } else {
-            // Dismiss keyboard before recording
-            isTextFieldFocused = false
             // Stop any TTS playback so mic can take over
             if audioPlayer.isPlaying {
                 audioPlayer.stop()
             }
             webSocketManager.voiceState = .idle
+            preRecordingText = messageText
             do {
                 try speechRecognizer.startRecording()
             } catch {
@@ -831,6 +910,9 @@ struct SessionView: View {
             summary: summary
         )
         webSocketManager.sendPermissionResponse(response)
+        // Reset input bar immediately — don't wait for server roundtrip
+        webSocketManager.pendingPermission = nil
+        webSocketManager.handleInputBarResolved()
     }
 }
 

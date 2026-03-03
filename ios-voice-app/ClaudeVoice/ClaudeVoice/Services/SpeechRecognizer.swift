@@ -13,6 +13,7 @@ class SpeechRecognizer: ObservableObject {
     private let audioEngine = AVAudioEngine()
 
     var onFinalTranscription: ((String) -> Void)?
+    var onPartialTranscription: ((String) -> Void)?
     var onRecordingStarted: (() -> Void)?
     var onRecordingStopped: (() -> Void)?
 
@@ -85,6 +86,9 @@ class SpeechRecognizer: ObservableObject {
                 print("🎤 Recognition result: '\(text)', isFinal=\(result.isFinal)")
                 DispatchQueue.main.async {
                     self.transcribedText = text
+                    if !result.isFinal {
+                        self.onPartialTranscription?(text)
+                    }
                 }
                 isFinal = result.isFinal
             }

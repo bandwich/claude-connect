@@ -68,13 +68,16 @@ struct PermissionSuggestion: Codable, Equatable {
     let destination: String?
     // toolAlwaysAllow format
     let tool: String?
+    // setMode format
+    let mode: String?
 
-    init(type: String, rules: [PermissionRule]? = nil, behavior: String? = nil, destination: String? = nil, tool: String? = nil) {
+    init(type: String, rules: [PermissionRule]? = nil, behavior: String? = nil, destination: String? = nil, tool: String? = nil, mode: String? = nil) {
         self.type = type
         self.rules = rules
         self.behavior = behavior
         self.destination = destination
         self.tool = tool
+        self.mode = mode
     }
 
     /// Human-readable display text for the option button

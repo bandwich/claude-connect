@@ -140,6 +140,7 @@ class TranscriptHandler(FileSystemEventHandler):
                 if os.path.realpath(event.src_path) != os.path.realpath(self.expected_session_file):
                     return
 
+            line_count_before = self.processed_line_count
             try:
                 new_blocks, user_texts, start_line = self.extract_new_content_with_seq(event.src_path)
             except Exception as e:
@@ -147,6 +148,13 @@ class TranscriptHandler(FileSystemEventHandler):
                 import traceback
                 traceback.print_exc()
                 return
+
+            line_count_after = self.processed_line_count
+            if new_blocks or user_texts:
+                print(f"[SYNC] on_modified: lines {line_count_before}→{line_count_after}, "
+                      f"blocks={len(new_blocks)}, user_texts={len(user_texts)}")
+            elif line_count_after > line_count_before:
+                print(f"[SYNC] on_modified: lines {line_count_before}→{line_count_after} (no extractable content)")
 
         # Send callbacks OUTSIDE the lock (they schedule async work)
         try:
@@ -180,12 +188,15 @@ class TranscriptHandler(FileSystemEventHandler):
                             self.loop
                         )
 
+            if new_blocks:
+                print(f"[SYNC] Scheduled content_callback (seq={start_line})")
             if user_texts and self.user_callback:
                 for idx, user_text in enumerate(user_texts):
                     asyncio.run_coroutine_threadsafe(
                         self.user_callback(user_text, start_line + idx),
                         self.loop
                     )
+                print(f"[SYNC] Scheduled {len(user_texts)} user_callbacks")
 
             # Broadcast context update after processing
             if self.server and getattr(self.server, 'active_session_id', None):
@@ -492,11 +503,37 @@ class VoiceServer:
 
     async def _reconciliation_loop(self):
         """Periodically check for lines watchdog missed and send them to clients."""
-        try:
-            while True:
+        last_watchdog_time = time.time()
+        tick = 0
+        while True:
+            try:
                 await asyncio.sleep(3.0)
+                tick += 1
                 if not self.active_session_id or not self.transcript_handler:
                     continue
+
+                # Heartbeat every tick so we know the loop is alive
+                file_lines = 0
+                if self.transcript_handler.expected_session_file:
+                    try:
+                        with open(self.transcript_handler.expected_session_file) as f:
+                            file_lines = sum(1 for _ in f)
+                    except OSError:
+                        pass
+                processed = self.transcript_handler.processed_line_count
+                if file_lines > processed or tick % 10 == 0:
+                    print(f"[RECONCILE] tick={tick}, processed={processed}, "
+                          f"file_lines={file_lines}, gap={file_lines - processed}")
+
+                # Check if watchdog has been silent while file changed
+                if self.transcript_handler.expected_session_file:
+                    try:
+                        file_mtime = os.path.getmtime(self.transcript_handler.expected_session_file)
+                        if file_mtime > last_watchdog_time + 10:
+                            print(f"[SYNC WARNING] No watchdog events for {time.time() - last_watchdog_time:.0f}s "
+                                  f"but file mtime is newer")
+                    except OSError:
+                        pass
 
                 new_blocks, user_texts, start_line = self.transcript_handler.reconcile()
 
@@ -517,8 +554,14 @@ class VoiceServer:
                     for idx, text in enumerate(user_texts):
                         await self.handle_user_message(text, seq=start_line + idx)
 
-        except asyncio.CancelledError:
-            pass
+                last_watchdog_time = time.time()
+
+            except asyncio.CancelledError:
+                return
+            except Exception as e:
+                print(f"[RECONCILE ERROR] {e}")
+                import traceback
+                traceback.print_exc()
 
     async def send_status(self, websocket, state, message):
         """Send status update to client"""
@@ -574,6 +617,46 @@ class VoiceServer:
         result = self.tmux.send_input(text)
         print(f"[DEBUG] send_input returned: {result}")
 
+    async def verify_delivery(self, text: str, timeout: float = 5.0) -> bool:
+        """Poll transcript file to verify a user message was written by Claude Code.
+
+        Returns True if a user-role line containing `text` appears within timeout.
+        """
+        if not self.transcript_handler or not self.transcript_handler.expected_session_file:
+            return False
+
+        filepath = self.transcript_handler.expected_session_file
+        start_line = self.transcript_handler.processed_line_count
+        deadline = time.time() + timeout
+        poll_interval = 0.5
+
+        while time.time() < deadline:
+            try:
+                with open(filepath, 'r') as f:
+                    lines = f.readlines()
+
+                for line in lines[start_line:]:
+                    try:
+                        entry = json.loads(line.strip())
+                        msg = entry.get('message', {})
+                        role = msg.get('role') or entry.get('role')
+                        if role == 'user':
+                            content = msg.get('content', '')
+                            if isinstance(content, str) and text in content:
+                                return True
+                            elif isinstance(content, list):
+                                for block in content:
+                                    if isinstance(block, dict) and text in block.get('text', ''):
+                                        return True
+                    except (json.JSONDecodeError, KeyError):
+                        continue
+            except FileNotFoundError:
+                pass
+
+            await asyncio.sleep(poll_interval)
+
+        return False
+
     async def stream_audio(self, websocket, wav_bytes, cancel_event):
         """Stream pre-generated WAV audio to client. Returns False if cancelled."""
         try:
@@ -628,6 +711,22 @@ class VoiceServer:
 
             await self.send_to_terminal(text)
             print(f"[{time.strftime('%H:%M:%S')}] Sent to terminal successfully")
+
+            # Verify delivery — check if message appears in transcript
+            delivered = await self.verify_delivery(text)
+            delivery_msg = {
+                "type": "delivery_status",
+                "status": "confirmed" if delivered else "failed",
+                "text": text
+            }
+            for client in list(self.clients):
+                try:
+                    await client.send(json.dumps(delivery_msg))
+                except Exception:
+                    pass
+
+            if not delivered:
+                print(f"[SYNC WARNING] Message delivery not confirmed: '{text[:50]}'")
         else:
             print("Empty text received, ignoring")
 
@@ -1235,8 +1334,14 @@ class VoiceServer:
         """Handle permission response from iOS"""
         request_id = data.get('request_id', '')
         decision = data.get('decision', 'deny')
+        print(f"[PERM] Received permission_response: id={request_id}, decision={decision}")
 
-        if self.permission_handler.is_request_pending(request_id):
+        is_pending = self.permission_handler.is_request_pending(request_id)
+        is_timed_out = self.permission_handler.is_request_timed_out(request_id)
+        print(f"[PERM] Request state: pending={is_pending}, timed_out={is_timed_out}, "
+              f"all_pending={list(self.permission_handler.pending_permissions.keys())}")
+
+        if is_pending:
             # Normal flow - resolve the waiting hook
             self.permission_handler.resolve_request(request_id, {
                 "decision": decision,
@@ -1244,15 +1349,19 @@ class VoiceServer:
                 "selected_option": data.get('selected_option'),
                 "updated_permissions": data.get('updated_permissions')
             })
+            print(f"[PERM] Resolved request {request_id}")
             # Notify iOS that the permission was resolved
             await self.permission_handler.broadcast({
                 "type": "permission_resolved",
                 "request_id": request_id,
                 "answered_in": "ios"
             })
-        elif self.permission_handler.is_request_timed_out(request_id):
+        elif is_timed_out:
             # Late response - inject into terminal
+            print(f"[PERM] Late response for timed-out request {request_id}")
             await self.inject_terminal_response(decision, data)
+        else:
+            print(f"[PERM] WARNING: Request {request_id} is neither pending nor timed out — response dropped")
 
     async def inject_terminal_response(self, decision, data):
         """Inject permission response into terminal after timeout"""
@@ -1280,12 +1389,16 @@ class VoiceServer:
         try:
             data = json.loads(message)
             msg_type = data.get('type')
+            print(f"[DISPATCH] msg_type={msg_type}")
 
             # Validate permission_response has a pending request
             if msg_type == 'permission_response':
                 request_id = data.get('request_id', '')
-                if not self.permission_handler.is_request_pending(request_id) and \
-                   not self.permission_handler.is_request_timed_out(request_id):
+                pending = self.permission_handler.is_request_pending(request_id)
+                timed_out = self.permission_handler.is_request_timed_out(request_id)
+                print(f"[PERM VALIDATE] permission_response id={request_id}, pending={pending}, timed_out={timed_out}")
+                if not pending and not timed_out:
+                    print(f"[PERM VALIDATE] REJECTED — no matching request")
                     await websocket.send(json.dumps({
                         "type": "error",
                         "message": "No pending permission request"
@@ -1305,11 +1418,14 @@ class VoiceServer:
                 await self.handle_voice_input(websocket, data)
             elif msg_type == 'user_input':
                 if self.permission_handler.pending_permissions:
+                    pending_ids = list(self.permission_handler.pending_permissions.keys())
+                    print(f"[USER_INPUT] BLOCKED — pending permissions: {pending_ids}")
                     await websocket.send(json.dumps({
                         "type": "error",
                         "message": "Cannot send input while permission pending"
                     }))
                     return
+                print(f"[USER_INPUT] Dispatching to handle_user_input")
                 await self.handle_user_input(websocket, data)
             elif msg_type == 'list_projects':
                 await self.handle_list_projects(websocket)
@@ -1340,7 +1456,9 @@ class VoiceServer:
             elif msg_type == 'resync':
                 await self.handle_resync(websocket, data)
         except Exception as e:
-            print(f"Error: {e}")
+            import traceback
+            print(f"Error handling message: {e}")
+            traceback.print_exc()
 
     async def handle_client(self, websocket, path=None):
         """Handle client connection"""

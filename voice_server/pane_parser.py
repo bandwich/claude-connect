@@ -21,8 +21,8 @@ THINKING_RE = re.compile(r'^[✢✻✽✳·✶]\s+\S+…')
 # e.g. "⏺ Searching for 1 pattern…" or "⏺ Reading 3 files…"
 TOOL_ACTIVE_RE = re.compile(r'^⏺\s+\w+ing\b.*…')
 
-# Pattern: permission prompt
-PERMISSION_RE = re.compile(r'Do you want to proceed\?')
+# Pattern: permission prompt — match the footer that's always near the bottom
+PERMISSION_RE = re.compile(r'Esc to cancel · Tab to amend')
 
 
 def parse_pane_status(pane_text: Optional[str]) -> ActivityState:
@@ -40,8 +40,8 @@ def parse_pane_status(pane_text: Optional[str]) -> ActivityState:
     # Look at last ~15 non-empty lines (status is at the bottom)
     tail = lines[-15:] if len(lines) > 15 else lines
 
-    # Check for permission prompt first (highest priority)
-    for line in tail:
+    # Check for permission prompt — only on the last 3 lines to avoid stale matches
+    for line in lines[-3:] if len(lines) >= 3 else lines:
         if PERMISSION_RE.search(line):
             return ActivityState(state="waiting_permission", detail="")
 

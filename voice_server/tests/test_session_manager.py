@@ -307,6 +307,51 @@ class TestSessionManager:
         assert len(messages) == 1
         assert messages[0].content == "[Image: IMG_5594.PNG]"
 
+    def test_list_projects_sorted_by_latest_session_mtime(self, tmp_path):
+        """Projects are returned sorted by most recent session file modification time"""
+        from session_manager import SessionManager
+
+        old_project = tmp_path / "-Users-test-old"
+        old_project.mkdir()
+        (old_project / "session1.jsonl").write_text('{"type":"summary"}')
+        os.utime(old_project / "session1.jsonl", (1000, 1000))
+
+        new_project = tmp_path / "-Users-test-new"
+        new_project.mkdir()
+        (new_project / "session1.jsonl").write_text('{"type":"summary"}')
+        os.utime(new_project / "session1.jsonl", (3000, 3000))
+
+        mid_project = tmp_path / "-Users-test-mid"
+        mid_project.mkdir()
+        (mid_project / "session1.jsonl").write_text('{"type":"summary"}')
+        os.utime(mid_project / "session1.jsonl", (2000, 2000))
+
+        manager = SessionManager(projects_dir=str(tmp_path))
+        projects = manager.list_projects()
+
+        assert len(projects) == 3
+        assert projects[0].name == "new"
+        assert projects[1].name == "mid"
+        assert projects[2].name == "old"
+
+    def test_list_projects_empty_project_sorts_last(self, tmp_path):
+        """Projects with no sessions sort to the end"""
+        from session_manager import SessionManager
+
+        empty_project = tmp_path / "-Users-test-empty"
+        empty_project.mkdir()
+
+        has_sessions = tmp_path / "-Users-test-active"
+        has_sessions.mkdir()
+        (has_sessions / "session1.jsonl").write_text('{"type":"summary"}')
+
+        manager = SessionManager(projects_dir=str(tmp_path))
+        projects = manager.list_projects()
+
+        assert len(projects) == 2
+        assert projects[0].name == "active"
+        assert projects[1].name == "empty"
+
     def test_get_session_history_skips_image_blocks(self, tmp_path):
         """Image blocks with base64 data should be skipped entirely"""
         from session_manager import SessionManager

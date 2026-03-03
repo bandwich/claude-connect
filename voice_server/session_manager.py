@@ -90,7 +90,16 @@ class SessionManager:
                     folder_name=entry  # Store original folder name
                 ))
 
+        projects.sort(key=lambda p: self._get_project_latest_mtime(p.folder_name), reverse=True)
         return projects
+
+    def _get_project_latest_mtime(self, folder_name: str) -> float:
+        """Get the mtime of the most recent session file in a project."""
+        project_path = os.path.join(self.projects_dir, folder_name)
+        session_files = glob.glob(os.path.join(project_path, "*.jsonl"))
+        if not session_files:
+            return 0
+        return max(os.path.getmtime(f) for f in session_files)
 
     def _get_project_cwd(self, folder_name: str) -> Optional[str]:
         """Get the actual project path from session cwd fields.

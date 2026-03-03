@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import Network
 
 class WebSocketManager: NSObject, ObservableObject {
     @Published var connectionState: ConnectionState = .disconnected {
@@ -49,6 +50,7 @@ class WebSocketManager: NSObject, ObservableObject {
     var onUsageUpdate: ((UsageStats) -> Void)?
     var onUserMessage: ((UserMessage) -> Void)?
     var onActivityStatus: ((ActivityStatusMessage) -> Void)?
+    var onDeliveryStatus: ((DeliveryStatusMessage) -> Void)?
     @Published var pendingPermission: PermissionRequest? = nil {
         didSet {
             print("🔄 pendingPermission didSet: \(oldValue?.requestId ?? "nil") -> \(pendingPermission?.requestId ?? "nil")")
@@ -161,10 +163,33 @@ class WebSocketManager: NSObject, ObservableObject {
             webSocketTask = nil
         }
 
-        // Create new WebSocket task
-        webSocketTask = session.webSocketTask(with: url)
-        webSocketTask?.resume()
-        receiveMessage()
+        // TCP pre-check — fail fast if server is unreachable
+        if let host = url.host, let port = url.port {
+            Task { [weak self] in
+                guard let self = self else { return }
+                let reachable = await self.tcpCheck(host: host, port: UInt16(port))
+                if !reachable {
+                    await MainActor.run {
+                        self.connectionState = .error("Server not reachable")
+                        self.shouldReconnect = false
+                    }
+                    return
+                }
+                // TCP succeeded — proceed with WebSocket on main thread
+                await MainActor.run {
+                    guard self.connectionState == .connecting else { return }
+                    let task = self.urlSession?.webSocketTask(with: url)
+                    self.webSocketTask = task
+                    task?.resume()
+                    self.receiveMessage()
+                }
+            }
+        } else {
+            // Fallback: no host/port available, connect directly
+            webSocketTask = session.webSocketTask(with: url)
+            webSocketTask?.resume()
+            receiveMessage()
+        }
     }
 
     func disconnect() {
@@ -330,6 +355,9 @@ class WebSocketManager: NSObject, ObservableObject {
     func sendInterrupt() {
         let message = ["type": "interrupt"]
         sendJSON(message)
+        // Reset input bar in case we're interrupting a permission prompt
+        pendingPermission = nil
+        handleInputBarResolved()
     }
 
     func requestResync() {
@@ -519,10 +547,12 @@ class WebSocketManager: NSObject, ObservableObject {
                 DispatchQueue.main.async {
                     self.outputState = .idle
                     self.voiceState = .idle  // Reset voice state when permission resolved
-                    // Always clear pending permission — the terminal may resolve with
-                    // a different request_id than what the app has tracked
-                    self.pendingPermission = nil
-                    self.handleInputBarResolved()
+                    // Only clear if this resolves the currently pending permission —
+                    // a new permission_request may have already arrived
+                    if self.pendingPermission == nil || self.pendingPermission?.requestId == permissionResolved.requestId {
+                        self.pendingPermission = nil
+                        self.handleInputBarResolved()
+                    }
                     self.onPermissionResolved?(permissionResolved)
                 }
             } else if let directoryListing = try? JSONDecoder().decode(DirectoryListingResponse.self, from: data),
@@ -558,6 +588,12 @@ class WebSocketManager: NSObject, ObservableObject {
                 DispatchQueue.main.async {
                     self.activityState = activityStatus
                     self.onActivityStatus?(activityStatus)
+                }
+            } else if let deliveryStatus = try? JSONDecoder().decode(DeliveryStatusMessage.self, from: data),
+                      deliveryStatus.type == "delivery_status" {
+                logToFile("✅ Decoded as DeliveryStatus: \(deliveryStatus.status)")
+                DispatchQueue.main.async {
+                    self.onDeliveryStatus?(deliveryStatus)
                 }
             } else if let userMessage = try? JSONDecoder().decode(UserMessage.self, from: data),
                       userMessage.type == "user_message" {
@@ -626,8 +662,10 @@ class WebSocketManager: NSObject, ObservableObject {
                 DispatchQueue.main.async {
                     self.outputState = .idle
                     self.voiceState = .idle  // Reset voice state when permission resolved
-                    self.pendingPermission = nil
-                    self.handleInputBarResolved()
+                    if self.pendingPermission == nil || self.pendingPermission?.requestId == permissionResolved.requestId {
+                        self.pendingPermission = nil
+                        self.handleInputBarResolved()
+                    }
                     self.onPermissionResolved?(permissionResolved)
                 }
             } else {
@@ -722,6 +760,39 @@ class WebSocketManager: NSObject, ObservableObject {
 
         // Notify callback (for future UI)
         onAssistantResponse?(message)
+    }
+
+    private func tcpCheck(host: String, port: UInt16) async -> Bool {
+        await withCheckedContinuation { continuation in
+            let connection = NWConnection(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: port)!, using: .tcp)
+            var resumed = false
+
+            connection.stateUpdateHandler = { state in
+                guard !resumed else { return }
+                switch state {
+                case .ready:
+                    resumed = true
+                    connection.cancel()
+                    continuation.resume(returning: true)
+                case .failed, .cancelled:
+                    resumed = true
+                    connection.cancel()
+                    continuation.resume(returning: false)
+                default:
+                    break
+                }
+            }
+
+            connection.start(queue: .global())
+
+            // Safety timeout
+            DispatchQueue.global().asyncAfter(deadline: .now() + 2.0) {
+                guard !resumed else { return }
+                resumed = true
+                connection.cancel()
+                continuation.resume(returning: false)
+            }
+        }
     }
 
     private func attemptReconnect() {

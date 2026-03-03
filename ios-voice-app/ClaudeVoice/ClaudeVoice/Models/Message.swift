@@ -80,6 +80,12 @@ struct ActivityStatusMessage: Codable, Equatable {
     let detail: String
 }
 
+struct DeliveryStatusMessage: Codable {
+    let type: String
+    let status: String  // "confirmed" or "failed"
+    let text: String
+}
+
 struct AudioChunkMessage: Codable {
     let type: String
     let format: String
