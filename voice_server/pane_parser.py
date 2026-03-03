@@ -21,8 +21,8 @@ THINKING_RE = re.compile(r'^[✢✻✽✳·✶]\s+\S+…')
 # e.g. "⏺ Searching for 1 pattern…" or "⏺ Reading 3 files…"
 TOOL_ACTIVE_RE = re.compile(r'^⏺\s+\w+ing\b.*…')
 
-# Pattern: permission prompt
-PERMISSION_RE = re.compile(r'Do you want to proceed\?')
+# Pattern: permission prompt — match the footer that's always near the bottom
+PERMISSION_RE = re.compile(r'Esc to cancel · Tab to amend')
 
 
 def parse_pane_status(pane_text: Optional[str]) -> ActivityState:

@@ -1457,7 +1457,7 @@ class VoiceServer:
                 await self.handle_resync(websocket, data)
         except Exception as e:
             import traceback
-            print(f"Error handling {msg_type}: {e}")
+            print(f"Error handling message: {e}")
             traceback.print_exc()
 
     async def handle_client(self, websocket, path=None):
