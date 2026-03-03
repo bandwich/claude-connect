@@ -1,5 +1,5 @@
 # voice_server/tests/test_http_server.py
-"""Tests for HTTP server endpoints"""
+"""Tests for HTTP server endpoints — verifies permission hook behavior"""
 
 import pytest
 import json
@@ -89,6 +89,44 @@ class TestHTTPServer(AioHTTPTestCase):
         mock_client.send.assert_called_once()
         sent_data = json.loads(mock_client.send.call_args[0][0])
         assert sent_data["type"] == "permission_resolved"
+
+    @unittest_run_loop
+    async def test_post_tool_use_does_not_resolve_pending_permission(self):
+        """PostToolUse for a different tool must NOT resolve a pending permission.
+
+        Reproduces the bug: Edit permission is pending (user hasn't answered yet),
+        a Read tool completes and fires PostToolUse. The old code resolved the Edit
+        permission as "allow" — auto-approving without user consent and dismissing
+        the prompt from the iOS app.
+        """
+        from unittest.mock import AsyncMock
+
+        mock_client = AsyncMock()
+        self.permission_handler.websocket_clients.add(mock_client)
+
+        # Simulate: PermissionRequest hook registers an Edit permission
+        request_id = self.permission_handler.generate_request_id()
+        self.permission_handler.register_request(request_id)
+        self.permission_handler.latest_request_id = request_id
+
+        # Verify it's pending
+        assert self.permission_handler.is_request_pending(request_id)
+
+        # Simulate: PostToolUse fires for a Read tool (no request_id in payload)
+        resp = await self.client.post(
+            "/permission_resolved",
+            json={"tool_name": "Read"}
+        )
+
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["action"] == "ignored_pending"
+
+        # The permission must STILL be pending — not resolved
+        assert self.permission_handler.is_request_pending(request_id)
+
+        # No permission_resolved should have been broadcast to iOS
+        mock_client.send.assert_not_called()
 
     @unittest_run_loop
     async def test_health_endpoint(self):

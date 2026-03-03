@@ -101,31 +101,48 @@ def create_http_app(permission_handler: PermissionHandler) -> web.Application:
         return web.json_response(hook_response)
 
     async def handle_permission_resolved(request: web.Request) -> web.Response:
-        """Handle POST /permission_resolved from PostToolUse hook"""
+        """Handle POST /permission_resolved from PostToolUse hook.
+
+        PostToolUse fires after EVERY tool completes, not just permission-gated ones.
+        We must NOT resolve a pending PermissionRequest here — if a permission is
+        truly pending, the PermissionRequest HTTP handler is still blocked waiting.
+        Claude Code can't run the tool (and trigger PostToolUse) until that handler
+        returns. So any PostToolUse while a request is pending is for a DIFFERENT tool.
+
+        The only case we handle: a request that timed out (fell back to terminal).
+        The user answered in terminal, the tool ran, PostToolUse fires. We broadcast
+        permission_resolved so the iOS app dismisses the stale prompt.
+        """
         try:
             payload = await request.json()
         except json.JSONDecodeError:
             return web.json_response({"error": "Invalid JSON"}, status=400)
 
-        # PostToolUse payload from Claude Code won't have our server-generated
-        # request_id, so fall back to the latest pending request
         request_id = payload.get("request_id", "") or permission_handler.latest_request_id or ""
 
-        # Resolve the pending permission so the waiting HTTP handler returns immediately
-        # (e.g., tool was auto-allowed, or user answered in terminal)
-        permission_handler.resolve_request(request_id, {"decision": "allow"})
+        if not request_id:
+            return web.json_response({"status": "ok", "action": "no_request_id"})
 
-        await permission_handler.broadcast({
-            "type": "permission_resolved",
-            "request_id": request_id,
-            "answered_in": "terminal"
-        })
+        # If this request is still actively pending (iOS hasn't answered, hook still
+        # blocked), this PostToolUse is for a different tool — ignore it.
+        if permission_handler.is_request_pending(request_id):
+            return web.json_response({"status": "ok", "action": "ignored_pending"})
 
-        permission_handler.cleanup_request(request_id)
-        if request_id == permission_handler.latest_request_id:
-            permission_handler.latest_request_id = None
+        # If this request timed out (user answered in terminal), broadcast resolved
+        # so iOS dismisses the stale prompt.
+        if permission_handler.is_request_timed_out(request_id):
+            await permission_handler.broadcast({
+                "type": "permission_resolved",
+                "request_id": request_id,
+                "answered_in": "terminal"
+            })
+            permission_handler.cleanup_request(request_id)
+            if request_id == permission_handler.latest_request_id:
+                permission_handler.latest_request_id = None
+            return web.json_response({"status": "ok", "action": "resolved_timed_out"})
 
-        return web.json_response({"status": "ok"})
+        # Already resolved or cleaned up — nothing to do
+        return web.json_response({"status": "ok", "action": "already_resolved"})
 
     async def handle_health(request: web.Request) -> web.Response:
         """Health check endpoint"""

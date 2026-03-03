@@ -1405,26 +1405,9 @@ class VoiceServer:
                     }))
                     return
 
-            # Reject voice_input while permission is pending
-            if msg_type == 'voice_input':
-                if self.permission_handler.pending_permissions:
-                    await websocket.send(json.dumps({
-                        "type": "error",
-                        "message": "Cannot send voice input while permission pending"
-                    }))
-                    return
-
             if msg_type == 'voice_input':
                 await self.handle_voice_input(websocket, data)
             elif msg_type == 'user_input':
-                if self.permission_handler.pending_permissions:
-                    pending_ids = list(self.permission_handler.pending_permissions.keys())
-                    print(f"[USER_INPUT] BLOCKED — pending permissions: {pending_ids}")
-                    await websocket.send(json.dumps({
-                        "type": "error",
-                        "message": "Cannot send input while permission pending"
-                    }))
-                    return
                 print(f"[USER_INPUT] Dispatching to handle_user_input")
                 await self.handle_user_input(websocket, data)
             elif msg_type == 'list_projects':
