@@ -504,11 +504,26 @@ class VoiceServer:
     async def _reconciliation_loop(self):
         """Periodically check for lines watchdog missed and send them to clients."""
         last_watchdog_time = time.time()
-        try:
-            while True:
+        tick = 0
+        while True:
+            try:
                 await asyncio.sleep(3.0)
+                tick += 1
                 if not self.active_session_id or not self.transcript_handler:
                     continue
+
+                # Heartbeat every tick so we know the loop is alive
+                file_lines = 0
+                if self.transcript_handler.expected_session_file:
+                    try:
+                        with open(self.transcript_handler.expected_session_file) as f:
+                            file_lines = sum(1 for _ in f)
+                    except OSError:
+                        pass
+                processed = self.transcript_handler.processed_line_count
+                if file_lines > processed or tick % 10 == 0:
+                    print(f"[RECONCILE] tick={tick}, processed={processed}, "
+                          f"file_lines={file_lines}, gap={file_lines - processed}")
 
                 # Check if watchdog has been silent while file changed
                 if self.transcript_handler.expected_session_file:
@@ -541,8 +556,12 @@ class VoiceServer:
 
                 last_watchdog_time = time.time()
 
-        except asyncio.CancelledError:
-            pass
+            except asyncio.CancelledError:
+                return
+            except Exception as e:
+                print(f"[RECONCILE ERROR] {e}")
+                import traceback
+                traceback.print_exc()
 
     async def send_status(self, websocket, state, message):
         """Send status update to client"""

@@ -63,6 +63,7 @@ def create_http_app(permission_handler: PermissionHandler) -> web.Application:
         }
 
         print(f"[PERM HTTP] Broadcasting permission_request: id={request_id}, tool={tool_name}")
+        print(f"[PERM HTTP] permission_suggestions from Claude Code: {json.dumps(payload.get('permission_suggestions'))}")
         await permission_handler.broadcast(ios_message)
         print(f"[PERM HTTP] Waiting for response (timeout={timeout}s)...")
 
