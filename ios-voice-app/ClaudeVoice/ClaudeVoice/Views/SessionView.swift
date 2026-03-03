@@ -710,9 +710,17 @@ struct SessionView: View {
             return
         }
 
-        // Don't sync again if already syncing or synced
-        guard !isSyncing && !isSessionSynced else {
-            print("[SessionView] syncSession: Already syncing or synced, skipping")
+        // If already synced, ensure input bar reflects that
+        if isSessionSynced {
+            print("[SessionView] syncSession: Already synced, ensuring input bar is ready")
+            isSyncing = false
+            webSocketManager.handleInputBarSynced()
+            return
+        }
+
+        // Don't sync again if already syncing
+        guard !isSyncing else {
+            print("[SessionView] syncSession: Already syncing, skipping")
             return
         }
 
@@ -733,6 +741,15 @@ struct SessionView: View {
         }
 
         webSocketManager.resumeSession(sessionId: session.id, folderName: project.folderName)
+
+        // Timeout: if sync doesn't complete in 10s, fall back to normal input
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [self] in
+            if isSyncing {
+                print("[SessionView] syncSession: Timed out, falling back to normal input")
+                isSyncing = false
+                webSocketManager.handleInputBarSynced()
+            }
+        }
     }
 
     private func toggleRecording() {
