@@ -11,6 +11,7 @@ struct SessionView: View {
     let session: Session
     @Binding var selectedSessionBinding: Session?  // Use binding to avoid closure recreation
 
+    @State private var effectiveSessionId: String = ""
     @State private var items: [ConversationItem] = []
     @State private var currentTranscript = ""
     @State private var isInitialLoad = true
@@ -360,9 +361,8 @@ struct SessionView: View {
 
     private var isSessionSynced: Bool {
         if session.isNewSession {
-            // New session is synced when connected and no specific session is active
-            // (meaning the new claude session we just started is running)
-            return webSocketManager.connected && webSocketManager.activeSessionId == nil
+            // New session is synced when connected (activeSessionId may or may not be set yet)
+            return webSocketManager.connected && (webSocketManager.activeSessionId == nil || webSocketManager.activeSessionId == effectiveSessionId)
         } else {
             // Resumed session is synced when activeSessionId matches
             return webSocketManager.activeSessionId == session.id
@@ -371,6 +371,9 @@ struct SessionView: View {
 
     private func setupView() {
         print("[SessionView] setupView called, isNewSession=\(session.isNewSession)")
+
+        // Initialize effective session ID
+        effectiveSessionId = session.id
 
         // Reset seq tracking for this new view
         lastProcessedSeq = -1
@@ -519,10 +522,14 @@ struct SessionView: View {
         // Subscribe to real-time assistant responses
         webSocketManager.onAssistantResponse = { [self] response in
             // Filter: only accept messages for the current session
-            if session.isNewSession {
-                if response.sessionId != nil { return }
+            if effectiveSessionId.isEmpty {
+                // New session: adopt the session ID from the first response
+                if let newId = response.sessionId {
+                    DispatchQueue.main.async { effectiveSessionId = newId }
+                    print("[SessionView] Adopted session ID: \(newId)")
+                }
             } else {
-                if response.sessionId != session.id { return }
+                if response.sessionId != effectiveSessionId { return }
             }
 
             // Seq-based dedup: skip if we already processed this seq
@@ -582,10 +589,12 @@ struct SessionView: View {
         // Subscribe to real-time user messages (terminal-typed input)
         webSocketManager.onUserMessage = { [self] message in
             // Filter: only accept messages for the current session
-            if session.isNewSession {
-                if message.sessionId != nil { return }
+            if effectiveSessionId.isEmpty {
+                if let newId = message.sessionId {
+                    DispatchQueue.main.async { effectiveSessionId = newId }
+                }
             } else {
-                if message.sessionId != session.id { return }
+                if message.sessionId != effectiveSessionId { return }
             }
 
             // Seq-based dedup: skip if we already processed this seq
@@ -707,7 +716,7 @@ struct SessionView: View {
         // Subscribe to context updates
         webSocketManager.onContextUpdate = { stats in
             // Only update if this is for our session
-            if stats.sessionId == session.id || (session.isNewSession && webSocketManager.activeSessionId == nil) {
+            if stats.sessionId == session.id || stats.sessionId == effectiveSessionId || (session.isNewSession && effectiveSessionId.isEmpty) {
                 self.contextPercentage = stats.contextPercentage
             }
         }
