@@ -1438,6 +1438,8 @@ class VoiceServer:
                 await self.handle_set_preference(data)
             elif msg_type == 'resync':
                 await self.handle_resync(websocket, data)
+            elif msg_type == 'debug_log':
+                print(f"[iOS DEBUG] {data.get('message', '')}")
         except Exception as e:
             import traceback
             print(f"Error handling message: {e}")
@@ -1514,7 +1516,7 @@ class VoiceServer:
         else:
             print(f"WARNING: Could not detect local IP. Server running on port {PORT}")
 
-        async with websockets.serve(self.handle_client, "0.0.0.0", PORT, max_size=20 * 1024 * 1024):
+        async with websockets.serve(self.handle_client, "0.0.0.0", PORT, max_size=20 * 1024 * 1024, ping_interval=30, ping_timeout=60):
             try:
                 await asyncio.Future()
             finally:
