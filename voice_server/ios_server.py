@@ -458,7 +458,7 @@ class VoiceServer:
             return transcript_path
         return None
 
-    def switch_watched_session(self, folder_name: str, session_id: str) -> bool:
+    def switch_watched_session(self, folder_name: str, session_id: str, from_beginning: bool = False) -> bool:
         """Switch the file watcher to watch a different session's transcript.
 
         Args:
@@ -483,7 +483,7 @@ class VoiceServer:
 
         # Set expected session file (initializes line count from existing content)
         if self.transcript_handler:
-            self.transcript_handler.set_session_file(new_path)
+            self.transcript_handler.set_session_file(new_path, from_beginning=from_beginning)
 
         # Only reschedule observer if directory changed
         if old_dir != new_dir and self.observer and self.transcript_handler:
