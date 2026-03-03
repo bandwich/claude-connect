@@ -454,24 +454,13 @@ struct SessionView: View {
         }
 
         speechRecognizer.onFinalTranscription = { text in
-            currentTranscript = text
-            lastVoiceInputText = text
-            lastVoiceInputTime = Date()
-
-            let userMessage = SessionHistoryMessage(
-                role: "user",
-                content: text,
-                timestamp: Date().timeIntervalSince1970
-            )
-            items.append(.textMessage(userMessage))
-
-            webSocketManager.sendVoiceInput(text: text)
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                if currentTranscript == text {
-                    currentTranscript = ""
-                }
+            // Append transcribed text to the text field (dictation mode)
+            if messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                messageText = text
+            } else {
+                messageText += " " + text
             }
+            currentTranscript = ""
         }
 
         // Setup audio player
@@ -756,8 +745,6 @@ struct SessionView: View {
         if speechRecognizer.isRecording {
             speechRecognizer.stopRecording()
         } else {
-            // Dismiss keyboard before recording
-            isTextFieldFocused = false
             // Stop any TTS playback so mic can take over
             if audioPlayer.isPlaying {
                 audioPlayer.stop()
