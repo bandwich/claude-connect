@@ -432,6 +432,7 @@ struct SessionView: View {
                 }
                 // Mark any tool_use blocks without results as stale
                 // (e.g., app reinstalled mid-tool, or result was missed)
+                // TODO: duplicated at ~lines 551, 645 — extract into a helper
                 for i in 0..<newItems.count {
                     if case .toolUse(let tid, let tool, let result) = newItems[i], result == nil {
                         let staleResult = ToolResultBlock(
