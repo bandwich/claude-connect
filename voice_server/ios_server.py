@@ -351,16 +351,20 @@ class TranscriptHandler(FileSystemEventHandler):
             self.loop
         )
 
-    def set_session_file(self, file_path: Optional[str]):
+    def set_session_file(self, file_path: Optional[str], from_beginning: bool = False):
         """Set the expected session file and initialize line count.
 
         When switching sessions, we initialize the line count to the current
         number of lines in the file, so only NEW content triggers callbacks.
+        For new sessions, use from_beginning=True to process all content.
         """
         with self._lock:
             self.expected_session_file = file_path
             self.hidden_tool_ids = set()  # Reset on session switch
-            if file_path and os.path.exists(file_path):
+            if from_beginning:
+                self.processed_line_count = 0
+                print(f"[INFO] Watching session file: {file_path} (from beginning)")
+            elif file_path and os.path.exists(file_path):
                 with open(file_path, 'r') as f:
                     self.processed_line_count = sum(1 for _ in f)
                 print(f"[INFO] Watching session file: {file_path} (starting at line {self.processed_line_count})")
