@@ -622,6 +622,27 @@ class VoiceServer:
         result = self.tmux.send_input(text)
         print(f"[DEBUG] send_input returned: {result}")
 
+        # If we have a pending snapshot, resolve it now that Claude has input
+        await self._resolve_pending_session()
+
+    async def _resolve_pending_session(self):
+        """Detect new session file using saved snapshot, if pending."""
+        if not self._pending_session_snapshot:
+            return
+        folder_name, existing_ids = self._pending_session_snapshot
+        self._pending_session_snapshot = None
+        session_id = await poll_for_session_file(
+            find_fn=lambda: self.session_manager.find_new_session(folder_name, existing_ids),
+            timeout=10.0,
+            interval=0.3
+        )
+        if session_id:
+            print(f"[DEBUG] Deferred detection found new session: {session_id}")
+            self.active_session_id = session_id
+            self.switch_watched_session(folder_name, session_id, from_beginning=True)
+        else:
+            print(f"[WARN] Deferred detection timed out for new session file")
+
     async def verify_delivery(self, text: str, timeout: float = 5.0) -> bool:
         """Poll transcript file to verify a user message was written by Claude Code.
 
@@ -716,22 +737,6 @@ class VoiceServer:
 
             await self.send_to_terminal(text)
             print(f"[{time.strftime('%H:%M:%S')}] Sent to terminal successfully")
-
-            # If we have a pending snapshot, resolve it now that Claude has input
-            if self._pending_session_snapshot:
-                folder_name, existing_ids = self._pending_session_snapshot
-                self._pending_session_snapshot = None
-                session_id = await poll_for_session_file(
-                    find_fn=lambda: self.session_manager.find_new_session(folder_name, existing_ids),
-                    timeout=10.0,
-                    interval=0.3
-                )
-                if session_id:
-                    print(f"[DEBUG] Deferred detection found new session: {session_id}")
-                    self.active_session_id = session_id
-                    self.switch_watched_session(folder_name, session_id, from_beginning=True)
-                else:
-                    print(f"[WARN] Deferred detection timed out for new session file")
 
             # Verify delivery — check if message appears in transcript
             delivered = await self.verify_delivery(text)
