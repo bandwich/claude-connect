@@ -77,10 +77,11 @@ class WebSocketManager: NSObject, ObservableObject {
     override init() {
         super.init()
         let config = URLSessionConfiguration.default
-        // Connection timeout - fail fast if server is unreachable
-        config.timeoutIntervalForRequest = 10  // 10 seconds for connection
-        // Resource timeout - longer to handle TTS generation and audio streaming
-        config.timeoutIntervalForResource = 120  // 2 minutes for full request
+        // Request timeout - time allowed between data packets (including WebSocket pings).
+        // Server pings every 30s, so this must exceed that interval.
+        config.timeoutIntervalForRequest = 90  // 90 seconds (3x server ping interval)
+        // Resource timeout - 0 = unlimited, required for long-lived WebSocket connections
+        config.timeoutIntervalForResource = 0
         urlSession = URLSession(configuration: config, delegate: self, delegateQueue: .main)
     }
 
