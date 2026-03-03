@@ -372,3 +372,57 @@ class TestSessionManager:
         manager = SessionManager(projects_dir=str(tmp_path))
         messages = manager.get_session_history("-Users-test-proj", "sess1")
         assert len(messages) == 0
+
+    def test_list_session_ids_returns_all_ids(self, tmp_path):
+        """list_session_ids returns set of all session IDs in a folder"""
+        from session_manager import SessionManager
+
+        project_dir = tmp_path / "-Users-test-project"
+        project_dir.mkdir()
+        (project_dir / "abc123.jsonl").write_text('{"message": {"role": "user", "content": "hi"}}\n')
+        (project_dir / "def456.jsonl").write_text('{"message": {"role": "user", "content": "hi"}}\n')
+        (project_dir / "agent-xyz.jsonl").write_text('{"message": {"role": "user", "content": "hi"}}\n')
+
+        manager = SessionManager(projects_dir=str(tmp_path))
+        ids = manager.list_session_ids("-Users-test-project")
+
+        assert ids == {"abc123", "def456"}  # agent- files excluded
+
+    def test_list_session_ids_empty_folder(self, tmp_path):
+        """list_session_ids returns empty set for nonexistent folder"""
+        from session_manager import SessionManager
+        manager = SessionManager(projects_dir=str(tmp_path))
+        ids = manager.list_session_ids("nonexistent")
+        assert ids == set()
+
+    def test_find_new_session_detects_new_file(self, tmp_path):
+        """find_new_session returns a session ID not in the exclude set"""
+        from session_manager import SessionManager
+
+        project_dir = tmp_path / "-Users-test-project"
+        project_dir.mkdir()
+        (project_dir / "old-session.jsonl").write_text('{"message": {"role": "user", "content": "hi"}}\n')
+
+        manager = SessionManager(projects_dir=str(tmp_path))
+        existing = manager.list_session_ids("-Users-test-project")
+        assert existing == {"old-session"}
+
+        # Simulate Claude creating a new session file
+        (project_dir / "new-session.jsonl").write_text('{"message": {"role": "user", "content": "hello"}}\n')
+
+        result = manager.find_new_session("-Users-test-project", existing)
+        assert result == "new-session"
+
+    def test_find_new_session_returns_none_when_no_new(self, tmp_path):
+        """find_new_session returns None when all sessions are in exclude set"""
+        from session_manager import SessionManager
+
+        project_dir = tmp_path / "-Users-test-project"
+        project_dir.mkdir()
+        (project_dir / "old-session.jsonl").write_text('{"message": {"role": "user", "content": "hi"}}\n')
+
+        manager = SessionManager(projects_dir=str(tmp_path))
+        existing = manager.list_session_ids("-Users-test-project")
+
+        result = manager.find_new_session("-Users-test-project", existing)
+        assert result is None
