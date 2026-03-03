@@ -21,6 +21,7 @@ struct SessionView: View {
     @State private var lastVoiceInputText: String = ""
     @State private var lastVoiceInputTime: Date = .distantPast
     @State private var messageText = ""
+    @State private var preRecordingText = ""
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var attachedImages: [AttachedImage] = []
     @State private var showingPhotoPicker = false
@@ -429,6 +430,19 @@ struct SessionView: View {
                         )))
                     }
                 }
+                // Mark any tool_use blocks without results as stale
+                // (e.g., app reinstalled mid-tool, or result was missed)
+                for i in 0..<newItems.count {
+                    if case .toolUse(let tid, let tool, let result) = newItems[i], result == nil {
+                        let staleResult = ToolResultBlock(
+                            type: "tool_result",
+                            toolUseId: tid,
+                            content: "(result not available)",
+                            isError: false
+                        )
+                        newItems[i] = .toolUse(toolId: tid, tool: tool, result: staleResult)
+                    }
+                }
                 self.items = newItems
             }
             webSocketManager.requestSessionHistory(folderName: project.folderName, sessionId: session.id)
@@ -453,13 +467,25 @@ struct SessionView: View {
             }
         }
 
-        speechRecognizer.onFinalTranscription = { text in
-            // Append transcribed text to the text field (dictation mode)
-            if messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        speechRecognizer.onPartialTranscription = { text in
+            // Live update: show partial transcription in text field as user speaks
+            let base = preRecordingText
+            if base.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 messageText = text
             } else {
-                messageText += " " + text
+                messageText = base + " " + text
             }
+        }
+
+        speechRecognizer.onFinalTranscription = { text in
+            // Final result: set definitive text and reset base
+            let base = preRecordingText
+            if base.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                messageText = text
+            } else {
+                messageText = base + " " + text
+            }
+            preRecordingText = messageText
             currentTranscript = ""
         }
 
@@ -520,6 +546,18 @@ struct SessionView: View {
                     break
                 case .toolUse(let toolBlock):
                     DispatchQueue.main.async {
+                        // Mark any previous tool_use without a result as done
+                        for i in stride(from: items.count - 1, through: 0, by: -1) {
+                            if case .toolUse(let tid, let tool, nil) = items[i] {
+                                let staleResult = ToolResultBlock(
+                                    type: "tool_result",
+                                    toolUseId: tid,
+                                    content: "(result not available)",
+                                    isError: false
+                                )
+                                items[i] = .toolUse(toolId: tid, tool: tool, result: staleResult)
+                            }
+                        }
                         items.append(.toolUse(toolId: toolBlock.id, tool: toolBlock, result: nil))
                     }
                 case .toolResult(let resultBlock):
@@ -602,6 +640,18 @@ struct SessionView: View {
                                 }
                             case .toolUse(let toolBlock):
                                 DispatchQueue.main.async {
+                                    // Mark any previous tool_use without a result as done
+                                    for i in stride(from: items.count - 1, through: 0, by: -1) {
+                                        if case .toolUse(let tid, let tool, nil) = items[i] {
+                                            let staleResult = ToolResultBlock(
+                                                type: "tool_result",
+                                                toolUseId: tid,
+                                                content: "(result not available)",
+                                                isError: false
+                                            )
+                                            items[i] = .toolUse(toolId: tid, tool: tool, result: staleResult)
+                                        }
+                                    }
                                     items.append(.toolUse(toolId: toolBlock.id, tool: toolBlock, result: nil))
                                 }
                             case .toolResult(let resultBlock):
@@ -750,6 +800,7 @@ struct SessionView: View {
                 audioPlayer.stop()
             }
             webSocketManager.voiceState = .idle
+            preRecordingText = messageText
             do {
                 try speechRecognizer.startRecording()
             } catch {
