@@ -351,16 +351,20 @@ class TranscriptHandler(FileSystemEventHandler):
             self.loop
         )
 
-    def set_session_file(self, file_path: Optional[str]):
+    def set_session_file(self, file_path: Optional[str], from_beginning: bool = False):
         """Set the expected session file and initialize line count.
 
         When switching sessions, we initialize the line count to the current
         number of lines in the file, so only NEW content triggers callbacks.
+        For new sessions, use from_beginning=True to process all content.
         """
         with self._lock:
             self.expected_session_file = file_path
             self.hidden_tool_ids = set()  # Reset on session switch
-            if file_path and os.path.exists(file_path):
+            if from_beginning:
+                self.processed_line_count = 0
+                print(f"[INFO] Watching session file: {file_path} (from beginning)")
+            elif file_path and os.path.exists(file_path):
                 with open(file_path, 'r') as f:
                     self.processed_line_count = sum(1 for _ in f)
                 print(f"[INFO] Watching session file: {file_path} (starting at line {self.processed_line_count})")
@@ -406,6 +410,7 @@ class VoiceServer:
         self.projects_base_path = PROJECTS_BASE_PATH
         self.active_session_id = None  # Track which session is active in tmux
         self.active_folder_name = None  # Track which project folder is active
+        self._pending_session_snapshot = None  # (folder_name, existing_ids) for deferred detection
         self.current_branch = ""  # Track git branch from transcript
         self.tts_enabled = True  # TTS on by default, toggled via set_preference
         # TTS queue: serializes audio generation/streaming (created in start())
@@ -454,7 +459,7 @@ class VoiceServer:
             return transcript_path
         return None
 
-    def switch_watched_session(self, folder_name: str, session_id: str) -> bool:
+    def switch_watched_session(self, folder_name: str, session_id: str, from_beginning: bool = False) -> bool:
         """Switch the file watcher to watch a different session's transcript.
 
         Args:
@@ -479,7 +484,7 @@ class VoiceServer:
 
         # Set expected session file (initializes line count from existing content)
         if self.transcript_handler:
-            self.transcript_handler.set_session_file(new_path)
+            self.transcript_handler.set_session_file(new_path, from_beginning=from_beginning)
 
         # Only reschedule observer if directory changed
         if old_dir != new_dir and self.observer and self.transcript_handler:
@@ -616,6 +621,27 @@ class VoiceServer:
         print(f"[DEBUG] send_to_terminal: session_exists={self.tmux.session_exists()}")
         result = self.tmux.send_input(text)
         print(f"[DEBUG] send_input returned: {result}")
+
+        # If we have a pending snapshot, resolve it now that Claude has input
+        await self._resolve_pending_session()
+
+    async def _resolve_pending_session(self):
+        """Detect new session file using saved snapshot, if pending."""
+        if not self._pending_session_snapshot:
+            return
+        folder_name, existing_ids = self._pending_session_snapshot
+        self._pending_session_snapshot = None
+        session_id = await poll_for_session_file(
+            find_fn=lambda: self.session_manager.find_new_session(folder_name, existing_ids),
+            timeout=10.0,
+            interval=0.3
+        )
+        if session_id:
+            print(f"[DEBUG] Deferred detection found new session: {session_id}")
+            self.active_session_id = session_id
+            self.switch_watched_session(folder_name, session_id, from_beginning=True)
+        else:
+            print(f"[WARN] Deferred detection timed out for new session file")
 
     async def verify_delivery(self, text: str, timeout: float = 5.0) -> bool:
         """Poll transcript file to verify a user message was written by Claude Code.
@@ -1097,6 +1123,7 @@ class VoiceServer:
         # Reset session tracking
         self.active_session_id = None
         self.active_folder_name = None
+        self._pending_session_snapshot = None
         self.current_branch = ""
         self.transcript_path = None
 
@@ -1111,26 +1138,27 @@ class VoiceServer:
         """Handle new_session request - starts claude in tmux"""
         project_path = data.get("project_path", "")
         print(f"[DEBUG] handle_new_session: project_path={project_path}")
+
+        # Snapshot existing session IDs BEFORE starting Claude (avoids race condition)
+        existing_ids = set()
+        folder_name = None
+        if project_path:
+            folder_name = self.session_manager.encode_path_to_folder(project_path)
+            existing_ids = self.session_manager.list_session_ids(folder_name)
+            print(f"[DEBUG] Snapshot: {len(existing_ids)} existing sessions in {folder_name}")
+
         success = self.tmux.start_session(working_dir=project_path if project_path else None)
         print(f"[DEBUG] start_session returned: {success}, session_exists: {self.tmux.session_exists()}")
 
         if success:
             self.active_session_id = None  # New session has no ID yet
 
-            # Find and watch the new session's transcript
-            if project_path:
-                folder_name = self.session_manager.encode_path_to_folder(project_path)
-                print(f"[DEBUG] Encoded folder name: {folder_name}")
-
-                session_id = await poll_for_session_file(
-                    find_fn=lambda: self.session_manager.find_newest_session(folder_name),
-                    timeout=10.0,
-                    interval=0.2
-                )
-                if session_id:
-                    print(f"[DEBUG] Found new session: {session_id}")
-                    self.active_session_id = session_id
-                    self.switch_watched_session(folder_name, session_id)
+            # Save snapshot for deferred detection on first voice input
+            # (Claude doesn't create .jsonl until it processes the first message)
+            if folder_name:
+                self._pending_session_snapshot = (folder_name, existing_ids)
+                self.active_folder_name = folder_name
+                print(f"[INFO] Session snapshot saved, will detect new file on first voice input")
 
         response = {
             "type": "session_created",

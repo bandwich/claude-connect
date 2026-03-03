@@ -253,6 +253,56 @@ class TestTranscriptHandlerRealFiles:
             f"Path comparison bug: expected_session_file={user_path} but watchdog reports {watchdog_path}"
 
 
+class TestSetSessionFile:
+    """Tests for set_session_file from_beginning parameter"""
+
+    def test_set_session_file_from_beginning_starts_at_zero(self, tmp_path):
+        """set_session_file with from_beginning=True should set processed_line_count to 0"""
+        session_file = tmp_path / "session.jsonl"
+        session_file.write_text('{"line": 1}\n{"line": 2}\n{"line": 3}\n')
+
+        async def content_callback(response, start_line=0):
+            pass
+
+        async def audio_callback(text):
+            pass
+
+        loop = asyncio.new_event_loop()
+        handler = TranscriptHandler(
+            content_callback=content_callback,
+            audio_callback=audio_callback,
+            loop=loop,
+            server=None
+        )
+        handler.set_session_file(str(session_file), from_beginning=True)
+
+        assert handler.processed_line_count == 0
+        loop.close()
+
+    def test_set_session_file_default_skips_existing(self, tmp_path):
+        """set_session_file without from_beginning should skip existing lines"""
+        session_file = tmp_path / "session.jsonl"
+        session_file.write_text('{"line": 1}\n{"line": 2}\n{"line": 3}\n')
+
+        async def content_callback(response, start_line=0):
+            pass
+
+        async def audio_callback(text):
+            pass
+
+        loop = asyncio.new_event_loop()
+        handler = TranscriptHandler(
+            content_callback=content_callback,
+            audio_callback=audio_callback,
+            loop=loop,
+            server=None
+        )
+        handler.set_session_file(str(session_file))
+
+        assert handler.processed_line_count == 3
+        loop.close()
+
+
 class TestTranscriptHandlerThreadSafety:
     """Tests for thread-safe access to processed_line_count and expected_session_file"""
 

@@ -164,6 +164,32 @@ class SessionManager:
         # Return the session ID (filename without .jsonl)
         return os.path.splitext(os.path.basename(session_files[0]))[0]
 
+    def list_session_ids(self, folder_name: str) -> set[str]:
+        """Return set of all session IDs (excluding agent files) in a folder."""
+        folder_path = os.path.join(self.projects_dir, folder_name)
+        if not os.path.exists(folder_path):
+            return set()
+
+        session_files = glob.glob(os.path.join(folder_path, "*.jsonl"))
+        session_files = [f for f in session_files if not os.path.basename(f).startswith("agent-")]
+        return {os.path.splitext(os.path.basename(f))[0] for f in session_files}
+
+    def find_new_session(self, folder_name: str, exclude_ids: set[str]) -> Optional[str]:
+        """Find a session ID that is not in the exclude set.
+
+        Used to detect a newly created session after snapshotting existing IDs.
+        """
+        current_ids = self.list_session_ids(folder_name)
+        new_ids = current_ids - exclude_ids
+        if not new_ids:
+            return None
+        if len(new_ids) == 1:
+            return new_ids.pop()
+        # If multiple new IDs (unlikely), return the newest by mtime
+        folder_path = os.path.join(self.projects_dir, folder_name)
+        newest = max(new_ids, key=lambda sid: os.path.getmtime(os.path.join(folder_path, f"{sid}.jsonl")))
+        return newest
+
     def get_session_cwd(self, folder_name: str, session_id: str) -> Optional[str]:
         """Get the working directory from a session file.
 
