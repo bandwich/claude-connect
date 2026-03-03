@@ -58,6 +58,11 @@ struct PermissionQuestion: Codable, Equatable {
 struct PermissionRule: Codable, Equatable {
     let toolName: String
     let ruleContent: String
+
+    enum CodingKeys: String, CodingKey {
+        case toolName = "tool_name"
+        case ruleContent = "rule_content"
+    }
 }
 
 struct PermissionSuggestion: Codable, Equatable {
