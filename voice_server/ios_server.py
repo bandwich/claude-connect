@@ -1370,6 +1370,7 @@ class VoiceServer:
         try:
             data = json.loads(message)
             msg_type = data.get('type')
+            print(f"[DISPATCH] msg_type={msg_type}")
 
             # Validate permission_response has a pending request
             if msg_type == 'permission_response':
@@ -1398,11 +1399,14 @@ class VoiceServer:
                 await self.handle_voice_input(websocket, data)
             elif msg_type == 'user_input':
                 if self.permission_handler.pending_permissions:
+                    pending_ids = list(self.permission_handler.pending_permissions.keys())
+                    print(f"[USER_INPUT] BLOCKED — pending permissions: {pending_ids}")
                     await websocket.send(json.dumps({
                         "type": "error",
                         "message": "Cannot send input while permission pending"
                     }))
                     return
+                print(f"[USER_INPUT] Dispatching to handle_user_input")
                 await self.handle_user_input(websocket, data)
             elif msg_type == 'list_projects':
                 await self.handle_list_projects(websocket)
@@ -1433,7 +1437,9 @@ class VoiceServer:
             elif msg_type == 'resync':
                 await self.handle_resync(websocket, data)
         except Exception as e:
-            print(f"Error: {e}")
+            import traceback
+            print(f"Error handling {msg_type}: {e}")
+            traceback.print_exc()
 
     async def handle_client(self, websocket, path=None):
         """Handle client connection"""
