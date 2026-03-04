@@ -1,76 +1,85 @@
 # voice_server/tests/test_usage_parser.py
 import pytest
-from voice_server.usage_parser import parse_usage_output
+from voice_server.usage_parser import parse_api_response
 
-SAMPLE_OUTPUT = """
-  Settings:  Status   Config   Usage  (←/→ or tab to cycle)
+SAMPLE_API_RESPONSE = {
+    "five_hour": {
+        "utilization": 9.0,
+        "resets_at": "2026-03-03T23:00:00.654360+00:00"
+    },
+    "seven_day": {
+        "utilization": 19.0,
+        "resets_at": "2026-03-06T19:00:00.654375+00:00"
+    },
+    "seven_day_sonnet": {
+        "utilization": 0.0,
+        "resets_at": "2026-03-07T21:00:00.654382+00:00"
+    },
+    "seven_day_oauth_apps": None,
+    "seven_day_opus": None,
+    "seven_day_cowork": None,
+    "iguana_necktie": None,
+    "extra_usage": {
+        "is_enabled": True,
+        "monthly_limit": 2000,
+        "used_credits": 0.0,
+        "utilization": None
+    }
+}
 
 
-  Current session
-  ███▌                                               7% used
-  Resets 1:59pm (America/Los_Angeles)
+def test_parse_session_from_five_hour():
+    result = parse_api_response(SAMPLE_API_RESPONSE)
+    assert result["session"]["percentage"] == 9
+    assert result["session"]["resets_at"] is not None
 
-  Current week (all models)
-  ████████████                                       24% used
-  Resets 7:59pm (America/Los_Angeles)
 
-  Current week (Sonnet only)
-                                                     0% used
+def test_parse_week_all_models_from_seven_day():
+    result = parse_api_response(SAMPLE_API_RESPONSE)
+    assert result["week_all_models"]["percentage"] == 19
+    assert result["week_all_models"]["resets_at"] is not None
 
-  escape to cancel
-"""
-
-def test_parse_session_usage():
-    """Extract session percentage and reset time."""
-    result = parse_usage_output(SAMPLE_OUTPUT)
-
-    assert result["session"]["percentage"] == 7
-    assert result["session"]["resets_at"] == "1:59pm"
-    assert result["session"]["timezone"] == "America/Los_Angeles"
-
-def test_parse_week_all_models():
-    """Extract weekly all-models usage."""
-    result = parse_usage_output(SAMPLE_OUTPUT)
-
-    assert result["week_all_models"]["percentage"] == 24
-    assert result["week_all_models"]["resets_at"] == "7:59pm"
 
 def test_parse_week_sonnet_only():
-    """Extract weekly Sonnet-only usage."""
-    result = parse_usage_output(SAMPLE_OUTPUT)
-
+    result = parse_api_response(SAMPLE_API_RESPONSE)
     assert result["week_sonnet_only"]["percentage"] == 0
 
-def test_parse_empty_output():
-    """Empty or invalid output returns None values."""
-    result = parse_usage_output("")
 
-    assert result["session"]["percentage"] is None
+def test_resets_at_formatted_as_local_time():
+    """resets_at should be human-readable like '4:00pm', not raw ISO."""
+    result = parse_api_response(SAMPLE_API_RESPONSE)
+    # Should be a short time string, not an ISO timestamp
+    resets = result["session"]["resets_at"]
+    assert "T" not in resets  # Not ISO format
+    assert ("am" in resets or "pm" in resets)  # 12-hour format
+
+
+def test_timezone_extracted():
+    result = parse_api_response(SAMPLE_API_RESPONSE)
+    assert result["session"]["timezone"] is not None
+    assert len(result["session"]["timezone"]) > 0
+
+
+def test_parse_missing_category():
+    """Categories that are None in the API response get None percentage."""
+    sparse = {
+        "five_hour": {"utilization": 5.0, "resets_at": "2026-03-03T23:00:00+00:00"},
+        "seven_day": None,
+        "seven_day_sonnet": None,
+    }
+    result = parse_api_response(sparse)
+    assert result["session"]["percentage"] == 5
     assert result["week_all_models"]["percentage"] is None
+    assert result["week_sonnet_only"]["percentage"] is None
 
-def test_parse_with_ansi_codes():
-    """ANSI escape codes are stripped before parsing."""
-    output_with_ansi = "\x1b[1m7% used\x1b[0m"
-    # This is a partial test - full output would have more structure
-    # Just verify ANSI stripping doesn't break parsing
-    result = parse_usage_output(output_with_ansi)
-    assert result is not None
 
-def test_parse_short_time_format():
-    """Handle time format without minutes (e.g., '7pm' instead of '7:59pm')."""
-    output = """
-  Current session
-  ██████                                             12% used
-  Resets 7pm (America/Los_Angeles)
-
-  Current week (all models)
-  █████████████▌                                     27% used
-  Resets 8pm (America/Los_Angeles)
-"""
-    result = parse_usage_output(output)
-
-    assert result["session"]["percentage"] == 12
-    assert result["session"]["resets_at"] == "7pm"
-    assert result["session"]["timezone"] == "America/Los_Angeles"
-    assert result["week_all_models"]["percentage"] == 27
-    assert result["week_all_models"]["resets_at"] == "8pm"
+def test_parse_utilization_rounds_float():
+    """Utilization floats are rounded to int percentages."""
+    data = {
+        "five_hour": {"utilization": 9.7, "resets_at": "2026-03-03T23:00:00+00:00"},
+        "seven_day": {"utilization": 19.3, "resets_at": "2026-03-06T19:00:00+00:00"},
+        "seven_day_sonnet": {"utilization": 0.0, "resets_at": "2026-03-07T21:00:00+00:00"},
+    }
+    result = parse_api_response(data)
+    assert result["session"]["percentage"] == 10
+    assert result["week_all_models"]["percentage"] == 19
