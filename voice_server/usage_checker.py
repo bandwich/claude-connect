@@ -1,13 +1,19 @@
-"""On-demand usage stats checker for Claude Code."""
+"""On-demand usage stats checker via Anthropic OAuth API."""
 
 import asyncio
+import aiohttp
+import json
 import subprocess
 import time
 from typing import Optional
-from voice_server.usage_parser import parse_usage_output
+from voice_server.usage_parser import parse_api_response
+
+USAGE_API_URL = "https://api.anthropic.com/api/oauth/usage"
+KEYCHAIN_SERVICE = "Claude Code-credentials"
+
 
 class UsageChecker:
-    """Spawns Claude Code to fetch /usage stats on demand."""
+    """Fetches usage stats from Anthropic's OAuth usage API."""
 
     def __init__(self):
         self.cached_usage: Optional[dict] = None
@@ -19,121 +25,69 @@ class UsageChecker:
             return {
                 **self.cached_usage,
                 "cached": True,
-                "cache_age_seconds": time.time() - self.cache_timestamp
+                "cache_age_seconds": time.time() - self.cache_timestamp,
             }
         return None
 
-    def _capture_pane(self, session_name: str) -> str:
-        """Capture tmux pane content."""
+    def _get_oauth_token(self) -> str:
+        """Read OAuth access token from macOS Keychain.
+
+        Raises:
+            RuntimeError: If keychain access fails or token is expired.
+        """
         result = subprocess.run(
-            ["tmux", "capture-pane", "-t", session_name, "-p"],
+            ["security", "find-generic-password", "-s", KEYCHAIN_SERVICE, "-w"],
             capture_output=True,
-            text=True
+            text=True,
         )
-        return result.stdout
+        if result.returncode != 0 or not result.stdout.strip():
+            raise RuntimeError("Could not read Claude Code credentials from Keychain")
 
-    async def _wait_for_content(self, session_name: str, marker: str, timeout: float = 15.0) -> bool:
-        """Poll until marker appears in pane content."""
-        start = time.time()
-        while time.time() - start < timeout:
-            content = self._capture_pane(session_name)
-            if marker in content:
-                return True
-            await asyncio.sleep(0.3)
-        return False
+        data = json.loads(result.stdout)
+        oauth = data.get("claudeAiOauth", {})
+        token = oauth.get("accessToken")
+        if not token:
+            raise RuntimeError("No accessToken in Keychain credentials")
 
-    async def _wait_for_ready(self, session_name: str, timeout: float = 15.0) -> bool:
-        """Poll until Claude is ready for input, handling trust dialog if needed."""
-        start = time.time()
-        trust_handled = False
+        expires_at = oauth.get("expiresAt", 0)
+        if expires_at < time.time() * 1000:
+            raise RuntimeError("OAuth token expired — open Claude Code to refresh")
 
-        while time.time() - start < timeout:
-            content = self._capture_pane(session_name)
-
-            # Check for trust dialog first
-            if not trust_handled and "Do you trust the files" in content:
-                subprocess.run(
-                    ["tmux", "send-keys", "-t", session_name, "Enter"],
-                    check=True,
-                    capture_output=True
-                )
-                trust_handled = True
-                await asyncio.sleep(0.3)
-                continue
-
-            # Check for ready prompt - look for the input prompt line
-            # The prompt shows as "❯" at the start of an input line
-            # But trust dialog also has "❯ 1. Yes" so we need to be specific
-            if "Try \"" in content and "❯" in content:
-                # This is the actual prompt with hint text like 'Try "how do I..."'
-                return True
-
-            await asyncio.sleep(0.3)
-
-        return False
+        return token
 
     async def check_usage(self) -> dict:
-        """Spawn Claude Code, run /usage, parse output, return stats.
-
-        This creates a temporary tmux session, starts Claude Code,
-        sends /usage, captures output, then cleans up.
+        """Fetch usage stats from the Anthropic OAuth API.
 
         Returns:
-            Parsed usage stats dict
+            Parsed usage stats dict with type, session, week_all_models,
+            week_sonnet_only, cached, and timestamp fields.
         """
-        session_name = f"usage-check-{int(time.time())}"
-
         try:
-            # 1. Create temp tmux session
-            subprocess.run(
-                ["tmux", "new-session", "-d", "-s", session_name],
-                check=True,
-                capture_output=True
-            )
+            token = self._get_oauth_token()
 
-            # 2. Start Claude Code and wait for prompt
-            subprocess.run(
-                ["tmux", "send-keys", "-t", session_name, "claude", "Enter"],
-                check=True,
-                capture_output=True
-            )
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "anthropic-beta": "oauth-2025-04-20",
+                "User-Agent": "claude-connect/1.0",
+            }
 
-            # Wait for either trust dialog or ready prompt
-            if not await self._wait_for_ready(session_name, timeout=15.0):
-                raise RuntimeError("Claude Code did not start in time")
+            async with aiohttp.ClientSession() as session:
+                async with session.get(USAGE_API_URL, headers=headers) as resp:
+                    if resp.status != 200:
+                        raise RuntimeError(f"Usage API returned {resp.status}")
+                    api_data = await resp.json()
 
-            # 3. Send /usage command (send text and Enter separately for reliability)
-            subprocess.run(
-                ["tmux", "send-keys", "-t", session_name, "/usage"],
-                check=True,
-                capture_output=True
-            )
-            await asyncio.sleep(0.5)
-            subprocess.run(
-                ["tmux", "send-keys", "-t", session_name, "Enter"],
-                check=True,
-                capture_output=True
-            )
-            # Wait for usage display to render (look for "% used" marker)
-            if not await self._wait_for_content(session_name, "% used", timeout=10.0):
-                raise RuntimeError("Usage display did not render in time")
-
-            # 4. Capture terminal output
-            raw_output = self._capture_pane(session_name)
-
-            # 5. Parse the output
-            usage_data = parse_usage_output(raw_output)
+            usage_data = parse_api_response(api_data)
             usage_data["type"] = "usage_response"
             usage_data["cached"] = False
             usage_data["timestamp"] = time.time()
 
-            # 6. Cache the result
             self.cached_usage = usage_data
             self.cache_timestamp = time.time()
 
             return usage_data
 
-        except (subprocess.CalledProcessError, RuntimeError) as e:
+        except Exception as e:
             print(f"usage_checker error: {e}")
             return {
                 "type": "usage_response",
@@ -142,24 +96,5 @@ class UsageChecker:
                 "week_sonnet_only": {"percentage": None},
                 "error": f"Failed to check usage: {e}",
                 "cached": False,
-                "timestamp": time.time()
+                "timestamp": time.time(),
             }
-        finally:
-            # Always clean up the tmux session
-            try:
-                subprocess.run(
-                    ["tmux", "send-keys", "-t", session_name, "Escape", ""],
-                    capture_output=True
-                )
-                await asyncio.sleep(0.5)
-                subprocess.run(
-                    ["tmux", "send-keys", "-t", session_name, "/exit", "Enter"],
-                    capture_output=True
-                )
-                await asyncio.sleep(1)
-                subprocess.run(
-                    ["tmux", "kill-session", "-t", session_name],
-                    capture_output=True
-                )
-            except Exception:
-                pass
