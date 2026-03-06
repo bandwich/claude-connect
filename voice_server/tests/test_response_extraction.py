@@ -477,3 +477,83 @@ def test_extract_skips_task_notifications():
         assert len(user_texts) == 0
     finally:
         os.unlink(temp_path)
+
+
+def test_taskoutput_tool_use_is_hidden():
+    """TaskOutput tool_use blocks and their results should be filtered out"""
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
+        # Assistant sends a TaskOutput call
+        f.write(json.dumps({
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {"type": "tool_use", "id": "toolu_01ABC", "name": "TaskOutput", "input": {"task_id": "bfb6bf6", "block": True}}
+                ]
+            }
+        }) + "\n")
+        # The tool result comes back
+        f.write(json.dumps({
+            "message": {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "toolu_01ABC",
+                        "content": "<output>Agent found stuff</output>"
+                    }
+                ]
+            }
+        }) + "\n")
+        temp_path = f.name
+
+    try:
+        mock_server = type('obj', (), {'last_voice_input': 'test'})()
+        handler = TranscriptHandler(None, None, None, mock_server)
+
+        blocks = handler.extract_new_assistant_content(temp_path)
+        # Both the TaskOutput tool_use and its result should be filtered out
+        assert len(blocks) == 0, f"Expected 0 blocks but got {len(blocks)}: {blocks}"
+    finally:
+        os.unlink(temp_path)
+
+
+def test_taskoutput_hidden_alongside_visible_tools():
+    """TaskOutput should be hidden but Task and other tools should still appear"""
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
+        # Assistant sends a regular Task tool and a TaskOutput
+        f.write(json.dumps({
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {"type": "tool_use", "id": "toolu_01TASK", "name": "Task", "input": {"description": "Explore stuff", "subagent_type": "Explore", "prompt": "do things"}},
+                    {"type": "tool_use", "id": "toolu_01OUT", "name": "TaskOutput", "input": {"task_id": "abc123", "block": True}}
+                ]
+            }
+        }) + "\n")
+        # Results for both
+        f.write(json.dumps({
+            "message": {
+                "role": "user",
+                "content": [
+                    {"type": "tool_result", "tool_use_id": "toolu_01TASK", "content": "agent done"},
+                    {"type": "tool_result", "tool_use_id": "toolu_01OUT", "content": "<output>result</output>"}
+                ]
+            }
+        }) + "\n")
+        temp_path = f.name
+
+    try:
+        mock_server = type('obj', (), {'last_voice_input': 'test'})()
+        handler = TranscriptHandler(None, None, None, mock_server)
+
+        blocks = handler.extract_new_assistant_content(temp_path)
+        # Task tool_use + its result should appear; TaskOutput + its result should not
+        tool_names = [b.name for b in blocks if isinstance(b, ToolUseBlock)]
+        assert "Task" in tool_names
+        assert "TaskOutput" not in tool_names
+        # The Task result should be present
+        result_ids = [b.tool_use_id for b in blocks if isinstance(b, ToolResultBlock)]
+        assert "toolu_01TASK" in result_ids
+        assert "toolu_01OUT" not in result_ids
+    finally:
+        os.unlink(temp_path)

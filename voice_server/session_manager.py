@@ -49,7 +49,7 @@ class SessionMessage:
 
 
 # Internal tool names that are bookkeeping, not shown in terminal UI
-HIDDEN_TOOLS = {'TaskCreate', 'TaskUpdate', 'TaskGet', 'TaskList', 'TaskStop'}
+HIDDEN_TOOLS = {'TaskCreate', 'TaskUpdate', 'TaskGet', 'TaskList', 'TaskStop', 'TaskOutput'}
 
 
 class SessionManager:
