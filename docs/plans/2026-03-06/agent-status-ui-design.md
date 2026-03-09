@@ -161,3 +161,7 @@ If an assistant message has both Task and non-Task tools (e.g. Bash + 3 Explore 
 - Test spinner vs checkmark based on whether tool_result exists
 - Test that a message with 1 Task still uses ToolUseView (not AgentGroupView)
 - Test mixed messages (Task + non-Task tools) group correctly
+
+---
+
+**Implementation note:** This design doc references the tool name `"Task"` throughout, based on the expected Claude Code API. In practice, the transcript uses `"Agent"` as the tool name. The implementation uses `"Agent"` everywhere. The concepts and architecture described above are otherwise unchanged.
