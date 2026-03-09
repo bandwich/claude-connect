@@ -559,7 +559,7 @@ struct SessionView: View {
                     DispatchQueue.main.async {
                         // Mark any previous non-Task tool_use without a result as stale
                         for i in stride(from: items.count - 1, through: 0, by: -1) {
-                            if case .toolUse(let tid, let tool, nil) = items[i], tool.name != "Task" {
+                            if case .toolUse(let tid, let tool, nil) = items[i], tool.name != "Agent" {
                                 let staleResult = ToolResultBlock(
                                     type: "tool_result",
                                     toolUseId: tid,
@@ -570,14 +570,14 @@ struct SessionView: View {
                             }
                         }
 
-                        if toolBlock.name == "Task" {
+                        if toolBlock.name == "Agent" {
                             // Check if last item is already an agentGroup — append to it
                             if case .agentGroup(var agents) = items.last {
                                 agents.append(AgentInfo(tool: toolBlock, result: nil))
                                 items[items.count - 1] = .agentGroup(agents: agents)
                             }
                             // Check if last item is a single Task toolUse — merge into group
-                            else if case .toolUse(_, let prevTool, let prevResult) = items.last, prevTool.name == "Task" {
+                            else if case .toolUse(_, let prevTool, let prevResult) = items.last, prevTool.name == "Agent" {
                                 let prevAgent = AgentInfo(tool: prevTool, result: prevResult)
                                 let newAgent = AgentInfo(tool: toolBlock, result: nil)
                                 items[items.count - 1] = .agentGroup(agents: [prevAgent, newAgent])
@@ -684,7 +684,7 @@ struct SessionView: View {
                                 DispatchQueue.main.async {
                                     // Mark any previous non-Task tool_use without a result as stale
                                     for i in stride(from: items.count - 1, through: 0, by: -1) {
-                                        if case .toolUse(let tid, let tool, nil) = items[i], tool.name != "Task" {
+                                        if case .toolUse(let tid, let tool, nil) = items[i], tool.name != "Agent" {
                                             let staleResult = ToolResultBlock(
                                                 type: "tool_result",
                                                 toolUseId: tid,
@@ -695,11 +695,11 @@ struct SessionView: View {
                                         }
                                     }
 
-                                    if toolBlock.name == "Task" {
+                                    if toolBlock.name == "Agent" {
                                         if case .agentGroup(var agents) = items.last {
                                             agents.append(AgentInfo(tool: toolBlock, result: nil))
                                             items[items.count - 1] = .agentGroup(agents: agents)
-                                        } else if case .toolUse(_, let prevTool, let prevResult) = items.last, prevTool.name == "Task" {
+                                        } else if case .toolUse(_, let prevTool, let prevResult) = items.last, prevTool.name == "Agent" {
                                             let prevAgent = AgentInfo(tool: prevTool, result: prevResult)
                                             let newAgent = AgentInfo(tool: toolBlock, result: nil)
                                             items[items.count - 1] = .agentGroup(agents: [prevAgent, newAgent])

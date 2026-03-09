@@ -137,7 +137,7 @@ func groupAgentItems(_ items: [ConversationItem]) -> [ConversationItem] {
     }
 
     for item in items {
-        if case .toolUse(_, let tool, let toolResult) = item, tool.name == "Task" {
+        if case .toolUse(_, let tool, let toolResult) = item, tool.name == "Agent" {
             pendingAgents.append(AgentInfo(tool: tool, result: toolResult))
         } else {
             flushAgents()

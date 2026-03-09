@@ -1111,11 +1111,11 @@ struct AgentGroupTests {
 
     @Test func testAgentGroupId() throws {
         let tool1 = ToolUseBlock(
-            type: "tool_use", id: "toolu_01A", name: "Task",
+            type: "tool_use", id: "toolu_01A", name: "Agent",
             input: ["description": AnyCodable("Find stuff"), "subagent_type": AnyCodable("Explore")]
         )
         let tool2 = ToolUseBlock(
-            type: "tool_use", id: "toolu_01B", name: "Task",
+            type: "tool_use", id: "toolu_01B", name: "Agent",
             input: ["description": AnyCodable("Check things"), "subagent_type": AnyCodable("Explore")]
         )
         let item = ConversationItem.agentGroup(agents: [
@@ -1127,7 +1127,7 @@ struct AgentGroupTests {
 
     @Test func testAgentInfoDescription() throws {
         let tool = ToolUseBlock(
-            type: "tool_use", id: "toolu_01A", name: "Task",
+            type: "tool_use", id: "toolu_01A", name: "Agent",
             input: ["description": AnyCodable("Find message flow"), "subagent_type": AnyCodable("Explore")]
         )
         let agent = AgentInfo(tool: tool, result: nil)
@@ -1136,7 +1136,7 @@ struct AgentGroupTests {
 
     @Test func testAgentInfoDescriptionWithoutSubagentType() throws {
         let tool = ToolUseBlock(
-            type: "tool_use", id: "toolu_01A", name: "Task",
+            type: "tool_use", id: "toolu_01A", name: "Agent",
             input: ["description": AnyCodable("Do something")]
         )
         let agent = AgentInfo(tool: tool, result: nil)
@@ -1145,7 +1145,7 @@ struct AgentGroupTests {
 
     @Test func testAgentInfoIsDone() throws {
         let tool = ToolUseBlock(
-            type: "tool_use", id: "toolu_01A", name: "Task",
+            type: "tool_use", id: "toolu_01A", name: "Agent",
             input: ["description": AnyCodable("Find stuff"), "subagent_type": AnyCodable("Explore")]
         )
         let result = ToolResultBlock(type: "tool_result", toolUseId: "toolu_01A", content: "done", isError: false)
@@ -1160,7 +1160,7 @@ struct AgentGroupTests {
     @Test func testAgentInfoTruncatesLongDescription() throws {
         let longDesc = String(repeating: "a", count: 80)
         let tool = ToolUseBlock(
-            type: "tool_use", id: "toolu_01A", name: "Task",
+            type: "tool_use", id: "toolu_01A", name: "Agent",
             input: ["description": AnyCodable(longDesc), "subagent_type": AnyCodable("Explore")]
         )
         let agent = AgentInfo(tool: tool, result: nil)
@@ -1175,7 +1175,7 @@ struct AgentGroupingTests {
 
     private func makeTaskTool(id: String, description: String = "Do stuff", subagentType: String = "Explore") -> ToolUseBlock {
         ToolUseBlock(
-            type: "tool_use", id: id, name: "Task",
+            type: "tool_use", id: id, name: "Agent",
             input: ["description": AnyCodable(description), "subagent_type": AnyCodable(subagentType)]
         )
     }
@@ -1252,10 +1252,10 @@ struct AgentGroupingTests {
         let grouped = groupAgentItems(items)
         #expect(grouped.count == 3) // single task, bash, single task
         if case .toolUse(_, let tool, _) = grouped[0] {
-            #expect(tool.name == "Task")
+            #expect(tool.name == "Agent")
         }
         if case .toolUse(_, let tool, _) = grouped[2] {
-            #expect(tool.name == "Task")
+            #expect(tool.name == "Agent")
         }
     }
 
