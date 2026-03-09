@@ -1103,3 +1103,177 @@ struct AudioPlayerStateTests {
         #expect(callbackCalled == false)
     }
 }
+
+// MARK: - Agent Group Tests
+
+@Suite("AgentGroup ConversationItem Tests")
+struct AgentGroupTests {
+
+    @Test func testAgentGroupId() throws {
+        let tool1 = ToolUseBlock(
+            type: "tool_use", id: "toolu_01A", name: "Task",
+            input: ["description": AnyCodable("Find stuff"), "subagent_type": AnyCodable("Explore")]
+        )
+        let tool2 = ToolUseBlock(
+            type: "tool_use", id: "toolu_01B", name: "Task",
+            input: ["description": AnyCodable("Check things"), "subagent_type": AnyCodable("Explore")]
+        )
+        let item = ConversationItem.agentGroup(agents: [
+            AgentInfo(tool: tool1, result: nil),
+            AgentInfo(tool: tool2, result: nil)
+        ])
+        #expect(item.id == "agent-group-toolu_01A")
+    }
+
+    @Test func testAgentInfoDescription() throws {
+        let tool = ToolUseBlock(
+            type: "tool_use", id: "toolu_01A", name: "Task",
+            input: ["description": AnyCodable("Find message flow"), "subagent_type": AnyCodable("Explore")]
+        )
+        let agent = AgentInfo(tool: tool, result: nil)
+        #expect(agent.displayDescription == "Explore: Find message flow")
+    }
+
+    @Test func testAgentInfoDescriptionWithoutSubagentType() throws {
+        let tool = ToolUseBlock(
+            type: "tool_use", id: "toolu_01A", name: "Task",
+            input: ["description": AnyCodable("Do something")]
+        )
+        let agent = AgentInfo(tool: tool, result: nil)
+        #expect(agent.displayDescription == "Agent: Do something")
+    }
+
+    @Test func testAgentInfoIsDone() throws {
+        let tool = ToolUseBlock(
+            type: "tool_use", id: "toolu_01A", name: "Task",
+            input: ["description": AnyCodable("Find stuff"), "subagent_type": AnyCodable("Explore")]
+        )
+        let result = ToolResultBlock(type: "tool_result", toolUseId: "toolu_01A", content: "done", isError: false)
+
+        let running = AgentInfo(tool: tool, result: nil)
+        let done = AgentInfo(tool: tool, result: result)
+
+        #expect(running.isDone == false)
+        #expect(done.isDone == true)
+    }
+
+    @Test func testAgentInfoTruncatesLongDescription() throws {
+        let longDesc = String(repeating: "a", count: 80)
+        let tool = ToolUseBlock(
+            type: "tool_use", id: "toolu_01A", name: "Task",
+            input: ["description": AnyCodable(longDesc), "subagent_type": AnyCodable("Explore")]
+        )
+        let agent = AgentInfo(tool: tool, result: nil)
+        #expect(agent.displayDescription.count <= 60) // "Explore: " + 50 + "..."
+    }
+}
+
+// MARK: - Agent Grouping Logic Tests
+
+@Suite("Agent Grouping Tests")
+struct AgentGroupingTests {
+
+    private func makeTaskTool(id: String, description: String = "Do stuff", subagentType: String = "Explore") -> ToolUseBlock {
+        ToolUseBlock(
+            type: "tool_use", id: id, name: "Task",
+            input: ["description": AnyCodable(description), "subagent_type": AnyCodable(subagentType)]
+        )
+    }
+
+    private func makeBashTool(id: String) -> ToolUseBlock {
+        ToolUseBlock(
+            type: "tool_use", id: id, name: "Bash",
+            input: ["command": AnyCodable("echo hello")]
+        )
+    }
+
+    @Test func testSingleTaskNotGrouped() {
+        let tool = makeTaskTool(id: "t1")
+        let items: [ConversationItem] = [.toolUse(toolId: "t1", tool: tool, result: nil)]
+        let grouped = groupAgentItems(items)
+        #expect(grouped.count == 1)
+        if case .toolUse = grouped[0] {} else {
+            Issue.record("Expected toolUse, got \(grouped[0])")
+        }
+    }
+
+    @Test func testTwoTasksGrouped() {
+        let tool1 = makeTaskTool(id: "t1", description: "First")
+        let tool2 = makeTaskTool(id: "t2", description: "Second")
+        let items: [ConversationItem] = [
+            .toolUse(toolId: "t1", tool: tool1, result: nil),
+            .toolUse(toolId: "t2", tool: tool2, result: nil)
+        ]
+        let grouped = groupAgentItems(items)
+        #expect(grouped.count == 1)
+        if case .agentGroup(let agents) = grouped[0] {
+            #expect(agents.count == 2)
+            #expect(agents[0].displayDescription.contains("First"))
+            #expect(agents[1].displayDescription.contains("Second"))
+        } else {
+            Issue.record("Expected agentGroup, got \(grouped[0])")
+        }
+    }
+
+    @Test func testMixedToolsGroupCorrectly() {
+        let bash = makeBashTool(id: "b1")
+        let task1 = makeTaskTool(id: "t1")
+        let task2 = makeTaskTool(id: "t2")
+        let task3 = makeTaskTool(id: "t3")
+        let items: [ConversationItem] = [
+            .toolUse(toolId: "b1", tool: bash, result: nil),
+            .toolUse(toolId: "t1", tool: task1, result: nil),
+            .toolUse(toolId: "t2", tool: task2, result: nil),
+            .toolUse(toolId: "t3", tool: task3, result: nil)
+        ]
+        let grouped = groupAgentItems(items)
+        #expect(grouped.count == 2) // bash + agent group
+        if case .toolUse(_, let tool, _) = grouped[0] {
+            #expect(tool.name == "Bash")
+        } else {
+            Issue.record("Expected toolUse(Bash)")
+        }
+        if case .agentGroup(let agents) = grouped[1] {
+            #expect(agents.count == 3)
+        } else {
+            Issue.record("Expected agentGroup with 3 agents")
+        }
+    }
+
+    @Test func testNonConsecutiveTasksNotGrouped() {
+        let task1 = makeTaskTool(id: "t1")
+        let bash = makeBashTool(id: "b1")
+        let task2 = makeTaskTool(id: "t2")
+        let items: [ConversationItem] = [
+            .toolUse(toolId: "t1", tool: task1, result: nil),
+            .toolUse(toolId: "b1", tool: bash, result: nil),
+            .toolUse(toolId: "t2", tool: task2, result: nil)
+        ]
+        let grouped = groupAgentItems(items)
+        #expect(grouped.count == 3) // single task, bash, single task
+        if case .toolUse(_, let tool, _) = grouped[0] {
+            #expect(tool.name == "Task")
+        }
+        if case .toolUse(_, let tool, _) = grouped[2] {
+            #expect(tool.name == "Task")
+        }
+    }
+
+    @Test func testGroupPreservesResults() {
+        let tool1 = makeTaskTool(id: "t1")
+        let tool2 = makeTaskTool(id: "t2")
+        let result1 = ToolResultBlock(type: "tool_result", toolUseId: "t1", content: "done", isError: false)
+        let items: [ConversationItem] = [
+            .toolUse(toolId: "t1", tool: tool1, result: result1),
+            .toolUse(toolId: "t2", tool: tool2, result: nil)
+        ]
+        let grouped = groupAgentItems(items)
+        #expect(grouped.count == 1)
+        if case .agentGroup(let agents) = grouped[0] {
+            #expect(agents[0].isDone == true)
+            #expect(agents[1].isDone == false)
+        } else {
+            Issue.record("Expected agentGroup")
+        }
+    }
+}
