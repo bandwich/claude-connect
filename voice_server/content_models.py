@@ -1,5 +1,14 @@
+import re
+
 from pydantic import BaseModel
 from typing import Literal, Any, Dict, Union
+
+
+def strip_agent_metadata(content: str) -> str:
+    """Strip agentId and <usage> metadata from Agent tool result content."""
+    content = re.sub(r'agentId:[^\n]*\n?', '', content)
+    content = re.sub(r'<usage>.*?</usage>', '', content, flags=re.DOTALL)
+    return content.strip()
 
 
 class TextBlock(BaseModel):

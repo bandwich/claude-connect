@@ -79,9 +79,32 @@ struct ContentBlockRaw: Codable {
     }
 }
 
+struct AgentInfo {
+    let tool: ToolUseBlock
+    var result: ToolResultBlock?
+
+    var isDone: Bool {
+        result != nil
+    }
+
+    var displayDescription: String {
+        let subagentType: String
+        if let typeValue = tool.input["subagent_type"]?.value as? String, !typeValue.isEmpty {
+            subagentType = typeValue
+        } else {
+            subagentType = "Agent"
+        }
+        let desc = (tool.input["description"]?.value as? String) ?? ""
+        let maxDescLen = 50
+        let truncatedDesc = desc.count > maxDescLen ? String(desc.prefix(maxDescLen)) + "..." : desc
+        return truncatedDesc.isEmpty ? subagentType : "\(subagentType): \(truncatedDesc)"
+    }
+}
+
 enum ConversationItem: Identifiable {
     case textMessage(SessionHistoryMessage)
     case toolUse(toolId: String, tool: ToolUseBlock, result: ToolResultBlock?)
+    case agentGroup(agents: [AgentInfo])
     case permissionPrompt(requestId: String, request: PermissionRequest)
 
     var id: String {
@@ -90,10 +113,39 @@ enum ConversationItem: Identifiable {
             return "text-\(msg.timestamp)"
         case .toolUse(let toolId, _, _):
             return "tool-\(toolId)"
+        case .agentGroup(let agents):
+            return "agent-group-\(agents.first?.tool.id ?? "unknown")"
         case .permissionPrompt(let requestId, _):
             return "perm-\(requestId)"
         }
     }
+}
+
+/// Groups consecutive Task tool_use items into agentGroup items.
+/// Single Task items remain as toolUse. Groups of 2+ become agentGroup.
+func groupAgentItems(_ items: [ConversationItem]) -> [ConversationItem] {
+    var result: [ConversationItem] = []
+    var pendingAgents: [AgentInfo] = []
+
+    func flushAgents() {
+        if pendingAgents.count >= 2 {
+            result.append(.agentGroup(agents: pendingAgents))
+        } else if let single = pendingAgents.first {
+            result.append(.toolUse(toolId: single.tool.id, tool: single.tool, result: single.result))
+        }
+        pendingAgents = []
+    }
+
+    for item in items {
+        if case .toolUse(_, let tool, let toolResult) = item, tool.name == "Agent" {
+            pendingAgents.append(AgentInfo(tool: tool, result: toolResult))
+        } else {
+            flushAgents()
+            result.append(item)
+        }
+    }
+    flushAgents()
+    return result
 }
 
 struct SessionHistoryResponse: Codable {

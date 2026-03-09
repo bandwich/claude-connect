@@ -49,7 +49,10 @@ class SessionMessage:
 
 
 # Internal tool names that are bookkeeping, not shown in terminal UI
-HIDDEN_TOOLS = {'TaskCreate', 'TaskUpdate', 'TaskGet', 'TaskList', 'TaskStop'}
+HIDDEN_TOOLS = {'TaskCreate', 'TaskUpdate', 'TaskGet', 'TaskList', 'TaskStop', 'TaskOutput'}
+
+
+from voice_server.content_models import strip_agent_metadata as _strip_agent_metadata
 
 
 class SessionManager:
@@ -323,6 +326,7 @@ class SessionManager:
 
         messages = []
         hidden_tool_ids = set()  # Track tool_use IDs for hidden tools
+        agent_tool_ids = set()  # Track tool_use IDs for Agent tools
 
         with open(filepath, 'r') as f:
             for line in f:
@@ -368,6 +372,9 @@ class SessionManager:
                                         str_content = raw_content
                                     else:
                                         str_content = str(raw_content)
+                                    # Strip metadata from Agent tool results
+                                    if block.get('tool_use_id', '') in agent_tool_ids:
+                                        str_content = _strip_agent_metadata(str_content)
                                     # Build normalized block for iOS decoding
                                     normalized_block = {
                                         'type': 'tool_result',
@@ -388,6 +395,8 @@ class SessionManager:
                             if isinstance(block, dict) and block.get('type') == 'tool_use':
                                 if block.get('name', '') in HIDDEN_TOOLS:
                                     hidden_tool_ids.add(block.get('id', ''))
+                                if block.get('name', '') == 'Agent':
+                                    agent_tool_ids.add(block.get('id', ''))
                         content = [
                             b for b in content
                             if not (isinstance(b, dict) and b.get('type') == 'tool_use'

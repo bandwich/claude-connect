@@ -100,6 +100,9 @@ async def poll_for_session_file(find_fn, timeout=10.0, interval=0.2):
     return None
 
 
+from voice_server.content_models import strip_agent_metadata as _strip_agent_metadata
+
+
 class TranscriptHandler(FileSystemEventHandler):
     """Monitors transcript file for new assistant messages
 
@@ -121,6 +124,7 @@ class TranscriptHandler(FileSystemEventHandler):
         self.expected_session_file = None  # Only process events from this file
         self.context_tracker = ContextTracker()
         self.hidden_tool_ids = set()  # Track IDs of hidden tool_use blocks
+        self.agent_tool_ids = set()  # Track IDs of Agent tool_use blocks
         self._lock = threading.Lock()  # Protects processed_line_count and expected_session_file
 
     def on_modified(self, event):
@@ -270,6 +274,8 @@ class TranscriptHandler(FileSystemEventHandler):
                                         if block.get('name', '') in HIDDEN_TOOLS:
                                             self.hidden_tool_ids.add(block.get('id', ''))
                                             continue
+                                        if block.get('name', '') == 'Agent':
+                                            self.agent_tool_ids.add(block.get('id', ''))
                                         all_blocks.append(ToolUseBlock(**block))
                                 except Exception:
                                     continue
@@ -297,9 +303,13 @@ class TranscriptHandler(FileSystemEventHandler):
                                             )
                                         else:
                                             content_str = str(raw_content)
+                                        tool_use_id = block.get('tool_use_id', '')
+                                        # Strip metadata from Agent tool results
+                                        if tool_use_id in self.agent_tool_ids:
+                                            content_str = _strip_agent_metadata(content_str)
                                         all_blocks.append(ToolResultBlock(
                                             type="tool_result",
-                                            tool_use_id=block.get('tool_use_id', ''),
+                                            tool_use_id=tool_use_id,
                                             content=content_str,
                                             is_error=block.get('is_error', False)
                                         ))
@@ -361,6 +371,7 @@ class TranscriptHandler(FileSystemEventHandler):
         with self._lock:
             self.expected_session_file = file_path
             self.hidden_tool_ids = set()  # Reset on session switch
+            self.agent_tool_ids = set()
             if from_beginning:
                 self.processed_line_count = 0
                 print(f"[INFO] Watching session file: {file_path} (from beginning)")

@@ -54,6 +54,9 @@ struct SessionView: View {
                                 case .toolUse(_, let tool, let result):
                                     ToolUseView(tool: tool, result: result)
                                         .id(item.id)
+                                case .agentGroup(let agents):
+                                    AgentGroupView(agents: agents)
+                                        .id(item.id)
                                 case .permissionPrompt(_, let request):
                                     // Resolved permission summary (inline cards removed — input bar handles prompts)
                                     if let resolution = permissionResolutions[request.requestId] {
@@ -447,7 +450,7 @@ struct SessionView: View {
                         newItems[i] = .toolUse(toolId: tid, tool: tool, result: staleResult)
                     }
                 }
-                self.items = newItems
+                self.items = groupAgentItems(newItems)
             }
             webSocketManager.requestSessionHistory(folderName: project.folderName, sessionId: session.id)
 
@@ -554,9 +557,9 @@ struct SessionView: View {
                     break
                 case .toolUse(let toolBlock):
                     DispatchQueue.main.async {
-                        // Mark any previous tool_use without a result as done
+                        // Mark any previous non-Task tool_use without a result as stale
                         for i in stride(from: items.count - 1, through: 0, by: -1) {
-                            if case .toolUse(let tid, let tool, nil) = items[i] {
+                            if case .toolUse(let tid, let tool, nil) = items[i], tool.name != "Agent" {
                                 let staleResult = ToolResultBlock(
                                     type: "tool_result",
                                     toolUseId: tid,
@@ -566,11 +569,40 @@ struct SessionView: View {
                                 items[i] = .toolUse(toolId: tid, tool: tool, result: staleResult)
                             }
                         }
-                        items.append(.toolUse(toolId: toolBlock.id, tool: toolBlock, result: nil))
+
+                        if toolBlock.name == "Agent" {
+                            // Check if last item is already an agentGroup — append to it
+                            if case .agentGroup(var agents) = items.last {
+                                agents.append(AgentInfo(tool: toolBlock, result: nil))
+                                items[items.count - 1] = .agentGroup(agents: agents)
+                            }
+                            // Check if last item is a single Agent toolUse — merge into group
+                            else if case .toolUse(_, let prevTool, let prevResult) = items.last, prevTool.name == "Agent" {
+                                let prevAgent = AgentInfo(tool: prevTool, result: prevResult)
+                                let newAgent = AgentInfo(tool: toolBlock, result: nil)
+                                items[items.count - 1] = .agentGroup(agents: [prevAgent, newAgent])
+                            }
+                            // Otherwise just append as single toolUse
+                            else {
+                                items.append(.toolUse(toolId: toolBlock.id, tool: toolBlock, result: nil))
+                            }
+                        } else {
+                            items.append(.toolUse(toolId: toolBlock.id, tool: toolBlock, result: nil))
+                        }
                     }
                 case .toolResult(let resultBlock):
                     DispatchQueue.main.async {
-                        // Find matching tool_use and update with result
+                        // First check agentGroup items
+                        for i in 0..<items.count {
+                            if case .agentGroup(var agents) = items[i] {
+                                if let agentIdx = agents.firstIndex(where: { $0.tool.id == resultBlock.toolUseId }) {
+                                    agents[agentIdx].result = resultBlock
+                                    items[i] = .agentGroup(agents: agents)
+                                    return
+                                }
+                            }
+                        }
+                        // Then check individual toolUse items
                         if let idx = items.firstIndex(where: {
                             if case .toolUse(let tid, _, _) = $0 { return tid == resultBlock.toolUseId }
                             return false
@@ -650,9 +682,9 @@ struct SessionView: View {
                                 }
                             case .toolUse(let toolBlock):
                                 DispatchQueue.main.async {
-                                    // Mark any previous tool_use without a result as done
+                                    // Mark any previous non-Task tool_use without a result as stale
                                     for i in stride(from: items.count - 1, through: 0, by: -1) {
-                                        if case .toolUse(let tid, let tool, nil) = items[i] {
+                                        if case .toolUse(let tid, let tool, nil) = items[i], tool.name != "Agent" {
                                             let staleResult = ToolResultBlock(
                                                 type: "tool_result",
                                                 toolUseId: tid,
@@ -662,10 +694,35 @@ struct SessionView: View {
                                             items[i] = .toolUse(toolId: tid, tool: tool, result: staleResult)
                                         }
                                     }
-                                    items.append(.toolUse(toolId: toolBlock.id, tool: toolBlock, result: nil))
+
+                                    if toolBlock.name == "Agent" {
+                                        if case .agentGroup(var agents) = items.last {
+                                            agents.append(AgentInfo(tool: toolBlock, result: nil))
+                                            items[items.count - 1] = .agentGroup(agents: agents)
+                                        } else if case .toolUse(_, let prevTool, let prevResult) = items.last, prevTool.name == "Agent" {
+                                            let prevAgent = AgentInfo(tool: prevTool, result: prevResult)
+                                            let newAgent = AgentInfo(tool: toolBlock, result: nil)
+                                            items[items.count - 1] = .agentGroup(agents: [prevAgent, newAgent])
+                                        } else {
+                                            items.append(.toolUse(toolId: toolBlock.id, tool: toolBlock, result: nil))
+                                        }
+                                    } else {
+                                        items.append(.toolUse(toolId: toolBlock.id, tool: toolBlock, result: nil))
+                                    }
                                 }
                             case .toolResult(let resultBlock):
                                 DispatchQueue.main.async {
+                                    // First check agentGroup items
+                                    for i in 0..<items.count {
+                                        if case .agentGroup(var agents) = items[i] {
+                                            if let agentIdx = agents.firstIndex(where: { $0.tool.id == resultBlock.toolUseId }) {
+                                                agents[agentIdx].result = resultBlock
+                                                items[i] = .agentGroup(agents: agents)
+                                                return
+                                            }
+                                        }
+                                    }
+                                    // Then check individual toolUse items
                                     if let idx = items.firstIndex(where: {
                                         if case .toolUse(let tid, _, _) = $0 { return tid == resultBlock.toolUseId }
                                         return false
@@ -704,6 +761,10 @@ struct SessionView: View {
                         }
                     }
                 }
+            }
+            // After resync, regroup any consecutive Task items
+            DispatchQueue.main.async {
+                items = groupAgentItems(items)
             }
         }
 
