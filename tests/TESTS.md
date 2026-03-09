@@ -20,7 +20,7 @@ cd ios-voice-app/ClaudeVoice && ./run_e2e_tests.sh
 
 | Suite | Count | Type | Location |
 |-------|-------|------|----------|
-| Server Tests | ~67 | pytest | `voice_server/tests/` |
+| Server Tests | ~287 (25 files) | pytest | `voice_server/tests/` |
 | iOS Unit Tests | ~69 | XCTest | `ios-voice-app/ClaudeVoice/ClaudeVoiceTests/` |
 | E2E Tests | 18 | XCUITest | `ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/E2E*.swift` |
 | Integration Tests | ~34 | XCUITest | `ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/*Tests.swift` |
@@ -40,12 +40,19 @@ pytest test_ios_server.py::TestVoiceServer::test_send_status -v  # specific test
 ```
 
 **What's tested:**
-- WebSocket server initialization and message handling (`test_ios_server.py`, `test_message_handlers.py`)
-- Transcript file monitoring and response extraction (`test_response_extraction.py`, `test_text_extraction.py`)
-- TTS utilities and audio streaming (`test_tts_utils.py`)
+- WebSocket server initialization and message handling (`test_ios_server.py`, `test_message_handlers.py`, `test_message_formats.py`)
+- Transcript file monitoring and response extraction (`test_response_extraction.py`, `test_text_extraction.py`, `test_transcript_watcher.py`)
+- TTS utilities, audio streaming, queue, and preferences (`test_tts_utils.py`, `test_tts_queue.py`, `test_tts_preference.py`)
 - Session management (projects, sessions, history) (`test_session_manager.py`)
 - Structured content parsing and models (`test_content_handler.py`, `test_content_models.py`)
-- VSCode controller automation (`test_vscode_controller.py`)
+- Permission handling and integration (`test_permission_handler.py`, `test_permission_integration.py`)
+- HTTP hook server endpoints (`test_http_server.py`, `test_hooks.py`)
+- Context tracking and broadcast (`test_context_tracker.py`, `test_context_broadcast.py`)
+- Usage checking and parsing (`test_usage_handler.py`, `test_usage_parser.py`)
+- Tmux controller (`test_tmux_controller.py`)
+- Pane activity state parsing (`test_pane_parser.py`)
+- QR code display (`test_qr_display.py`)
+- State validation and sync (`test_state_validation.py`, `test_sync_integration.py`)
 
 ---
 
@@ -66,11 +73,14 @@ xcodebuild test -scheme ClaudeVoice \
 ```
 
 **What's tested:**
-- AudioPlayer: chunk receiving, playback state, callbacks
-- WebSocketManager: connection state, JSON encoding, callbacks
-- SpeechRecognizer: recording state, error handling
-- Models: ConnectionState, VoiceState, Message, Project, Session
-- State transitions and integration flows
+- AudioPlayer: chunk receiving, playback state, callbacks (`AudioPlayerTests.swift`)
+- WebSocketManager: connection state, JSON encoding, callbacks (`WebSocketManagerTests.swift`)
+- Permission models: request/response encoding, suggestion display (`PermissionRequestTests.swift`)
+- QR code validation: URL parsing, scheme validation (`QRCodeValidatorTests.swift`)
+- ClaudeOutputState: state transitions (`ClaudeOutputStateTests.swift`)
+- InputBarMode: input bar state machine (`InputBarModeTests.swift`)
+- DiffView: diff parsing and display (`DiffViewTests.swift`)
+- General models and integration flows (`ClaudeVoiceTests.swift`)
 
 ---
 

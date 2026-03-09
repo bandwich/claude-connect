@@ -57,46 +57,68 @@ voice_server/                  # Python server
 ├─ tts_utils.py               # Kokoro TTS integration
 ├─ tmux_controller.py         # Tmux session control
 ├─ context_tracker.py         # Token usage calculation from transcripts
-├─ usage_checker.py           # On-demand /usage stats fetcher
-├─ usage_parser.py            # Parser for /usage command output
+├─ usage_checker.py           # On-demand usage stats via OAuth API
+├─ usage_parser.py            # Parser for OAuth API response
 ├─ permission_handler.py      # Permission request/response handling
 ├─ http_server.py             # HTTP server for Claude Code hooks
+├─ pane_parser.py             # Tmux pane parsing for activity state detection
 ├─ setup_check.py             # Interactive dependency checking at startup
 ├─ qr_display.py              # QR code generation for iOS connection
-└─ tests/                     # pytest test suite
+├─ hooks/
+│   ├─ permission_hook.sh     # PermissionRequest hook → POST to HTTP server
+│   └─ post_tool_hook.sh      # PostToolUse hook → dismiss stale prompts
+├─ integration_tests/          # E2E test server infrastructure
+│   ├─ test_server.py         # Modified server for E2E tests
+│   ├─ mock_transcript.py     # Test transcript fixture generation
+│   ├─ test_config.py         # Test environment config (ports, paths)
+│   └─ generate_test_audio.py # Pre-generate test WAV files
+└─ tests/                     # pytest test suite (~287 tests)
 
 ios-voice-app/ClaudeVoice/     # iOS app (Swift/SwiftUI)
+├─ ClaudeVoiceApp.swift       # @main entry point, auto-connect on launch
 ├─ Models/
 │   ├─ AssistantContent.swift # Content block types (text, tool_use, etc.)
 │   ├─ ConnectionState.swift  # WebSocket connection states
-│   ├─ ClaudeOutputState.swift # Output state tracking
+│   ├─ ClaudeOutputState.swift # Claude activity: idle/thinking/usingTool/speaking
 │   ├─ ContextStats.swift     # Context window usage stats
 │   ├─ FileModels.swift       # File browser response models
-│   ├─ Message.swift          # WebSocket message types
-│   ├─ PermissionRequest.swift # Permission request/response models
+│   ├─ InputBarMode.swift     # Input bar state: normal/permissionPrompt/syncing/etc.
+│   ├─ Message.swift          # WebSocket message types (all send/receive structs)
+│   ├─ PermissionRequest.swift # Permission request/response/suggestion models
 │   ├─ Project.swift          # Claude Code project model
-│   ├─ Session.swift          # Session model + conversation items
+│   ├─ Session.swift          # Session model, ConversationItem enum, AgentInfo
 │   ├─ UsageStats.swift       # Weekly/session quota stats
 │   └─ VoiceState.swift       # Voice interaction states
 ├─ Services/
-│   ├─ WebSocketManager.swift # WebSocket client with reconnect
-│   ├─ SpeechRecognizer.swift # iOS Speech framework
-│   ├─ AudioPlayer.swift      # TTS audio playback
+│   ├─ WebSocketManager.swift # WebSocket client, state management, message routing
+│   ├─ SpeechRecognizer.swift # iOS Speech framework wrapper
+│   ├─ AudioPlayer.swift      # Chunked TTS audio playback via AVAudioEngine
 │   └─ QRCodeValidator.swift  # QR code URL validation
-└─ Views/
-    ├─ SessionView.swift      # Main voice interaction + conversation view
-    ├─ ToolUseView.swift      # Tool use/result display with expand/collapse
-    ├─ ProjectsListView.swift # Project browser
-    ├─ ProjectDetailView.swift # Project detail with sessions + files tabs
-    ├─ SessionsListView.swift # Session browser
-    ├─ FilesView.swift        # File browser (directory listing)
-    ├─ FileView.swift         # File viewer (text + images)
-    ├─ DiffView.swift         # Diff viewer for Edit results
-    ├─ PermissionPromptView.swift # Permission approval sheet
-    ├─ SettingsView.swift     # Connection settings + usage stats
-    ├─ QRScannerView.swift    # Camera-based QR scanner
-    ├─ CustomNavigationBar.swift # Reusable nav bar component
-    └─ VoiceIndicator.swift   # Recording animation indicator
+├─ Views/
+│   ├─ SessionView.swift      # Main conversation view (largest, ~50KB)
+│   ├─ ToolUseView.swift      # Tool use/result display with expand/collapse
+│   ├─ AgentGroupView.swift   # Agent execution status cards (running/completed)
+│   ├─ PermissionCardView.swift # Permission approval inline card
+│   ├─ ProjectsListView.swift # Project browser
+│   ├─ ProjectDetailView.swift # Project detail with sessions + files tabs
+│   ├─ SessionsListView.swift # Session browser
+│   ├─ FilesView.swift        # File tree browser (lazy-loaded directories)
+│   ├─ FileView.swift         # File viewer (text + images with caching)
+│   ├─ DiffView.swift         # Diff viewer for Edit results
+│   ├─ ContentView.swift      # Root navigation view
+│   ├─ SettingsView.swift     # Connection settings + usage stats
+│   ├─ QRScannerView.swift    # Camera-based QR scanner
+│   ├─ CustomNavigationBar.swift # Reusable nav bar component
+│   └─ VoiceIndicator.swift   # Recording animation indicator
+└─ Utils/
+    ├─ TimeFormatter.swift    # Relative time strings ("5 minutes ago")
+    └─ SwipeBackModifier.swift # iOS swipe-back gesture support
+
+scripts/
+└─ cleanup_transcripts.py     # Delete Claude transcripts with ≤2 messages
+
+docs/                          # Design docs and implementation plans
+└─ plans/                     # Date-stamped feature plans (27 directories)
 
 tests/e2e_support/            # E2E test utilities
 └─ server_manager.py          # Server lifecycle for tests
@@ -160,6 +182,13 @@ xcrun devicectl list devices
 # Step 3: Install using the device ID from step 2
 xcrun devicectl device install app --device "<DEVICE_ID>" \
   ios-voice-app/ClaudeVoice/build/Release-iphoneos/ClaudeVoice.app
+```
+
+### Utilities
+
+```bash
+# Clean up empty/stub Claude transcripts (≤2 messages)
+python3 scripts/cleanup_transcripts.py
 ```
 
 ### Debugging
@@ -246,6 +275,10 @@ To enable remote permission control from the iOS app, add hooks to your Claude C
 ### iOS → Server
 ```
 voice_input          {"type": "voice_input", "text": "...", "timestamp": ...}
+user_input           {"type": "user_input", "text": "...", "images": [...], "timestamp": ...}
+set_preference       {"type": "set_preference", "tts_enabled": true|false}
+stop_audio           {"type": "stop_audio"}
+resync_request       {"type": "resync_request", "last_seq": N}
 list_projects        {"type": "list_projects"}
 list_sessions        {"type": "list_sessions", "folder_name": "..."}
 open_session         {"type": "open_session", "folder_name": "...", "session_id": "..."}
@@ -263,8 +296,12 @@ permission_response  {"type": "permission_response", "request_id": "...", "decis
 ```
 status               {"type": "status", "state": "idle|processing|speaking", ...}
 audio_chunk          {"type": "audio_chunk", "data": "<base64 WAV>", ...}
-assistant_response   {"type": "assistant_response", "content_blocks": [...], "session_id": "..."}
-user_message         {"type": "user_message", "role": "user", "content": "...", "session_id": "..."}
+stop_audio           {"type": "stop_audio"}
+assistant_response   {"type": "assistant_response", "content_blocks": [...], "session_id": "...", "seq": N}
+user_message         {"type": "user_message", "role": "user", "content": "...", "session_id": "...", "seq": N}
+resync_response      {"type": "resync_response", "messages": [...]}
+activity_status      {"type": "activity_status", "state": "idle|thinking|tool_active|waiting_permission", "detail": "..."}
+delivery_status      {"type": "delivery_status", "status": "confirmed|failed", "text": "..."}
 projects_list        {"type": "projects_list", "projects": [...]}
 sessions_list        {"type": "sessions_list", "sessions": [...]}
 session_history      {"type": "session_history", "messages": [...]}
@@ -283,12 +320,74 @@ permission_resolved  {"type": "permission_resolved", "request_id": "..."}
 ## Key Features
 
 - **Voice Interaction**: Speak commands, hear Claude's responses via Kokoro TTS
+- **Text + Image Input**: Type messages with photo attachments from iOS
 - **Session Browser**: Browse projects from `~/.claude/projects/`, view sessions, resume in tmux
 - **Conversation View**: See assistant text, tool use/results, terminal-typed user messages, and interrupts
 - **Tool Display**: Collapsible tool use blocks with input summaries and results
+- **Agent Groups**: Grouped status cards for multi-agent execution (running/completed)
 - **File Browser**: Browse project files with text and image viewing
 - **Markdown Rendering**: Rich text in messages, stripped for TTS
-- **Remote Permissions**: Approve/deny Claude Code permission prompts from iOS
+- **Remote Permissions**: Approve/deny Claude Code permission prompts inline with suggestion support
 - **Context Tracking**: Real-time context window usage displayed in session header
-- **Usage Stats**: View session/weekly quotas in Settings (fetched via /usage command)
+- **Usage Stats**: View session/weekly quotas in Settings (fetched via OAuth API)
+- **Activity Detection**: Idle/thinking/tool_active state from tmux pane parsing
+- **Delivery Tracking**: Confirm voice/text input was received by Claude Code
+- **Message Sync**: Sequence numbers + resync to recover from missed WebSocket messages
 - **QR Connect**: Scan QR code displayed by server to connect iOS app
+
+## Server Design Details
+
+### Transcript Watching Pipeline
+The core data flow for streaming Claude's output to the iOS app:
+1. **watchdog** monitors the active Claude Code transcript JSONL file for changes
+2. **TranscriptHandler** tracks `processed_line_count` to only extract new content
+3. New lines are parsed into content blocks (text, thinking, tool_use, tool_result)
+4. Blocks are broadcast to connected iOS clients via WebSocket
+5. A **reconciliation loop** periodically re-checks the file to catch watchdog misses
+6. Each message gets a sequence number (`seq`) for gap detection
+
+### Activity State Detection
+`pane_parser.py` captures the tmux pane and parses the last ~15 lines:
+- Spinner chars (✢✻✽✳·✶) → `thinking`
+- ⏺ + present tense verb → `tool_active` (with tool name as detail)
+- "Esc to cancel · Tab to amend" → `waiting_permission`
+- Otherwise → `idle`
+
+### Permission Flow
+1. Claude Code triggers `PermissionRequest` hook → `permission_hook.sh` POSTs to HTTP server (port 8766)
+2. `http_server.py` generates `request_id`, broadcasts to iOS via WebSocket
+3. iOS shows inline `PermissionCardView` with approve/deny + permission suggestions
+4. User decision flows back through WebSocket → HTTP response → hook stdout → Claude Code
+5. `PostToolUse` hook fires `post_tool_hook.sh` to dismiss stale prompts if the request timed out
+
+### Usage Checking
+`usage_checker.py` reads the OAuth token from macOS Keychain (`security` command) and calls the Anthropic OAuth API directly. `usage_parser.py` maps the API response into session/weekly quota percentages.
+
+### TTS Pipeline
+1. Assistant text extracted from transcript → markdown stripped
+2. Text queued to `tts_utils.py` (Kokoro pipeline, 24kHz, voice "af_heart")
+3. Audio chunked and streamed as base64 WAV via WebSocket `audio_chunk` messages
+4. iOS `AudioPlayer` buffers chunks and plays via `AVAudioEngine`
+
+## iOS Design Details
+
+### State Architecture
+- **WebSocketManager** is the central state hub (`@ObservedObject` in views)
+- Published properties drive UI: `connectionState`, `outputState`, `inputBarMode`, `pendingPermission`, etc.
+- Callback-based event handling for server messages (e.g., `onAssistantResponse`, `onPermissionRequest`)
+- `@AppStorage` for persistent settings: `ttsEnabled`, `serverIP`, `serverPort`
+
+### Conversation Items
+`Session.swift` defines `ConversationItem` enum with cases:
+- `.textMessage` — user or assistant text
+- `.toolUse` — paired tool_use + tool_result blocks
+- `.agentGroup` — grouped agent executions (via `groupAgentItems()`)
+- `.permissionPrompt` — inline permission request card
+
+### Input Bar State Machine
+`InputBarMode` controls what the input area shows:
+- `.normal` — text field + mic button
+- `.permissionPrompt(request)` — approve/deny buttons
+- `.questionPrompt(request)` — option selection buttons
+- `.syncing` — loading state during resync
+- `.disconnected` — reconnection indicator
