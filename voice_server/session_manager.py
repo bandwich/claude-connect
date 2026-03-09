@@ -52,12 +52,7 @@ class SessionMessage:
 HIDDEN_TOOLS = {'TaskCreate', 'TaskUpdate', 'TaskGet', 'TaskList', 'TaskStop', 'TaskOutput'}
 
 
-def _strip_agent_metadata(content: str) -> str:
-    """Strip agentId and <usage> metadata from Agent tool result content."""
-    import re
-    content = re.sub(r'agentId:.*?\n?', '', content)
-    content = re.sub(r'<usage>.*?</usage>', '', content, flags=re.DOTALL)
-    return content.strip()
+from voice_server.content_models import strip_agent_metadata as _strip_agent_metadata
 
 
 class SessionManager:

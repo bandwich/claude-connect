@@ -100,11 +100,7 @@ async def poll_for_session_file(find_fn, timeout=10.0, interval=0.2):
     return None
 
 
-def _strip_agent_metadata(content: str) -> str:
-    """Strip agentId and <usage> metadata from Agent tool result content."""
-    content = re.sub(r'agentId:.*?\n?', '', content)
-    content = re.sub(r'<usage>.*?</usage>', '', content, flags=re.DOTALL)
-    return content.strip()
+from voice_server.content_models import strip_agent_metadata as _strip_agent_metadata
 
 
 class TranscriptHandler(FileSystemEventHandler):
