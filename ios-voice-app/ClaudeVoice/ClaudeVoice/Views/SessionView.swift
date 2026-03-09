@@ -576,7 +576,7 @@ struct SessionView: View {
                                 agents.append(AgentInfo(tool: toolBlock, result: nil))
                                 items[items.count - 1] = .agentGroup(agents: agents)
                             }
-                            // Check if last item is a single Task toolUse — merge into group
+                            // Check if last item is a single Agent toolUse — merge into group
                             else if case .toolUse(_, let prevTool, let prevResult) = items.last, prevTool.name == "Agent" {
                                 let prevAgent = AgentInfo(tool: prevTool, result: prevResult)
                                 let newAgent = AgentInfo(tool: toolBlock, result: nil)
