@@ -443,8 +443,6 @@ class E2ETestBase: XCTestCase {
         filePath: String? = nil,
         oldContent: String? = nil,
         newContent: String? = nil,
-        questionText: String? = nil,
-        questionOptions: [String]? = nil,
         permissionSuggestions: [[String: Any]]? = nil
     ) -> String {
         let requestId = UUID().uuidString
@@ -468,14 +466,6 @@ class E2ETestBase: XCTestCase {
             if let old = oldContent { context["old_content"] = old }
             if let new = newContent { context["new_content"] = new }
             payload["context"] = context
-        }
-
-        if let text = questionText {
-            var question: [String: Any] = ["text": text]
-            if let opts = questionOptions {
-                question["options"] = opts
-            }
-            payload["question"] = question
         }
 
         if let suggestions = permissionSuggestions {

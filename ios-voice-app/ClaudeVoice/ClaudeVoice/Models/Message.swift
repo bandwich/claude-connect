@@ -86,6 +86,34 @@ struct DeliveryStatusMessage: Codable {
     let text: String
 }
 
+struct QuestionResponseMessage: Codable {
+    let type: String
+    let requestId: String
+    let answer: String?
+    let dismissed: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case requestId = "request_id"
+        case answer
+        case dismissed
+    }
+
+    init(requestId: String, answer: String) {
+        self.type = "question_response"
+        self.requestId = requestId
+        self.answer = answer
+        self.dismissed = false
+    }
+
+    init(requestId: String, dismissed: Bool) {
+        self.type = "question_response"
+        self.requestId = requestId
+        self.answer = nil
+        self.dismissed = dismissed
+    }
+}
+
 struct AudioChunkMessage: Codable {
     let type: String
     let format: String

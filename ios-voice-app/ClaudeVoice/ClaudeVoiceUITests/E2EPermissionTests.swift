@@ -96,61 +96,6 @@ final class E2EPermissionTests: E2ETestBase {
         XCTAssertTrue(waitForPermissionResolved(timeout: 3), "Card should collapse")
     }
 
-    // MARK: - Question Permission Tests
-
-    func test_question_options_inline() throws {
-        navigateToTestSession()
-
-        let _ = injectPermissionRequest(
-            promptType: "question",
-            toolName: "AskUserQuestion",
-            questionText: "Which database?",
-            questionOptions: ["PostgreSQL", "SQLite"]
-        )
-
-        XCTAssertTrue(waitForPermissionCard(timeout: 5), "Permission card should appear")
-
-        // Verify question text
-        XCTAssertTrue(app.staticTexts["Which database?"].waitForExistence(timeout: 2))
-
-        // Verify options (numbered)
-        XCTAssertTrue(app.buttons["permissionOption1"].exists, "Option 1 should exist")
-        XCTAssertTrue(app.buttons["permissionOption2"].exists, "Option 2 should exist")
-
-        // Tap option
-        app.buttons["permissionOption2"].tap()
-        XCTAssertTrue(waitForPermissionResolved(timeout: 3), "Card should collapse")
-    }
-
-    func test_question_text_input() throws {
-        navigateToTestSession()
-
-        let _ = injectPermissionRequest(
-            promptType: "question",
-            toolName: "AskUserQuestion",
-            questionText: "What should the function be named?"
-        )
-
-        XCTAssertTrue(waitForPermissionCard(timeout: 5), "Permission card should appear")
-
-        // Verify question text
-        XCTAssertTrue(app.staticTexts["What should the function be named?"].waitForExistence(timeout: 2))
-
-        // Verify text field exists
-        let textField = app.textFields.firstMatch
-        XCTAssertTrue(textField.exists, "Text field should exist")
-
-        // Type and submit
-        textField.tap()
-        textField.typeText("calculateTotal")
-
-        let sendButton = app.buttons["Send"]
-        XCTAssertTrue(sendButton.exists, "Send button should exist")
-        sendButton.tap()
-
-        XCTAssertTrue(waitForPermissionResolved(timeout: 3), "Card should collapse after submit")
-    }
-
     // MARK: - Write Permission Tests
 
     func test_write_permission_inline_card() throws {

@@ -5,7 +5,6 @@ enum PermissionPromptType: String, Codable {
     case bash
     case write
     case edit
-    case question
     case task
 }
 
@@ -48,11 +47,6 @@ struct PermissionContext: Codable, Equatable {
         case oldContent = "old_content"
         case newContent = "new_content"
     }
-}
-
-struct PermissionQuestion: Codable, Equatable {
-    let text: String
-    let options: [String]?
 }
 
 struct PermissionRule: Codable, Equatable {
@@ -108,7 +102,6 @@ struct PermissionRequest: Codable, Identifiable, Equatable {
     let toolName: String
     let toolInput: ToolInput?
     let context: PermissionContext?
-    let question: PermissionQuestion?
     let permissionSuggestions: [PermissionSuggestion]?
     let timestamp: Double
 
@@ -121,7 +114,6 @@ struct PermissionRequest: Codable, Identifiable, Equatable {
         case toolName = "tool_name"
         case toolInput = "tool_input"
         case context
-        case question
         case permissionSuggestions = "permission_suggestions"
         case timestamp
     }
@@ -166,5 +158,44 @@ struct PermissionResolved: Codable {
         case type
         case requestId = "request_id"
         case answeredIn = "answered_in"
+    }
+}
+
+struct QuestionOption: Codable, Equatable {
+    let label: String
+    let description: String
+}
+
+struct QuestionPrompt: Codable, Identifiable, Equatable {
+    let type: String
+    let requestId: String
+    let header: String
+    let question: String
+    let options: [QuestionOption]
+    let multiSelect: Bool
+    let questionIndex: Int
+    let totalQuestions: Int
+
+    var id: String { requestId }
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case requestId = "request_id"
+        case header
+        case question
+        case options
+        case multiSelect = "multi_select"
+        case questionIndex = "question_index"
+        case totalQuestions = "total_questions"
+    }
+}
+
+struct QuestionResolved: Codable {
+    let type: String
+    let requestId: String
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case requestId = "request_id"
     }
 }

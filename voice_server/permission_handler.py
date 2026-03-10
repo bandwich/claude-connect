@@ -83,7 +83,7 @@ class PermissionHandler:
     async def broadcast(self, message: dict):
         """Broadcast a message to all connected WebSocket clients"""
         # Store permission_request messages for re-send on reconnect
-        if message.get("type") == "permission_request":
+        if message.get("type") in ("permission_request", "question_prompt"):
             request_id = message.get("request_id", "")
             if request_id:
                 self.pending_messages[request_id] = message

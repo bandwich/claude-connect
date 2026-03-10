@@ -41,7 +41,6 @@ struct PermissionCardView: View {
         case .edit: return "Edit file"
         case .write: return "Create file"
         case .task: return "Agent"
-        case .question: return "Question"
         }
     }
 
@@ -51,7 +50,6 @@ struct PermissionCardView: View {
         case .edit: return .blue
         case .write: return .green
         case .task: return .purple
-        case .question: return .primary
         }
     }
 
@@ -108,25 +106,13 @@ struct PermissionCardView: View {
                     .background(Color(.systemGray5))
                     .cornerRadius(6)
             }
-
-        case .question:
-            if let text = request.question?.text {
-                Text(text)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-            }
         }
     }
 
     // MARK: - Options block
 
-    @ViewBuilder
     private var optionsBlock: some View {
-        if request.promptType == .question {
-            questionOptions
-        } else {
-            permissionOptions
-        }
+        permissionOptions
     }
 
     private var permissionOptions: some View {
@@ -153,33 +139,6 @@ struct PermissionCardView: View {
             let noNumber = 2 + (request.permissionSuggestions?.count ?? 0)
             optionButton(number: noNumber, text: "No") {
                 sendResponse(.deny)
-            }
-        }
-    }
-
-    @State private var questionTextInput: String = ""
-
-    @ViewBuilder
-    private var questionOptions: some View {
-        if let options = request.question?.options, !options.isEmpty {
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(Array(options.enumerated()), id: \.offset) { index, option in
-                    optionButton(number: index + 1, text: option) {
-                        sendResponse(.allow, selectedOption: index)
-                    }
-                }
-            }
-        } else {
-            HStack {
-                TextField("Type your answer...", text: $questionTextInput)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.caption)
-                Button("Send") {
-                    sendResponse(.allow, input: questionTextInput)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .disabled(questionTextInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
     }
@@ -221,6 +180,98 @@ struct PermissionCardView: View {
     }
 }
 
+struct QuestionCardView: View {
+    let prompt: QuestionPrompt
+    let onAnswer: (String) -> Void
+    let onDismiss: () -> Void
+
+    @State private var textInput: String = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Header row with dismiss button
+            HStack {
+                if !prompt.header.isEmpty {
+                    Text(prompt.header)
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.primary)
+                }
+                if prompt.totalQuestions > 1 {
+                    Text("(\(prompt.questionIndex + 1)/\(prompt.totalQuestions))")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+                Button(action: onDismiss) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.secondary)
+                        .font(.title3)
+                }
+                .accessibilityIdentifier("questionDismiss")
+            }
+
+            // Question text
+            Text(prompt.question)
+                .font(.subheadline)
+                .fontWeight(.medium)
+
+            // Options or text input
+            if !prompt.options.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(Array(prompt.options.enumerated()), id: \.offset) { index, option in
+                        Button(action: { onAnswer(option.label) }) {
+                            HStack(alignment: .top, spacing: 8) {
+                                Text("\(index + 1).")
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 22, alignment: .trailing)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(option.label)
+                                        .font(.subheadline)
+                                        .fontWeight(.medium)
+                                        .foregroundColor(.primary)
+                                        .multilineTextAlignment(.leading)
+                                    if !option.description.isEmpty {
+                                        Text(option.description)
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                            .multilineTextAlignment(.leading)
+                                    }
+                                }
+                                Spacer()
+                            }
+                            .padding(.vertical, 10)
+                            .padding(.horizontal, 10)
+                            .background(Color(.systemGray5))
+                            .cornerRadius(8)
+                        }
+                        .accessibilityIdentifier("questionOption\(index + 1)")
+                    }
+                }
+            } else {
+                HStack {
+                    TextField("Type your answer...", text: $textInput)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.caption)
+                        .accessibilityIdentifier("questionTextInput")
+                    Button("Send") {
+                        onAnswer(textInput)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .disabled(textInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .accessibilityIdentifier("questionSendButton")
+                }
+            }
+        }
+        .padding(12)
+        .background(Color(.systemGray6))
+        .cornerRadius(12)
+        .accessibilityIdentifier("questionCard")
+    }
+}
+
 #Preview("Bash - Pending") {
     PermissionCardView(
         request: PermissionRequest(
@@ -230,7 +281,6 @@ struct PermissionCardView: View {
             toolName: "Bash",
             toolInput: ToolInput(command: "python3 -c \"print('hello from permission test')\"", description: "Test permission flow again"),
             context: nil,
-            question: nil,
             permissionSuggestions: [
                 PermissionSuggestion(
                     type: "addRules",

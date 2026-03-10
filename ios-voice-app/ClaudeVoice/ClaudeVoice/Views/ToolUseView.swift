@@ -11,8 +11,10 @@ struct ToolUseView: View {
         tool.name == "TaskOutput"
     }
 
+    /// Tools where result content is hidden (just shows "Done" checkmark).
+    /// AskUserQuestion result is hook plumbing (deny+reason), not useful to display.
     private var shouldHideResult: Bool {
-        ["Task", "Read", "Edit", "Grep", "Glob"].contains(tool.name)
+        ["Task", "Read", "Edit", "Grep", "Glob", "AskUserQuestion", "ToolSearch"].contains(tool.name)
     }
 
     /// Tools where results are collapsed by default but expandable
@@ -291,6 +293,16 @@ struct ToolUseView: View {
             return desc.isEmpty ? agentType : "\(agentType): \(desc)"
         case "TaskOutput":
             return stringInput("task_id")
+        case "AskUserQuestion":
+            // Extract first question text from questions array
+            if let questions = tool.input["questions"]?.value as? [[String: Any]],
+               let first = questions.first,
+               let question = first["question"] as? String {
+                return question
+            }
+            return stringInput("question")
+        case "ToolSearch":
+            return stringInput("query")
         default:
             for (_, value) in tool.input {
                 if let str = value.value as? String, !str.isEmpty {

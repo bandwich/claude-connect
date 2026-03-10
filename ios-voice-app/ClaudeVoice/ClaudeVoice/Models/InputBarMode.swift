@@ -3,7 +3,7 @@ import Foundation
 enum InputBarMode: Equatable {
     case normal
     case permissionPrompt(PermissionRequest)
-    case questionPrompt(PermissionRequest)
+    case questionPrompt(QuestionPrompt)
     case syncing
     case disconnected
 

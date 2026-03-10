@@ -52,8 +52,11 @@ struct SessionView: View {
                                     }
                                     .id(item.id)
                                 case .toolUse(_, let tool, let result):
-                                    ToolUseView(tool: tool, result: result)
-                                        .id(item.id)
+                                    // ToolSearch is internal schema fetching — hide entirely
+                                    if tool.name != "ToolSearch" {
+                                        ToolUseView(tool: tool, result: result)
+                                            .id(item.id)
+                                    }
                                 case .agentGroup(let agents):
                                     AgentGroupView(agents: agents)
                                         .id(item.id)
@@ -157,11 +160,20 @@ struct SessionView: View {
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
 
-                    case .questionPrompt(let request):
-                        PermissionCardView(
-                            request: request,
-                            onResponse: { response in
-                                handlePermissionResponse(response, for: request)
+                    case .questionPrompt(let prompt):
+                        QuestionCardView(
+                            prompt: prompt,
+                            onAnswer: { answer in
+                                webSocketManager.sendQuestionResponse(
+                                    QuestionResponseMessage(requestId: prompt.requestId, answer: answer)
+                                )
+                                webSocketManager.inputBarMode = .normal
+                            },
+                            onDismiss: {
+                                webSocketManager.sendQuestionResponse(
+                                    QuestionResponseMessage(requestId: prompt.requestId, dismissed: true)
+                                )
+                                webSocketManager.inputBarMode = .normal
                             }
                         )
                         .padding(.horizontal, 12)
@@ -970,12 +982,6 @@ struct SessionView: View {
                 return "Agent: \(truncated)"
             }
             return "Run agent"
-        case .question:
-            if let text = request.question?.text {
-                let truncated = text.count > 50 ? String(text.prefix(50)) + "..." : text
-                return truncated
-            }
-            return "Answer question"
         }
     }
 

@@ -413,15 +413,29 @@ class WebSocketManager: NSObject, ObservableObject {
         }
     }
 
+    func sendQuestionResponse(_ message: QuestionResponseMessage) {
+        guard let data = try? JSONEncoder().encode(message),
+              let jsonString = String(data: data, encoding: .utf8) else {
+            print("❌ Failed to encode question response")
+            return
+        }
+
+        let wsMessage = URLSessionWebSocketTask.Message.string(jsonString)
+        webSocketTask?.send(wsMessage) { error in
+            if let error = error {
+                print("❌ Failed to send question response: \(error)")
+            } else {
+                print("✅ Question response sent")
+            }
+        }
+        logToFile("📤 Sent question_response: \(message.requestId)")
+    }
+
     // MARK: - Input bar state transitions
 
     func handleInputBarPermission(_ request: PermissionRequest) {
         let oldMode = inputBarMode
-        if request.promptType == .question {
-            inputBarMode = .questionPrompt(request)
-        } else {
-            inputBarMode = .permissionPrompt(request)
-        }
+        inputBarMode = .permissionPrompt(request)
         logToFile("🔀 inputBarMode: \(oldMode) → \(inputBarMode)")
     }
 
@@ -556,6 +570,21 @@ class WebSocketManager: NSObject, ObservableObject {
                     self.branch = connectionStatus.branch
                     self.onConnectionStatusReceived?(connectionStatus)
                 }
+            } else if let questionPrompt = try? JSONDecoder().decode(QuestionPrompt.self, from: data),
+                      questionPrompt.type == "question_prompt" {
+                logToFile("✅ Decoded as QuestionPrompt: \(questionPrompt.requestId)")
+                DispatchQueue.main.async {
+                    self.inputBarMode = .questionPrompt(questionPrompt)
+                }
+            } else if let questionResolved = try? JSONDecoder().decode(QuestionResolved.self, from: data),
+                      questionResolved.type == "question_resolved" {
+                logToFile("✅ Decoded as QuestionResolved: \(questionResolved.requestId)")
+                DispatchQueue.main.async {
+                    if case .questionPrompt(let current) = self.inputBarMode,
+                       current.requestId == questionResolved.requestId {
+                        self.inputBarMode = .normal
+                    }
+                }
             } else if let permissionRequest = try? JSONDecoder().decode(PermissionRequest.self, from: data) {
                 logToFile("✅ Decoded as PermissionRequest: \(permissionRequest.requestId)")
                 DispatchQueue.main.async {
@@ -672,6 +701,21 @@ class WebSocketManager: NSObject, ObservableObject {
                     self.activeSessionId = connectionStatus.activeSessionId
                     self.branch = connectionStatus.branch
                     self.onConnectionStatusReceived?(connectionStatus)
+                }
+            } else if let questionPrompt = try? JSONDecoder().decode(QuestionPrompt.self, from: data),
+                      questionPrompt.type == "question_prompt" {
+                logToFile("✅ Decoded as QuestionPrompt: \(questionPrompt.requestId)")
+                DispatchQueue.main.async {
+                    self.inputBarMode = .questionPrompt(questionPrompt)
+                }
+            } else if let questionResolved = try? JSONDecoder().decode(QuestionResolved.self, from: data),
+                      questionResolved.type == "question_resolved" {
+                logToFile("✅ Decoded as QuestionResolved: \(questionResolved.requestId)")
+                DispatchQueue.main.async {
+                    if case .questionPrompt(let current) = self.inputBarMode,
+                       current.requestId == questionResolved.requestId {
+                        self.inputBarMode = .normal
+                    }
                 }
             } else if let permissionRequest = try? JSONDecoder().decode(PermissionRequest.self, from: data) {
                 DispatchQueue.main.async {

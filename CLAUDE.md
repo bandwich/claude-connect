@@ -66,6 +66,7 @@ voice_server/                  # Python server
 ├─ qr_display.py              # QR code generation for iOS connection
 ├─ hooks/
 │   ├─ permission_hook.sh     # PermissionRequest hook → POST to HTTP server
+│   ├─ question_hook.sh       # PreToolUse hook → forward AskUserQuestion to iOS
 │   └─ post_tool_hook.sh      # PostToolUse hook → dismiss stale prompts
 ├─ integration_tests/          # E2E test server infrastructure
 │   ├─ test_server.py         # Modified server for E2E tests
@@ -84,7 +85,7 @@ ios-voice-app/ClaudeVoice/     # iOS app (Swift/SwiftUI)
 │   ├─ FileModels.swift       # File browser response models
 │   ├─ InputBarMode.swift     # Input bar state: normal/permissionPrompt/syncing/etc.
 │   ├─ Message.swift          # WebSocket message types (all send/receive structs)
-│   ├─ PermissionRequest.swift # Permission request/response/suggestion models
+│   ├─ PermissionRequest.swift # Permission/question request/response models
 │   ├─ Project.swift          # Claude Code project model
 │   ├─ Session.swift          # Session model, ConversationItem enum, AgentInfo
 │   ├─ UsageStats.swift       # Weekly/session quota stats
@@ -98,7 +99,7 @@ ios-voice-app/ClaudeVoice/     # iOS app (Swift/SwiftUI)
 │   ├─ SessionView.swift      # Main conversation view (largest, ~50KB)
 │   ├─ ToolUseView.swift      # Tool use/result display with expand/collapse
 │   ├─ AgentGroupView.swift   # Agent execution status cards (running/completed)
-│   ├─ PermissionCardView.swift # Permission approval inline card
+│   ├─ PermissionCardView.swift # Permission approval + question prompt cards
 │   ├─ ProjectsListView.swift # Project browser
 │   ├─ ProjectDetailView.swift # Project detail with sessions + files tabs
 │   ├─ SessionsListView.swift # Session browser
@@ -241,6 +242,18 @@ To enable remote permission control from the iOS app, add hooks to your Claude C
         ]
       }
     ],
+    "PreToolUse": [
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/path/to/max/voice_server/hooks/question_hook.sh",
+            "timeout": 185
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": ".*",
@@ -263,12 +276,19 @@ To enable remote permission control from the iOS app, add hooks to your Claude C
 - WebSocket: 8765 (iOS app connection)
 - HTTP: 8766 (Hook requests from Claude Code)
 
-**How It Works:**
+**How It Works (Permissions):**
 1. Claude Code triggers PermissionRequest hook before showing a prompt
 2. Hook POSTs to voice server, which forwards to iOS app via WebSocket
 3. User approves/denies on iOS, response flows back to hook
 4. Hook outputs decision JSON, Claude Code proceeds accordingly
 5. If timeout (3 min), falls back to terminal prompt with late-response injection
+
+**How It Works (Questions):**
+1. Claude Code triggers PreToolUse hook when AskUserQuestion is called
+2. Hook POSTs to `/question` endpoint, which broadcasts question to iOS
+3. iOS shows option buttons (or text input), user answers
+4. Answer flows back through WebSocket → HTTP → hook as a deny+reason
+5. Claude receives the answer and proceeds without showing terminal UI
 
 ## WebSocket Protocol
 
@@ -290,6 +310,7 @@ list_directory       {"type": "list_directory", "path": "..."}
 read_file            {"type": "read_file", "path": "..."}
 usage_request        {"type": "usage_request"}
 permission_response  {"type": "permission_response", "request_id": "...", "decision": "allow|deny|modify", ...}
+question_response    {"type": "question_response", "request_id": "...", "answer": "..." | "dismissed": true}
 ```
 
 ### Server → iOS
@@ -315,6 +336,8 @@ context_update       {"type": "context_update", "session_id": "...", "context_pe
 usage_response       {"type": "usage_response", "session": {...}, "week_all_models": {...}, ...}
 permission_request   {"type": "permission_request", "request_id": "...", "prompt_type": "bash|edit|...", ...}
 permission_resolved  {"type": "permission_resolved", "request_id": "..."}
+question_prompt      {"type": "question_prompt", "request_id": "...", "question": "...", "options": [...], ...}
+question_resolved    {"type": "question_resolved", "request_id": "..."}
 ```
 
 ## Key Features
@@ -328,6 +351,7 @@ permission_resolved  {"type": "permission_resolved", "request_id": "..."}
 - **File Browser**: Browse project files with text and image viewing
 - **Markdown Rendering**: Rich text in messages, stripped for TTS
 - **Remote Permissions**: Approve/deny Claude Code permission prompts inline with suggestion support
+- **Question Prompts**: Answer AskUserQuestion options via tappable buttons (PreToolUse hook)
 - **Context Tracking**: Real-time context window usage displayed in session header
 - **Usage Stats**: View session/weekly quotas in Settings (fetched via OAuth API)
 - **Activity Detection**: Idle/thinking/tool_active state from tmux pane parsing
@@ -359,6 +383,13 @@ The core data flow for streaming Claude's output to the iOS app:
 3. iOS shows inline `PermissionCardView` with approve/deny + permission suggestions
 4. User decision flows back through WebSocket → HTTP response → hook stdout → Claude Code
 5. `PostToolUse` hook fires `post_tool_hook.sh` to dismiss stale prompts if the request timed out
+
+### Question Flow
+1. Claude Code triggers `PreToolUse` hook for `AskUserQuestion` → `question_hook.sh` POSTs to `/question` endpoint
+2. `http_server.py` extracts questions, broadcasts `question_prompt` to iOS one at a time
+3. iOS shows `QuestionCardView` with tappable option buttons (or text input for no options)
+4. User answer flows back through WebSocket → HTTP response → hook stdout as deny+reason
+5. Claude receives the answer and continues without showing terminal UI
 
 ### Usage Checking
 `usage_checker.py` reads the OAuth token from macOS Keychain (`security` command) and calls the Anthropic OAuth API directly. `usage_parser.py` maps the API response into session/weekly quota percentages.

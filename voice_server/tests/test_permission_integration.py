@@ -79,67 +79,6 @@ class TestPermissionIntegration(AioHTTPTestCase):
         assert result["hookSpecificOutput"]["decision"]["behavior"] == "deny"
 
     @unittest_run_loop
-    async def test_question_with_text_input(self):
-        """Test AskUserQuestion flow with text input"""
-        mock_ios = AsyncMock()
-        self.permission_handler.websocket_clients.add(mock_ios)
-
-        async def ios_answers():
-            await asyncio.sleep(0.05)
-            broadcast_call = mock_ios.send.call_args[0][0]
-            data = json.loads(broadcast_call)
-            self.permission_handler.resolve_request(data["request_id"], {
-                "decision": "allow",
-                "input": "calculateTotal"
-            })
-
-        asyncio.create_task(ios_answers())
-
-        resp = await self.client.post("/permission", json={
-            "tool_name": "AskUserQuestion",
-            "question": {"text": "What should the function be named?"}
-        })
-
-        assert resp.status == 200
-        result = await resp.json()
-        # Verify Claude Code hook format (input is handled internally, not in hook output)
-        assert "hookSpecificOutput" in result
-        assert result["hookSpecificOutput"]["hookEventName"] == "PermissionRequest"
-        assert result["hookSpecificOutput"]["decision"]["behavior"] == "allow"
-
-    @unittest_run_loop
-    async def test_question_with_option_selection(self):
-        """Test AskUserQuestion flow with option selection"""
-        mock_ios = AsyncMock()
-        self.permission_handler.websocket_clients.add(mock_ios)
-
-        async def ios_selects():
-            await asyncio.sleep(0.05)
-            broadcast_call = mock_ios.send.call_args[0][0]
-            data = json.loads(broadcast_call)
-            self.permission_handler.resolve_request(data["request_id"], {
-                "decision": "allow",
-                "selected_option": 1
-            })
-
-        asyncio.create_task(ios_selects())
-
-        resp = await self.client.post("/permission", json={
-            "tool_name": "AskUserQuestion",
-            "question": {
-                "text": "Which database?",
-                "options": ["PostgreSQL", "SQLite", "MongoDB"]
-            }
-        })
-
-        assert resp.status == 200
-        result = await resp.json()
-        # Verify Claude Code hook format (selected_option is handled internally, not in hook output)
-        assert "hookSpecificOutput" in result
-        assert result["hookSpecificOutput"]["hookEventName"] == "PermissionRequest"
-        assert result["hookSpecificOutput"]["decision"]["behavior"] == "allow"
-
-    @unittest_run_loop
     async def test_timeout_returns_ask_behavior(self):
         """Test timeout returns fallback behavior"""
         resp = await self.client.post("/permission?timeout=0.1", json={
@@ -150,6 +89,193 @@ class TestPermissionIntegration(AioHTTPTestCase):
         assert resp.status == 200
         result = await resp.json()
         assert result["behavior"] == "ask"
+
+    # --- Question endpoint tests (PreToolUse hook for AskUserQuestion) ---
+
+    @unittest_run_loop
+    async def test_question_endpoint_broadcasts_and_waits(self):
+        """Test /question endpoint broadcasts question_prompt and waits for response"""
+        mock_ios = AsyncMock()
+        self.permission_handler.websocket_clients.add(mock_ios)
+
+        async def ios_answers():
+            await asyncio.sleep(0.05)
+            broadcast_call = mock_ios.send.call_args[0][0]
+            data = json.loads(broadcast_call)
+            assert data["type"] == "question_prompt"
+            assert data["question"] == "Which database?"
+            assert data["header"] == "Scope"
+            assert len(data["options"]) == 2
+            assert data["options"][0]["label"] == "PostgreSQL"
+            assert data["options"][0]["description"] == "Fast relational DB"
+            assert data["question_index"] == 0
+            assert data["total_questions"] == 1
+
+            self.permission_handler.resolve_request(data["request_id"], {
+                "answer": "PostgreSQL"
+            })
+
+        asyncio.create_task(ios_answers())
+
+        resp = await self.client.post("/question", json={
+            "tool_name": "AskUserQuestion",
+            "tool_input": {
+                "questions": [{
+                    "question": "Which database?",
+                    "header": "Scope",
+                    "options": [
+                        {"label": "PostgreSQL", "description": "Fast relational DB"},
+                        {"label": "SQLite", "description": "Embedded, zero config"}
+                    ],
+                    "multiSelect": False
+                }]
+            }
+        })
+
+        assert resp.status == 200
+        result = await resp.json()
+        assert result["hookSpecificOutput"]["hookEventName"] == "PreToolUse"
+        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+        assert "PostgreSQL" in result["hookSpecificOutput"]["permissionDecisionReason"]
+
+    @unittest_run_loop
+    async def test_question_endpoint_dismiss(self):
+        """Test /question endpoint handles dismiss"""
+        mock_ios = AsyncMock()
+        self.permission_handler.websocket_clients.add(mock_ios)
+
+        async def ios_dismisses():
+            await asyncio.sleep(0.05)
+            broadcast_call = mock_ios.send.call_args[0][0]
+            data = json.loads(broadcast_call)
+            self.permission_handler.resolve_request(data["request_id"], {
+                "dismissed": True
+            })
+
+        asyncio.create_task(ios_dismisses())
+
+        resp = await self.client.post("/question", json={
+            "tool_name": "AskUserQuestion",
+            "tool_input": {
+                "questions": [{
+                    "question": "Which color?",
+                    "header": "Color",
+                    "options": [
+                        {"label": "Red", "description": "Warm"},
+                        {"label": "Blue", "description": "Cool"}
+                    ],
+                    "multiSelect": False
+                }]
+            }
+        })
+
+        assert resp.status == 200
+        result = await resp.json()
+        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+        assert "dismissed" in result["hookSpecificOutput"]["permissionDecisionReason"].lower()
+
+    @unittest_run_loop
+    async def test_question_endpoint_timeout(self):
+        """Test /question endpoint times out and falls back"""
+        resp = await self.client.post("/question?timeout=0.1", json={
+            "tool_name": "AskUserQuestion",
+            "tool_input": {
+                "questions": [{
+                    "question": "Pick one",
+                    "header": "Test",
+                    "options": [],
+                    "multiSelect": False
+                }]
+            }
+        })
+
+        assert resp.status == 200
+        result = await resp.json()
+        assert result.get("fallback") == True
+
+    @unittest_run_loop
+    async def test_question_endpoint_free_text(self):
+        """Test /question endpoint with no options (free text answer)"""
+        mock_ios = AsyncMock()
+        self.permission_handler.websocket_clients.add(mock_ios)
+
+        async def ios_types():
+            await asyncio.sleep(0.05)
+            broadcast_call = mock_ios.send.call_args[0][0]
+            data = json.loads(broadcast_call)
+            assert data["options"] == []
+            self.permission_handler.resolve_request(data["request_id"], {
+                "answer": "calculateTotal"
+            })
+
+        asyncio.create_task(ios_types())
+
+        resp = await self.client.post("/question", json={
+            "tool_name": "AskUserQuestion",
+            "tool_input": {
+                "questions": [{
+                    "question": "What should the function be named?",
+                    "header": "Name",
+                    "multiSelect": False
+                }]
+            }
+        })
+
+        assert resp.status == 200
+        result = await resp.json()
+        assert "calculateTotal" in result["hookSpecificOutput"]["permissionDecisionReason"]
+
+    @unittest_run_loop
+    async def test_question_endpoint_multiple_questions(self):
+        """Test /question endpoint with multiple questions sends one at a time"""
+        mock_ios = AsyncMock()
+        self.permission_handler.websocket_clients.add(mock_ios)
+
+        async def ios_answers_both():
+            await asyncio.sleep(0.05)
+            first_call = mock_ios.send.call_args[0][0]
+            data1 = json.loads(first_call)
+            assert data1["question_index"] == 0
+            assert data1["total_questions"] == 2
+            self.permission_handler.resolve_request(data1["request_id"], {
+                "answer": "PostgreSQL"
+            })
+            await asyncio.sleep(0.2)
+            second_call = mock_ios.send.call_args[0][0]
+            data2 = json.loads(second_call)
+            assert data2["question_index"] == 1
+            assert data2["total_questions"] == 2
+            self.permission_handler.resolve_request(data2["request_id"], {
+                "answer": "Yes"
+            })
+
+        asyncio.create_task(ios_answers_both())
+
+        resp = await self.client.post("/question", json={
+            "tool_name": "AskUserQuestion",
+            "tool_input": {
+                "questions": [
+                    {
+                        "question": "Which database?",
+                        "header": "DB",
+                        "options": [{"label": "PostgreSQL", "description": ""}],
+                        "multiSelect": False
+                    },
+                    {
+                        "question": "Enable caching?",
+                        "header": "Cache",
+                        "options": [{"label": "Yes", "description": ""}, {"label": "No", "description": ""}],
+                        "multiSelect": False
+                    }
+                ]
+            }
+        })
+
+        assert resp.status == 200
+        result = await resp.json()
+        reason = result["hookSpecificOutput"]["permissionDecisionReason"]
+        assert "PostgreSQL" in reason
+        assert "Yes" in reason
 
     @unittest_run_loop
     async def test_edit_permission_with_context(self):

@@ -1402,6 +1402,22 @@ class VoiceServer:
         else:
             print(f"[PERM] WARNING: Request {request_id} is neither pending nor timed out — response dropped")
 
+    async def handle_question_response(self, data):
+        """Handle question response from iOS"""
+        request_id = data.get('request_id', '')
+        answer = data.get('answer', '')
+        dismissed = data.get('dismissed', False)
+        print(f"[QUESTION] Received question_response: id={request_id}, dismissed={dismissed}, answer={answer[:60] if answer else ''}")
+
+        if self.permission_handler.is_request_pending(request_id):
+            if dismissed:
+                self.permission_handler.resolve_request(request_id, {"dismissed": True})
+            else:
+                self.permission_handler.resolve_request(request_id, {"answer": answer})
+            print(f"[QUESTION] Resolved request {request_id}")
+        else:
+            print(f"[QUESTION] No pending request for {request_id}")
+
     async def inject_terminal_response(self, decision, data):
         """Inject permission response into terminal after timeout"""
         if decision == "allow":
@@ -1469,6 +1485,8 @@ class VoiceServer:
                 await self.handle_read_file(websocket, data)
             elif msg_type == 'permission_response':
                 await self.handle_permission_response(data)
+            elif msg_type == 'question_response':
+                await self.handle_question_response(data)
             elif msg_type == 'interrupt':
                 await self.handle_interrupt()
             elif msg_type == 'usage_request':

@@ -45,7 +45,6 @@ def create_http_app(permission_handler: PermissionHandler) -> web.Application:
             "Bash": "bash",
             "Write": "write",
             "Edit": "edit",
-            "AskUserQuestion": "question",
             "Task": "task",
         }
         prompt_type = prompt_type_map.get(tool_name, "bash")
@@ -57,7 +56,6 @@ def create_http_app(permission_handler: PermissionHandler) -> web.Application:
             "tool_name": tool_name,
             "tool_input": payload.get("tool_input", {}),
             "context": payload.get("context"),
-            "question": payload.get("question"),
             "permission_suggestions": payload.get("permission_suggestions"),
             "timestamp": payload.get("timestamp", 0),
         }
@@ -105,6 +103,107 @@ def create_http_app(permission_handler: PermissionHandler) -> web.Application:
             hook_response["hookSpecificOutput"]["decision"]["updatedPermissions"] = updated_perms
 
         print(f"[PERM HTTP] Returning hook response for {request_id}: {json.dumps(hook_response)}")
+        return web.json_response(hook_response)
+
+    async def handle_question(request: web.Request) -> web.Response:
+        """Handle POST /question from PreToolUse hook for AskUserQuestion.
+
+        Receives question data, broadcasts each question to iOS one at a time,
+        collects answers, returns deny decision with answers for Claude.
+        """
+        try:
+            payload = await request.json()
+        except json.JSONDecodeError:
+            return web.json_response({"error": "Invalid JSON"}, status=400)
+
+        timeout = float(request.query.get("timeout", "180"))
+
+        tool_input = payload.get("tool_input", {})
+        questions = tool_input.get("questions", [])
+
+        if not questions:
+            return web.json_response({"fallback": True})
+
+        total = len(questions)
+        answers = []
+
+        for idx, q in enumerate(questions):
+            request_id = permission_handler.generate_request_id()
+            permission_handler.register_request(request_id)
+
+            options = q.get("options", [])
+
+            ios_message = {
+                "type": "question_prompt",
+                "request_id": request_id,
+                "header": q.get("header", ""),
+                "question": q.get("question", ""),
+                "options": options if options else [],
+                "multi_select": q.get("multiSelect", False),
+                "question_index": idx,
+                "total_questions": total,
+            }
+
+            print(f"[QUESTION] Broadcasting question {idx+1}/{total}: {q.get('question', '')[:60]}")
+            await permission_handler.broadcast(ios_message)
+
+            try:
+                response = await permission_handler.wait_for_response(request_id, timeout=timeout)
+            except asyncio.CancelledError:
+                print(f"[QUESTION] Connection dropped for {request_id}")
+                permission_handler.cleanup_request(request_id)
+                raise
+
+            if response is None:
+                print(f"[QUESTION] Timeout for question {idx+1}")
+                await permission_handler.broadcast({
+                    "type": "question_resolved",
+                    "request_id": request_id,
+                })
+                return web.json_response({"fallback": True})
+
+            permission_handler.cleanup_request(request_id)
+
+            if response.get("dismissed"):
+                print(f"[QUESTION] User dismissed question {idx+1}")
+                await permission_handler.broadcast({
+                    "type": "question_resolved",
+                    "request_id": request_id,
+                })
+                return web.json_response({
+                    "hookSpecificOutput": {
+                        "hookEventName": "PreToolUse",
+                        "permissionDecision": "deny",
+                        "permissionDecisionReason": "The user dismissed this question from the iOS app. Do not ask again — proceed with your best judgment or ask a different question."
+                    }
+                })
+
+            answer = response.get("answer", "")
+            question_text = q.get("question", "")
+            answers.append((question_text, answer))
+            print(f"[QUESTION] Got answer for question {idx+1}: {answer[:60]}")
+
+            # Broadcast resolved so iOS clears the prompt before next question
+            await permission_handler.broadcast({
+                "type": "question_resolved",
+                "request_id": request_id,
+            })
+
+        # Build the deny reason with all answers
+        answer_lines = []
+        for q_text, a_text in answers:
+            answer_lines.append(f'Q: "{q_text}"\nA: "{a_text}"')
+        answers_block = "\n\n".join(answer_lines)
+
+        hook_response = {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": f"The user already answered via the iOS app.\n\n{answers_block}\n\nProceed with these answers. Do not ask again."
+            }
+        }
+
+        print(f"[QUESTION] Returning hook response with {len(answers)} answer(s)")
         return web.json_response(hook_response)
 
     async def handle_permission_resolved(request: web.Request) -> web.Response:
@@ -222,6 +321,7 @@ def create_http_app(permission_handler: PermissionHandler) -> web.Application:
 
     app = web.Application()
     app.router.add_post("/permission", handle_permission)
+    app.router.add_post("/question", handle_question)
     app.router.add_post("/permission_resolved", handle_permission_resolved)
     app.router.add_get("/health", handle_health)
     app.router.add_get("/tmux_status", handle_tmux_status)
