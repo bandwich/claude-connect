@@ -151,6 +151,12 @@ func groupAgentItems(_ items: [ConversationItem]) -> [ConversationItem] {
 struct SessionHistoryResponse: Codable {
     let type: String
     let messages: [SessionHistoryMessageRich]
+    let lineCount: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case type, messages
+        case lineCount = "line_count"
+    }
 }
 
 struct SessionActionResponse: Codable {

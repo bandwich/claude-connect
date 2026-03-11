@@ -39,7 +39,7 @@ class WebSocketManager: NSObject, ObservableObject {
     var onAssistantResponse: ((AssistantResponseMessage) -> Void)?  // NEW
     var onProjectsReceived: (([Project]) -> Void)?
     var onSessionsReceived: (([Session]) -> Void)?
-    var onSessionHistoryReceived: (([SessionHistoryMessageRich]) -> Void)?
+    var onSessionHistoryReceived: (([SessionHistoryMessageRich], Int?) -> Void)?
     var onSessionActionResult: ((SessionActionResponse) -> Void)?
     var onConnectionStatusReceived: ((ConnectionStatus) -> Void)?
     var onPermissionRequest: ((PermissionRequest) -> Void)?
@@ -72,6 +72,8 @@ class WebSocketManager: NSObject, ObservableObject {
     private var reconnectAttempts = 0
     private let maxReconnectAttempts = 5
     private var shouldReconnect = false
+    var isReconnecting = false
+    private(set) var foregroundMaxRetries = 3
     @Published var connectedURL: String? = nil
 
     override init() {
@@ -202,6 +204,22 @@ class WebSocketManager: NSObject, ObservableObject {
         webSocketTask = nil
         currentURL = nil
         connectedURL = nil
+    }
+
+    func reconnectIfNeeded() {
+        switch connectionState {
+        case .connected, .connecting:
+            return
+        default:
+            break
+        }
+
+        guard currentURL != nil else { return }
+
+        isReconnecting = true
+        shouldReconnect = true
+        reconnectAttempts = 0
+        connectToURL(currentURL!)
     }
 
     func sendVoiceInput(text: String) {
@@ -351,6 +369,14 @@ class WebSocketManager: NSObject, ObservableObject {
             "path": path
         ]
         sendJSON(message)
+    }
+
+    func handleDidOpen() {
+        connectionState = .connected
+        outputState = .idle
+        activityState = nil
+        reconnectAttempts = 0
+        isReconnecting = false
     }
 
     func sendInterrupt() {
@@ -553,9 +579,9 @@ class WebSocketManager: NSObject, ObservableObject {
                     self.onSessionsReceived?(sessionsResponse.sessions)
                 }
             } else if let historyResponse = try? JSONDecoder().decode(SessionHistoryResponse.self, from: data) {
-                logToFile("✅ Decoded as SessionHistoryResponse: \(historyResponse.messages.count) messages")
+                logToFile("✅ Decoded as SessionHistoryResponse: \(historyResponse.messages.count) messages, lineCount=\(historyResponse.lineCount ?? -1)")
                 DispatchQueue.main.async {
-                    self.onSessionHistoryReceived?(historyResponse.messages)
+                    self.onSessionHistoryReceived?(historyResponse.messages, historyResponse.lineCount)
                 }
             } else if let actionResponse = try? JSONDecoder().decode(SessionActionResponse.self, from: data) {
                 logToFile("✅ Decoded as SessionActionResponse: \(actionResponse.type)")
@@ -689,7 +715,7 @@ class WebSocketManager: NSObject, ObservableObject {
                 }
             } else if let historyResponse = try? JSONDecoder().decode(SessionHistoryResponse.self, from: data) {
                 DispatchQueue.main.async {
-                    self.onSessionHistoryReceived?(historyResponse.messages)
+                    self.onSessionHistoryReceived?(historyResponse.messages, historyResponse.lineCount)
                 }
             } else if let actionResponse = try? JSONDecoder().decode(SessionActionResponse.self, from: data) {
                 DispatchQueue.main.async {
@@ -861,8 +887,14 @@ class WebSocketManager: NSObject, ObservableObject {
     }
 
     private func attemptReconnect() {
-        guard shouldReconnect, reconnectAttempts < maxReconnectAttempts else {
-            connectionState = .disconnected
+        let maxAttempts = isReconnecting ? foregroundMaxRetries : maxReconnectAttempts
+        guard shouldReconnect, reconnectAttempts < maxAttempts else {
+            if isReconnecting {
+                connectionState = .error("Server unreachable")
+                isReconnecting = false
+            } else {
+                connectionState = .disconnected
+            }
             return
         }
 
@@ -870,11 +902,12 @@ class WebSocketManager: NSObject, ObservableObject {
         guard urlSession != nil else {
             connectionState = .error("Cannot reconnect: URLSession invalidated")
             shouldReconnect = false
+            isReconnecting = false
             return
         }
 
         reconnectAttempts += 1
-        let delay = min(pow(2.0, Double(reconnectAttempts)), 30.0)
+        let delay = isReconnecting ? 1.0 : min(pow(2.0, Double(reconnectAttempts)), 30.0)
 
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self = self, self.shouldReconnect else { return }
@@ -883,11 +916,13 @@ class WebSocketManager: NSObject, ObservableObject {
             guard self.urlSession != nil else {
                 self.connectionState = .error("Cannot reconnect: URLSession invalidated")
                 self.shouldReconnect = false
+                self.isReconnecting = false
                 return
             }
 
             guard let url = self.currentURL else {
                 self.connectionState = .error("Cannot reconnect: no previous connection")
+                self.isReconnecting = false
                 return
             }
 
@@ -901,10 +936,7 @@ extension WebSocketManager: URLSessionWebSocketDelegate, URLSessionTaskDelegate 
         print("✅ WEBSOCKET CONNECTED")
         logToFile("🔌 connectionState: \(connectionState) → .connected (didOpen)")
         // Already on main thread due to delegateQueue: .main
-        connectionState = .connected
-        outputState = .idle  // Reset output state on new connection
-        activityState = nil
-        reconnectAttempts = 0
+        handleDidOpen()
     }
 
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {

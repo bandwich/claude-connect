@@ -215,7 +215,7 @@ struct WebSocketManagerTests {
         let manager = WebSocketManager()
         var receivedMessages: [SessionHistoryMessage]?
 
-        manager.onSessionHistoryReceived = { messages in
+        manager.onSessionHistoryReceived = { messages, lineCount in
             receivedMessages = messages
         }
 
@@ -227,7 +227,7 @@ struct WebSocketManagerTests {
             SessionHistoryMessage(role: "assistant", content: "Hi there!", timestamp: 1001.0)
         ]
 
-        manager.onSessionHistoryReceived?(mockMessages)
+        manager.onSessionHistoryReceived?(mockMessages, 5)
 
         #expect(receivedMessages?.count == 2, "Should have received 2 messages")
         #expect(receivedMessages?[0].role == "user", "First message should be from user")
@@ -525,6 +525,95 @@ struct WebSocketManagerTests {
         // Simulate what would happen if delegate tried to set error
         // The actual delegate checks if case .disconnected = connectionState { return }
         // So we verify the state stays disconnected
+        #expect(manager.connectionState == .disconnected)
+    }
+
+    // MARK: - Foreground Reconnect Tests
+
+    @Test func reconnectIfNeededSkipsWhenConnected() {
+        let manager = WebSocketManager()
+        manager.connectionState = .connected
+
+        manager.reconnectIfNeeded()
+
+        #expect(manager.connectionState == .connected)
+        #expect(manager.isReconnecting == false)
+    }
+
+    @Test func reconnectIfNeededSkipsWhenConnecting() {
+        let manager = WebSocketManager()
+        manager.connectionState = .connecting
+
+        manager.reconnectIfNeeded()
+
+        #expect(manager.connectionState == .connecting)
+        #expect(manager.isReconnecting == false)
+    }
+
+    @Test func reconnectIfNeededSkipsWhenNoURL() {
+        let manager = WebSocketManager()
+        manager.connectionState = .disconnected
+
+        manager.reconnectIfNeeded()
+
+        // No currentURL stored, so nothing to reconnect to
+        #expect(manager.isReconnecting == false)
+    }
+
+    @Test func reconnectIfNeededStartsWhenDisconnectedWithURL() {
+        let manager = WebSocketManager()
+        // Simulate a previous connection that stored the URL
+        manager.connect(url: "ws://192.168.1.1:8765")
+        // The connect sets currentURL internally via connectToURL
+        // Now simulate iOS killing the connection (sets disconnected without clearing URL)
+        manager.connectionState = .disconnected
+
+        manager.reconnectIfNeeded()
+
+        #expect(manager.isReconnecting == true)
+        #expect(manager.connectionState == .connecting)
+    }
+
+    @Test func reconnectIfNeededStartsWhenErrorWithURL() {
+        let manager = WebSocketManager()
+        manager.connect(url: "ws://192.168.1.1:8765")
+        manager.connectionState = .error("Connection lost")
+
+        manager.reconnectIfNeeded()
+
+        #expect(manager.isReconnecting == true)
+        #expect(manager.connectionState == .connecting)
+    }
+
+    @Test func foregroundReconnectUsesThreeMaxRetries() {
+        let manager = WebSocketManager()
+        manager.connect(url: "ws://192.168.1.1:8765")
+        manager.connectionState = .disconnected
+
+        manager.reconnectIfNeeded()
+
+        #expect(manager.isReconnecting == true)
+        #expect(manager.foregroundMaxRetries == 3)
+    }
+
+    @Test func foregroundReconnectResetsOnSuccess() {
+        let manager = WebSocketManager()
+        manager.isReconnecting = true
+
+        manager.handleDidOpen()
+
+        #expect(manager.isReconnecting == false)
+    }
+
+    @Test func reconnectIfNeededSkipsAfterExplicitDisconnect() {
+        let manager = WebSocketManager()
+        manager.connect(url: "ws://192.168.1.1:8765")
+        manager.disconnect()  // Clears currentURL
+
+        manager.reconnectIfNeeded()
+
+        // disconnect() cleared the URL, so nothing to reconnect to
+        #expect(manager.isReconnecting == false)
         #expect(manager.connectionState == .disconnected)
     }
 }

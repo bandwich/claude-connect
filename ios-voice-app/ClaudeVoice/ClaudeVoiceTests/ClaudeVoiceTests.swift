@@ -707,7 +707,7 @@ struct SessionViewIntegrationTests {
         var receivedMessages: [SessionHistoryMessage]?
 
         // Wire up callback as SessionView would
-        websocketManager.onSessionHistoryReceived = { messages in
+        websocketManager.onSessionHistoryReceived = { messages, lineCount in
             receivedMessages = messages
         }
 
@@ -717,7 +717,7 @@ struct SessionViewIntegrationTests {
             SessionHistoryMessage(role: "assistant", content: "Hi there!", timestamp: 1001.0)
         ]
 
-        websocketManager.onSessionHistoryReceived?(mockMessages)
+        websocketManager.onSessionHistoryReceived?(mockMessages, 10)
 
         #expect(receivedMessages?.count == 2)
         #expect(receivedMessages?[0].role == "user")

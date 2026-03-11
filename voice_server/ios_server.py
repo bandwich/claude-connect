@@ -195,9 +195,9 @@ class TranscriptHandler(FileSystemEventHandler):
             if new_blocks:
                 print(f"[SYNC] Scheduled content_callback (seq={start_line})")
             if user_texts and self.user_callback:
-                for idx, user_text in enumerate(user_texts):
+                for user_text, user_line_num in user_texts:
                     asyncio.run_coroutine_threadsafe(
-                        self.user_callback(user_text, start_line + idx),
+                        self.user_callback(user_text, user_line_num),
                         self.loop
                     )
                 print(f"[SYNC] Scheduled {len(user_texts)} user_callbacks")
@@ -214,11 +214,12 @@ class TranscriptHandler(FileSystemEventHandler):
         """Like extract_new_content but also returns the starting line number.
 
         Returns:
-            (content_blocks, user_texts, start_line_number)
+            (content_blocks, user_texts_with_line, start_line_number)
+            user_texts_with_line is list of (text, line_number) tuples
         """
         start_line = self.processed_line_count
-        blocks, user_texts = self.extract_new_content(filepath)
-        return blocks, user_texts, start_line
+        blocks, user_texts_with_line = self.extract_new_content(filepath)
+        return blocks, user_texts_with_line, start_line
 
     def extract_new_assistant_content(self, filepath) -> list[ContentBlock]:
         """Legacy wrapper — returns only content blocks."""
@@ -229,7 +230,8 @@ class TranscriptHandler(FileSystemEventHandler):
         """Extract assistant content, tool results, and user texts from new lines.
 
         Returns:
-            (content_blocks, user_texts) where user_texts are terminal-typed messages.
+            (content_blocks, user_texts_with_line) where user_texts_with_line
+            is a list of (text, line_number) tuples.
         """
         all_blocks = []
         user_texts = []
@@ -243,7 +245,8 @@ class TranscriptHandler(FileSystemEventHandler):
 
         new_lines = lines[self.processed_line_count:]
 
-        for line in new_lines:
+        for line_offset, line in enumerate(new_lines):
+            line_num = self.processed_line_count + line_offset
             try:
                 entry = json.loads(line.strip())
                 # Track git branch from transcript entries
@@ -327,7 +330,7 @@ class TranscriptHandler(FileSystemEventHandler):
                                             continue
                                         if text.startswith('<task-notification'):
                                             continue
-                                        user_texts.append(rewrite_user_text(text))
+                                        user_texts.append((rewrite_user_text(text), line_num))
                                     # Skip image blocks (base64 data) silently
                     elif isinstance(content, str) and content.strip():
                         stripped = content.strip()
@@ -336,7 +339,7 @@ class TranscriptHandler(FileSystemEventHandler):
                         elif stripped.startswith('<task-notification'):
                             pass
                         else:
-                            user_texts.append(rewrite_user_text(stripped))
+                            user_texts.append((rewrite_user_text(stripped), line_num))
 
             except json.JSONDecodeError:
                 continue
@@ -567,8 +570,8 @@ class VoiceServer:
 
                 if user_texts:
                     print(f"[RECONCILE] Found {len(user_texts)} missed user messages")
-                    for idx, text in enumerate(user_texts):
-                        await self.handle_user_message(text, seq=start_line + idx)
+                    for text, line_num in user_texts:
+                        await self.handle_user_message(text, seq=line_num)
 
                 last_watchdog_time = time.time()
 
@@ -1089,8 +1092,17 @@ class VoiceServer:
         folder_name = data.get("folder_name", "")
         session_id = data.get("session_id", "")
         messages = self.session_manager.get_session_history(folder_name, session_id)
+
+        # Include transcript line count so iOS can initialize seq tracking
+        line_count = 0
+        transcript_path = self.get_session_transcript_path(folder_name, session_id)
+        if transcript_path and os.path.exists(transcript_path):
+            with open(transcript_path, 'r') as f:
+                line_count = sum(1 for _ in f)
+
         response = {
             "type": "session_history",
+            "line_count": line_count,
             "messages": [
                 {
                     "role": m.role,

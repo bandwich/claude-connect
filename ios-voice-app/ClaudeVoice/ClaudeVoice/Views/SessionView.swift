@@ -251,17 +251,17 @@ struct SessionView: View {
         .onChange(of: webSocketManager.connectionState) { _, newState in
             // Retry sync when connection is established (for resumed sessions)
             if case .connected = newState, !session.isNewSession {
-                print("[SessionView] Connection established, attempting sync")
-                // Don't show spinner — sync in background, input bar stays usable
-                if webSocketManager.lastReceivedSeq > 0 {
-                    // We had a prior connection — use resync to fill gaps
-                    print("[SessionView] Using resync from seq \(webSocketManager.lastReceivedSeq)")
+                if !items.isEmpty {
+                    // Reconnect — already have messages loaded, just fill gaps
+                    print("[SessionView] Reconnect: resync from seq \(webSocketManager.lastReceivedSeq)")
                     webSocketManager.requestResync()
+                    webSocketManager.handleInputBarSynced()
                 } else {
-                    // First connection — load full history
+                    // First connection — load full history and sync tmux session
+                    print("[SessionView] First connection: loading history")
                     webSocketManager.requestSessionHistory(folderName: project.folderName, sessionId: session.id)
+                    syncSession()
                 }
-                syncSession()
             }
         }
         .onChange(of: webSocketManager.inputBarMode) { _, newMode in
@@ -397,7 +397,14 @@ struct SessionView: View {
         // Load message history and sync (skip for new sessions - no history yet)
         if !session.isNewSession {
             // Don't show spinner — load history in background, input bar stays usable
-            webSocketManager.onSessionHistoryReceived = { richMessages in
+            webSocketManager.onSessionHistoryReceived = { richMessages, lineCount in
+                // Initialize seq tracking from transcript line count
+                // so reconnect resync requests the right range
+                if let lineCount = lineCount, lineCount > 0 {
+                    self.lastProcessedSeq = lineCount - 1
+                    webSocketManager.lastReceivedSeq = lineCount - 1
+                    print("[SessionView] Initialized seq tracking: lastProcessedSeq=\(lineCount - 1), lastReceivedSeq=\(lineCount - 1)")
+                }
                 var newItems: [ConversationItem] = []
                 for msg in richMessages {
                     if msg.role == "tool_result" {
@@ -649,9 +656,8 @@ struct SessionView: View {
 
             guard !message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
-            // Skip server echo of voice input we already added locally
-            if message.content == lastVoiceInputText &&
-               Date().timeIntervalSince(lastVoiceInputTime) < 10 {
+            // Skip server echo of input we already added locally
+            if message.content == lastVoiceInputText {
                 lastVoiceInputText = ""  // Clear so only first echo is filtered
                 return
             }
@@ -759,20 +765,9 @@ struct SessionView: View {
                             items.append(.textMessage(message))
                         }
                     }
-                } else if role == "user" {
-                    // Process user messages
-                    if case .string(let text) = msg.content,
-                       !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        let userMsg = SessionHistoryMessage(
-                            role: "user",
-                            content: text,
-                            timestamp: 0
-                        )
-                        DispatchQueue.main.async {
-                            items.append(.textMessage(userMsg))
-                        }
-                    }
                 }
+                // User messages are skipped in resync — they're already
+                // displayed locally (typed by user) or loaded from history
             }
             // After resync, regroup any consecutive Task items
             DispatchQueue.main.async {
