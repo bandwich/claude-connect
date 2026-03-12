@@ -25,6 +25,32 @@ TOOL_ACTIVE_RE = re.compile(r'^⏺\s+\w+ing\b.*…')
 PERMISSION_RE = re.compile(r'Esc to cancel · Tab to amend')
 
 
+# Claude Code's input prompt character — indicates CLI is loaded and ready
+READY_PROMPT_RE = re.compile(r'❯')
+
+# Claude Code banner pattern — indicates CLI has started
+BANNER_RE = re.compile(r'Claude Code')
+
+
+def is_claude_ready(pane_text: Optional[str]) -> bool:
+    """Check if Claude Code is loaded and ready for input.
+
+    Looks for the ❯ prompt or the Claude Code banner, which indicate
+    the CLI has finished initializing. Also returns True if Claude is
+    already actively working (thinking, tool use, permission prompt).
+    """
+    if not pane_text:
+        return False
+
+    # If we can detect any Claude activity, it's ready
+    state = parse_pane_status(pane_text)
+    if state.state != "idle":
+        return True
+
+    # Check for ready prompt or banner
+    return bool(READY_PROMPT_RE.search(pane_text)) or bool(BANNER_RE.search(pane_text))
+
+
 def parse_pane_status(pane_text: Optional[str]) -> ActivityState:
     """Parse tmux pane capture to determine Claude's current state.
 

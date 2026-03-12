@@ -66,6 +66,7 @@ struct SessionsContentView: View {
     @State private var sessions: [Session] = []
     @State private var selectedSession: Session?
     @State private var isCreating = false
+    @State private var sessionError: String?
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
@@ -130,6 +131,14 @@ struct SessionsContentView: View {
                 selectedSessionBinding: $selectedSession
             )
         }
+        .alert("Session Error", isPresented: Binding(
+            get: { sessionError != nil },
+            set: { if !$0 { sessionError = nil } }
+        )) {
+            Button("OK") { sessionError = nil }
+        } message: {
+            Text(sessionError ?? "")
+        }
     }
 
     private func createNewSession() {
@@ -140,6 +149,8 @@ struct SessionsContentView: View {
             isCreating = false
             if response.success {
                 selectedSession = Session.newSession()
+            } else {
+                sessionError = response.error ?? "Failed to create session"
             }
         }
 

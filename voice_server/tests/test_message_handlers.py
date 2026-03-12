@@ -119,6 +119,8 @@ class TestNewSession:
 
         server.tmux = Mock()
         server.tmux.start_session = Mock(return_value=True)
+        server.poll_claude_ready = AsyncMock(return_value=True)
+        server.broadcast_connection_status = AsyncMock()
 
         mock_ws = AsyncMock()
 
@@ -135,6 +137,8 @@ class TestNewSession:
         server = VoiceServer()
         server.tmux = Mock()
         server.tmux.start_session = Mock(return_value=True)
+        server.poll_claude_ready = AsyncMock(return_value=True)
+        server.broadcast_connection_status = AsyncMock()
 
         mock_ws = AsyncMock()
         sent_messages = []
@@ -160,6 +164,8 @@ class TestResumeSession:
 
         server.tmux = Mock()
         server.tmux.start_session = Mock(return_value=True)
+        server.poll_claude_ready = AsyncMock(return_value=True)
+        server.broadcast_connection_status = AsyncMock()
 
         mock_ws = AsyncMock()
 
@@ -176,6 +182,8 @@ class TestResumeSession:
         server = VoiceServer()
         server.tmux = Mock()
         server.tmux.start_session = Mock(return_value=True)
+        server.poll_claude_ready = AsyncMock(return_value=True)
+        server.broadcast_connection_status = AsyncMock()
 
         mock_ws = AsyncMock()
         sent_messages = []
@@ -272,6 +280,8 @@ class TestActiveSessionTracking:
         server = VoiceServer()
         server.tmux = Mock()
         server.tmux.start_session = Mock(return_value=True)
+        server.poll_claude_ready = AsyncMock(return_value=True)
+        server.broadcast_connection_status = AsyncMock()
 
         mock_ws = AsyncMock()
         mock_ws.send = AsyncMock()
@@ -306,6 +316,8 @@ class TestActiveSessionTracking:
         server.active_session_id = "old-session"
         server.tmux = Mock()
         server.tmux.start_session = Mock(return_value=True)
+        server.poll_claude_ready = AsyncMock(return_value=True)
+        server.broadcast_connection_status = AsyncMock()
 
         mock_ws = AsyncMock()
         mock_ws.send = AsyncMock()
@@ -775,6 +787,183 @@ async def test_handle_user_message_sends_to_clients():
     assert msg["content"] == "hello from terminal"
     assert msg["session_id"] == "sess-123"
     assert "timestamp" in msg
+
+
+class TestResetSessionState:
+    """Tests for _reset_session_state"""
+
+    def test_reset_session_state_clears_all_state(self):
+        """_reset_session_state should clear all session-related state."""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+        # Set up dirty state
+        server.active_session_id = "old-session"
+        server.active_folder_name = "old-folder"
+        server.transcript_path = "/some/path.jsonl"
+        server._pending_session_snapshot = ("folder", {"id1"})
+        server.current_branch = "main"
+
+        server._reset_session_state()
+
+        assert server.active_session_id is None
+        assert server.active_folder_name is None
+        assert server.transcript_path is None
+        assert server._pending_session_snapshot is None
+        assert server.current_branch == ""
+
+    def test_reset_session_state_clears_permissions(self):
+        """_reset_session_state should clear pending permissions."""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+        server.permission_handler.latest_request_id = "stale-req"
+        server.permission_handler.pending_messages["req1"] = {"type": "permission_request"}
+
+        server._reset_session_state()
+
+        assert server.permission_handler.latest_request_id is None
+        assert len(server.permission_handler.pending_messages) == 0
+
+
+class TestPollClaudeReady:
+    """Tests for poll_claude_ready"""
+
+    @pytest.mark.asyncio
+    async def test_poll_claude_ready_success(self):
+        """poll_claude_ready returns True when Claude becomes ready."""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+        call_count = 0
+        def mock_capture(include_history=True):
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 3:
+                return "❯ Try something\n"
+            return "$ claude\n"
+
+        server.tmux = Mock()
+        server.tmux.capture_pane = mock_capture
+        result = await server.poll_claude_ready(timeout=5.0, interval=0.1)
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_poll_claude_ready_timeout(self):
+        """poll_claude_ready returns False on timeout."""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+        server.tmux = Mock()
+        server.tmux.capture_pane = Mock(return_value="$ claude\n")
+        result = await server.poll_claude_ready(timeout=0.5, interval=0.1)
+        assert result is False
+
+
+class TestResumeSessionLifecycle:
+    """Tests for resume_session state reset and readiness"""
+
+    @pytest.mark.asyncio
+    async def test_resume_session_resets_state_before_starting(self):
+        """handle_resume_session must reset all state before starting."""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+        server.active_session_id = "stale-session"
+        server.permission_handler.latest_request_id = "stale-request"
+
+        server.tmux = Mock()
+        server.tmux.start_session = Mock(return_value=True)
+        server.poll_claude_ready = AsyncMock(return_value=True)
+        server.broadcast_connection_status = AsyncMock()
+        server.session_manager.get_session_cwd = Mock(return_value="/tmp/test")
+        server.switch_watched_session = Mock(return_value=True)
+
+        mock_ws = AsyncMock()
+        await server.handle_resume_session(mock_ws, {
+            "session_id": "new-session-id",
+            "folder_name": "test-folder"
+        })
+
+        assert server.permission_handler.latest_request_id is None
+
+        sent = json.loads(mock_ws.send.call_args_list[0][0][0])
+        assert sent["success"] is True
+
+    @pytest.mark.asyncio
+    async def test_resume_session_fails_when_claude_not_ready(self):
+        """handle_resume_session sends failure when Claude doesn't become ready."""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+        server.tmux = Mock()
+        server.tmux.start_session = Mock(return_value=True)
+        server.tmux.kill_session = Mock(return_value=True)
+        server.poll_claude_ready = AsyncMock(return_value=False)
+        server.session_manager.get_session_cwd = Mock(return_value="/tmp/test")
+
+        mock_ws = AsyncMock()
+        await server.handle_resume_session(mock_ws, {
+            "session_id": "test-id",
+            "folder_name": "test-folder"
+        })
+
+        sent = json.loads(mock_ws.send.call_args_list[0][0][0])
+        assert sent["success"] is False
+        assert "error" in sent
+
+
+class TestNewSessionLifecycle:
+    """Tests for new_session state reset and readiness"""
+
+    @pytest.mark.asyncio
+    async def test_new_session_resets_state_before_starting(self):
+        """handle_new_session must reset all state before starting."""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+        # Set up stale state
+        server.active_session_id = "stale-session"
+        server.transcript_path = "/old/path.jsonl"
+        server.permission_handler.latest_request_id = "stale-request"
+
+        server.tmux = Mock()
+        server.tmux.start_session = Mock(return_value=True)
+        server.poll_claude_ready = AsyncMock(return_value=True)
+        server.broadcast_connection_status = AsyncMock()
+
+        mock_ws = AsyncMock()
+        await server.handle_new_session(mock_ws, {"project_path": "/tmp/test"})
+
+        # Verify stale state was cleared
+        assert server.permission_handler.latest_request_id is None
+        assert server.transcript_path is None
+
+        # Verify success was sent
+        sent = json.loads(mock_ws.send.call_args_list[0][0][0])
+        assert sent["success"] is True
+
+    @pytest.mark.asyncio
+    async def test_new_session_fails_when_claude_not_ready(self):
+        """handle_new_session sends failure when Claude doesn't become ready."""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+        server.tmux = Mock()
+        server.tmux.start_session = Mock(return_value=True)
+        server.tmux.kill_session = Mock(return_value=True)
+        server.poll_claude_ready = AsyncMock(return_value=False)
+
+        mock_ws = AsyncMock()
+        await server.handle_new_session(mock_ws, {"project_path": "/tmp/test"})
+
+        # Verify failure was sent
+        sent = json.loads(mock_ws.send.call_args_list[0][0][0])
+        assert sent["success"] is False
+        assert "error" in sent
+
+        # Verify tmux was killed
+        server.tmux.kill_session.assert_called()
 
 
 class TestUserInput:

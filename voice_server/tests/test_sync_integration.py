@@ -429,7 +429,8 @@ class TestUserMessageSync:
 
         assert start_line == 0
         assert len(missed_blocks) >= 1, "Should have found assistant block"
-        assert "Missed user msg" in missed_users, f"Should have found user message, got: {missed_users}"
+        missed_user_texts = [t for t, _ in missed_users]
+        assert "Missed user msg" in missed_user_texts, f"Should have found user message, got: {missed_users}"
 
 
 class TestDeliveryVerification:

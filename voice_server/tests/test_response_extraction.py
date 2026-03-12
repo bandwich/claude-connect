@@ -353,7 +353,7 @@ def test_extract_user_text_from_string_content():
         blocks, user_texts = handler.extract_new_content(temp_path)
         assert len(blocks) == 0
         assert len(user_texts) == 1
-        assert user_texts[0] == "hello from terminal"
+        assert user_texts[0][0] == "hello from terminal"
     finally:
         os.unlink(temp_path)
 
@@ -375,7 +375,7 @@ def test_extract_user_text_from_list_with_text_blocks():
         blocks, user_texts = handler.extract_new_content(temp_path)
         assert len(blocks) == 0
         assert len(user_texts) == 1
-        assert user_texts[0] == "[Request interrupted by user]"
+        assert user_texts[0][0] == "[Request interrupted by user]"
     finally:
         os.unlink(temp_path)
 
@@ -396,7 +396,7 @@ def test_extract_strips_tool_use_suffix_from_interrupt():
         handler = TranscriptHandler(None, None, None, mock_server)
         blocks, user_texts = handler.extract_new_content(temp_path)
         assert len(user_texts) == 1
-        assert user_texts[0] == "[Request interrupted by user]"
+        assert user_texts[0][0] == "[Request interrupted by user]"
     finally:
         os.unlink(temp_path)
 
@@ -417,7 +417,7 @@ def test_extract_image_source_rewrites_to_filename():
         handler = TranscriptHandler(None, None, None, mock_server)
         blocks, user_texts = handler.extract_new_content(temp_path)
         assert len(user_texts) == 1
-        assert user_texts[0] == "[Image: IMG_5594.PNG]"
+        assert user_texts[0][0] == "[Image: IMG_5594.PNG]"
     finally:
         os.unlink(temp_path)
 

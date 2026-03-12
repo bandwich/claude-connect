@@ -3,7 +3,7 @@
 
 import os
 import pytest
-from voice_server.pane_parser import parse_pane_status, ActivityState
+from voice_server.pane_parser import parse_pane_status, ActivityState, is_claude_ready
 
 FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures", "pane_captures")
 
@@ -83,3 +83,29 @@ class TestParsePaneStatus:
         pane_text = "✢ Manifesting…\n\nesc to interrupt\n"
         result = parse_pane_status(pane_text)
         assert result.state == "thinking"
+
+
+class TestIsClaudeReady:
+    def test_ready_when_idle_prompt_visible(self):
+        pane_text = load_fixture("idle.txt")
+        assert is_claude_ready(pane_text) is True
+
+    def test_not_ready_when_loading(self):
+        pane_text = load_fixture("startup_loading.txt")
+        assert is_claude_ready(pane_text) is False
+
+    def test_not_ready_for_empty_pane(self):
+        assert is_claude_ready("") is False
+
+    def test_not_ready_for_none(self):
+        assert is_claude_ready(None) is False
+
+    def test_ready_when_thinking(self):
+        """Claude is ready (running) even when actively thinking."""
+        pane_text = load_fixture("thinking.txt")
+        assert is_claude_ready(pane_text) is True
+
+    def test_ready_when_permission_prompt(self):
+        """Claude is ready when showing a permission prompt."""
+        pane_text = load_fixture("permission_prompt.txt")
+        assert is_claude_ready(pane_text) is True

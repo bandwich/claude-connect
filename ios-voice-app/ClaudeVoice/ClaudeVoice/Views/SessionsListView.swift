@@ -10,6 +10,7 @@ struct SessionsListView: View {
     @State private var selectedSession: Session?
     @State private var showingSettings = false
     @State private var isCreating = false
+    @State private var sessionError: String?
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
@@ -72,6 +73,14 @@ struct SessionsListView: View {
             .accessibilityIdentifier("settingsButton")
         }
         .enableSwipeBack()
+        .alert("Session Error", isPresented: Binding(
+            get: { sessionError != nil },
+            set: { if !$0 { sessionError = nil } }
+        )) {
+            Button("OK") { sessionError = nil }
+        } message: {
+            Text(sessionError ?? "")
+        }
         .sheet(isPresented: $showingSettings) {
             SettingsView(webSocketManager: webSocketManager)
         }
@@ -100,6 +109,8 @@ struct SessionsListView: View {
             if response.success {
                 // Navigate to the new session
                 selectedSession = Session.newSession()
+            } else {
+                sessionError = response.error ?? "Failed to create session"
             }
         }
 

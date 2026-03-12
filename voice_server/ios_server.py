@@ -1135,13 +1135,16 @@ class VoiceServer:
         if success:
             await self.broadcast_connection_status()
 
-    def reset_state(self):
-        """Reset all server state for test isolation
+    def _reset_session_state(self):
+        """Reset all session-related state.
 
-        Called by /reset HTTP endpoint to ensure clean state between E2E tests.
+        Called at the start of handle_new_session and handle_resume_session
+        to ensure clean state before starting a new session lifecycle.
         """
-        # Kill any active tmux session
-        self.tmux.kill_session()
+        # Stop reconciliation loop
+        if self._reconciliation_task and not self._reconciliation_task.done():
+            self._reconciliation_task.cancel()
+            self._reconciliation_task = None
 
         # Reset session tracking
         self.active_session_id = None
@@ -1155,6 +1158,43 @@ class VoiceServer:
             self.transcript_handler.reset_tracking_state()
             self.transcript_handler.expected_session_file = None
 
+        # Unschedule file watcher
+        if self.observer:
+            self.observer.unschedule_all()
+
+        # Clear pending permissions/questions
+        self.permission_handler.pending_permissions.clear()
+        self.permission_handler.permission_responses.clear()
+        self.permission_handler.pending_messages.clear()
+        self.permission_handler.timed_out_requests.clear()
+        self.permission_handler.latest_request_id = None
+
+    async def poll_claude_ready(self, timeout: float = 15.0, interval: float = 0.3) -> bool:
+        """Poll tmux pane until Claude Code is loaded and ready.
+
+        Returns True if Claude becomes ready within timeout, False otherwise.
+        """
+        from voice_server.pane_parser import is_claude_ready
+
+        elapsed = 0.0
+        while elapsed < timeout:
+            pane_text = self.tmux.capture_pane(include_history=False)
+            if is_claude_ready(pane_text):
+                print(f"[INFO] Claude ready after {elapsed:.1f}s")
+                return True
+            await asyncio.sleep(interval)
+            elapsed += interval
+
+        print(f"[WARN] Claude not ready after {timeout}s timeout")
+        return False
+
+    def reset_state(self):
+        """Reset all server state for test isolation
+
+        Called by /reset HTTP endpoint to ensure clean state between E2E tests.
+        """
+        self.tmux.kill_session()
+        self._reset_session_state()
         print("[RESET] Server state cleared for test isolation")
 
     async def handle_new_session(self, websocket, data):
@@ -1162,7 +1202,10 @@ class VoiceServer:
         project_path = data.get("project_path", "")
         print(f"[DEBUG] handle_new_session: project_path={project_path}")
 
-        # Snapshot existing session IDs BEFORE starting Claude (avoids race condition)
+        # Full state reset before anything else
+        self._reset_session_state()
+
+        # Snapshot existing session IDs BEFORE starting Claude
         existing_ids = set()
         folder_name = None
         if project_path:
@@ -1173,20 +1216,31 @@ class VoiceServer:
         success = self.tmux.start_session(working_dir=project_path if project_path else None)
         print(f"[DEBUG] start_session returned: {success}, session_exists: {self.tmux.session_exists()}")
 
+        error = None
         if success:
-            self.active_session_id = None  # New session has no ID yet
+            # Verify Claude actually started and is ready for input
+            ready = await self.poll_claude_ready()
+            if ready:
+                self.active_session_id = None  # New session has no ID yet
 
-            # Save snapshot for deferred detection on first voice input
-            # (Claude doesn't create .jsonl until it processes the first message)
-            if folder_name:
-                self._pending_session_snapshot = (folder_name, existing_ids)
-                self.active_folder_name = folder_name
-                print(f"[INFO] Session snapshot saved, will detect new file on first voice input")
+                # Save snapshot for deferred detection on first voice input
+                if folder_name:
+                    self._pending_session_snapshot = (folder_name, existing_ids)
+                    self.active_folder_name = folder_name
+                    print(f"[INFO] Session snapshot saved, will detect new file on first voice input")
+            else:
+                # Claude didn't start — clean up
+                self.tmux.kill_session()
+                success = False
+                error = "Claude failed to start"
+                print(f"[ERROR] Claude not ready after timeout, killed tmux session")
 
         response = {
             "type": "session_created",
             "success": success
         }
+        if error:
+            response["error"] = error
         await websocket.send(json.dumps(response))
 
         if success:
@@ -1196,7 +1250,12 @@ class VoiceServer:
         """Handle resume_session request - runs 'claude --resume <id>' in tmux"""
         session_id = data.get("session_id", "")
         folder_name = data.get("folder_name", "")
+
+        # Full state reset before anything else
+        self._reset_session_state()
+
         success = False
+        error = None
 
         if session_id:
             # Get the actual cwd from the session file
@@ -1206,23 +1265,22 @@ class VoiceServer:
                 print(f"[DEBUG] handle_resume_session: get_session_cwd -> {working_dir}")
 
             success = self.tmux.start_session(working_dir=working_dir, resume_id=session_id)
-            print(f"[DEBUG] start_session(resume_id={session_id}) returned: {success}, session_exists: {self.tmux.session_exists()}")
+            print(f"[DEBUG] start_session(resume_id={session_id}) returned: {success}")
 
             if success:
-                self.active_session_id = session_id
-
-                # Wait for transcript file to exist (Claude may need a moment to start writing)
-                transcript_path = self.get_session_transcript_path(folder_name, session_id)
-                if not transcript_path:
-                    transcript_path = await poll_for_session_file(
-                        find_fn=lambda: self.get_session_transcript_path(folder_name, session_id),
-                        timeout=10.0,
-                        interval=0.2
-                    )
-
-                if folder_name:
-                    self.switch_watched_session(folder_name, session_id)
+                # Verify Claude actually started
+                ready = await self.poll_claude_ready()
+                if ready:
+                    self.active_session_id = session_id
+                    if folder_name:
+                        self.switch_watched_session(folder_name, session_id)
+                else:
+                    self.tmux.kill_session()
+                    success = False
+                    error = "Claude failed to start"
+                    print(f"[ERROR] Claude not ready after timeout, killed tmux session")
             else:
+                error = "Failed to start tmux session"
                 print(f"[ERROR] Failed to start tmux session for resume_id={session_id}")
 
         response = {
@@ -1230,6 +1288,8 @@ class VoiceServer:
             "success": success,
             "session_id": session_id
         }
+        if error:
+            response["error"] = error
         await websocket.send(json.dumps(response))
 
         if success:
