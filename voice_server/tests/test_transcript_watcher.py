@@ -467,7 +467,7 @@ class TestReconciliationLoop:
         assert handler.processed_line_count == 0
 
         # Run reconciliation
-        new_blocks, user_texts, _ = handler.reconcile()
+        new_blocks, user_texts, _, _ = handler.reconcile()
         assert len(new_blocks) == 5
         assert handler.processed_line_count == 5
 
@@ -495,7 +495,7 @@ class TestReconciliationLoop:
         handler.set_session_file(str(transcript_file))
 
         # No lines written — no gap
-        new_blocks, user_texts, _ = handler.reconcile()
+        new_blocks, user_texts, _, _ = handler.reconcile()
         assert len(new_blocks) == 0
         assert len(user_texts) == 0
 
@@ -559,7 +559,7 @@ class TestReconciliationLoop:
         t.join()
         t2.join()
 
-        blocks, texts, _ = result[0]
+        blocks, texts, _, _ = result[0]
         assert len(blocks) == 1  # Got the line after lock was released
 
         loop.close()

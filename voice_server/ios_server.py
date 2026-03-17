@@ -146,7 +146,7 @@ class TranscriptHandler(FileSystemEventHandler):
 
             line_count_before = self.processed_line_count
             try:
-                new_blocks, user_texts, start_line = self.extract_new_content_with_seq(event.src_path)
+                new_blocks, user_texts, task_completed_ids, start_line = self.extract_new_content_with_seq(event.src_path)
             except Exception as e:
                 print(f"Error processing transcript: {e}")
                 import traceback
@@ -202,6 +202,14 @@ class TranscriptHandler(FileSystemEventHandler):
                     )
                 print(f"[SYNC] Scheduled {len(user_texts)} user_callbacks")
 
+            if task_completed_ids and self.server:
+                for tool_id in task_completed_ids:
+                    asyncio.run_coroutine_threadsafe(
+                        self.server.broadcast_task_completed(tool_id),
+                        self.loop
+                    )
+                print(f"[SYNC] Scheduled {len(task_completed_ids)} task_completed broadcasts")
+
             # Broadcast context update after processing
             if self.server and getattr(self.server, 'active_session_id', None):
                 self.broadcast_context_update(event.src_path, self.server.active_session_id)
@@ -214,27 +222,30 @@ class TranscriptHandler(FileSystemEventHandler):
         """Like extract_new_content but also returns the starting line number.
 
         Returns:
-            (content_blocks, user_texts_with_line, start_line_number)
+            (content_blocks, user_texts_with_line, task_completed_ids, start_line_number)
             user_texts_with_line is list of (text, line_number) tuples
+            task_completed_ids is list of tool_use_id strings
         """
         start_line = self.processed_line_count
-        blocks, user_texts_with_line = self.extract_new_content(filepath)
-        return blocks, user_texts_with_line, start_line
+        blocks, user_texts_with_line, task_completed_ids = self.extract_new_content(filepath)
+        return blocks, user_texts_with_line, task_completed_ids, start_line
 
     def extract_new_assistant_content(self, filepath) -> list[ContentBlock]:
         """Legacy wrapper — returns only content blocks."""
-        blocks, _ = self.extract_new_content(filepath)
+        blocks, _, _ = self.extract_new_content(filepath)
         return blocks
 
     def extract_new_content(self, filepath) -> tuple:
         """Extract assistant content, tool results, and user texts from new lines.
 
         Returns:
-            (content_blocks, user_texts_with_line) where user_texts_with_line
-            is a list of (text, line_number) tuples.
+            (content_blocks, user_texts_with_line, task_completed_ids) where
+            user_texts_with_line is a list of (text, line_number) tuples and
+            task_completed_ids is a list of tool_use_id strings from background task completions.
         """
         all_blocks = []
         user_texts = []
+        task_completed_ids = []
 
         with open(filepath, 'r') as f:
             lines = f.readlines()
@@ -329,6 +340,9 @@ class TranscriptHandler(FileSystemEventHandler):
                                         if text.startswith('Base directory for this skill:'):
                                             continue
                                         if text.startswith('<task-notification'):
+                                            match = re.search(r'<tool-use-id>([^<]+)</tool-use-id>', text)
+                                            if match:
+                                                task_completed_ids.append(match.group(1))
                                             continue
                                         user_texts.append((rewrite_user_text(text), line_num))
                                     # Skip image blocks (base64 data) silently
@@ -337,7 +351,9 @@ class TranscriptHandler(FileSystemEventHandler):
                         if stripped.startswith('Base directory for this skill:'):
                             pass
                         elif stripped.startswith('<task-notification'):
-                            pass
+                            match = re.search(r'<tool-use-id>([^<]+)</tool-use-id>', stripped)
+                            if match:
+                                task_completed_ids.append(match.group(1))
                         else:
                             user_texts.append((rewrite_user_text(stripped), line_num))
 
@@ -350,8 +366,10 @@ class TranscriptHandler(FileSystemEventHandler):
             print(f"[DEBUG] Extracted {len(all_blocks)} blocks from {len(new_lines)} new lines")
         if user_texts:
             print(f"[DEBUG] Extracted {len(user_texts)} user texts from {len(new_lines)} new lines")
+        if task_completed_ids:
+            print(f"[DEBUG] Extracted {len(task_completed_ids)} task completions from {len(new_lines)} new lines")
 
-        return all_blocks, user_texts
+        return all_blocks, user_texts, task_completed_ids
 
     def broadcast_context_update(self, filepath: str, session_id: str):
         """Calculate and broadcast context usage for the session."""
@@ -390,11 +408,11 @@ class TranscriptHandler(FileSystemEventHandler):
         """Check for lines that watchdog missed and extract their content.
 
         Returns:
-            (content_blocks, user_texts, start_line) — same as extract_new_content_with_seq
+            (content_blocks, user_texts, task_completed_ids, start_line) — same as extract_new_content_with_seq
         """
         with self._lock:
             if not self.expected_session_file or not os.path.exists(self.expected_session_file):
-                return [], [], 0
+                return [], [], [], 0
             return self.extract_new_content_with_seq(self.expected_session_file)
 
     def reset_tracking_state(self):
@@ -554,7 +572,7 @@ class VoiceServer:
                     except OSError:
                         pass
 
-                new_blocks, user_texts, start_line = self.transcript_handler.reconcile()
+                new_blocks, user_texts, task_completed_ids, start_line = self.transcript_handler.reconcile()
 
                 if new_blocks:
                     print(f"[RECONCILE] Found {len(new_blocks)} missed blocks (seq={start_line})")
@@ -572,6 +590,11 @@ class VoiceServer:
                     print(f"[RECONCILE] Found {len(user_texts)} missed user messages")
                     for text, line_num in user_texts:
                         await self.handle_user_message(text, seq=line_num)
+
+                if task_completed_ids:
+                    print(f"[RECONCILE] Found {len(task_completed_ids)} missed task completions")
+                    for tool_id in task_completed_ids:
+                        await self.broadcast_task_completed(tool_id)
 
                 last_watchdog_time = time.time()
 
@@ -1012,6 +1035,15 @@ class VoiceServer:
                 await self.send_status(websocket, "idle", "Ready")
             except Exception:
                 pass  # Client may have disconnected, that's OK
+
+    async def broadcast_task_completed(self, tool_use_id: str):
+        """Notify iOS that a background task has completed."""
+        message = {
+            "type": "task_completed",
+            "tool_use_id": tool_use_id,
+        }
+        print(f"[TASK] Broadcasting task_completed for tool_use_id={tool_use_id}")
+        await self.broadcast_message(message)
 
     async def broadcast_message(self, message: dict):
         """Broadcast a JSON message to all connected clients."""

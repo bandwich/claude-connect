@@ -3,9 +3,9 @@ import SwiftUI
 enum BashPreview {
     static let maxCollapsedLines = 3
 
-    static func collapsedText(for content: String) -> String {
+    static func collapsedText(for content: String, isBackgroundComplete: Bool = false) -> String {
         if content.hasPrefix("Command running in background") {
-            return "Running in background"
+            return isBackgroundComplete ? "Done" : "Running in background"
         }
         if content.isEmpty {
             return "Done"
@@ -23,6 +23,7 @@ enum BashPreview {
 struct ToolUseView: View {
     let tool: ToolUseBlock
     let result: ToolResultBlock?
+    var isBackgroundComplete: Bool = false
     @State private var isExpanded = false
 
     private let maxPreviewLines = 20
@@ -195,7 +196,7 @@ struct ToolUseView: View {
             }
         } else {
             let isError = result.isError == true
-            let previewText = BashPreview.collapsedText(for: displayContent(for: result))
+            let previewText = BashPreview.collapsedText(for: displayContent(for: result), isBackgroundComplete: isBackgroundComplete)
             Button {
                 withAnimation { isExpanded = true }
             } label: {

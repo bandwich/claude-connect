@@ -350,7 +350,7 @@ def test_extract_user_text_from_string_content():
     try:
         mock_server = type('obj', (), {'last_voice_input': None})()
         handler = TranscriptHandler(None, None, None, mock_server)
-        blocks, user_texts = handler.extract_new_content(temp_path)
+        blocks, user_texts, _ = handler.extract_new_content(temp_path)
         assert len(blocks) == 0
         assert len(user_texts) == 1
         assert user_texts[0][0] == "hello from terminal"
@@ -372,7 +372,7 @@ def test_extract_user_text_from_list_with_text_blocks():
     try:
         mock_server = type('obj', (), {'last_voice_input': None})()
         handler = TranscriptHandler(None, None, None, mock_server)
-        blocks, user_texts = handler.extract_new_content(temp_path)
+        blocks, user_texts, _ = handler.extract_new_content(temp_path)
         assert len(blocks) == 0
         assert len(user_texts) == 1
         assert user_texts[0][0] == "[Request interrupted by user]"
@@ -394,7 +394,7 @@ def test_extract_strips_tool_use_suffix_from_interrupt():
     try:
         mock_server = type('obj', (), {'last_voice_input': None})()
         handler = TranscriptHandler(None, None, None, mock_server)
-        blocks, user_texts = handler.extract_new_content(temp_path)
+        blocks, user_texts, _ = handler.extract_new_content(temp_path)
         assert len(user_texts) == 1
         assert user_texts[0][0] == "[Request interrupted by user]"
     finally:
@@ -415,7 +415,7 @@ def test_extract_image_source_rewrites_to_filename():
     try:
         mock_server = type('obj', (), {'last_voice_input': None})()
         handler = TranscriptHandler(None, None, None, mock_server)
-        blocks, user_texts = handler.extract_new_content(temp_path)
+        blocks, user_texts, _ = handler.extract_new_content(temp_path)
         assert len(user_texts) == 1
         assert user_texts[0][0] == "[Image: IMG_5594.PNG]"
     finally:
@@ -436,7 +436,7 @@ def test_extract_skips_image_blocks():
     try:
         mock_server = type('obj', (), {'last_voice_input': None})()
         handler = TranscriptHandler(None, None, None, mock_server)
-        blocks, user_texts = handler.extract_new_content(temp_path)
+        blocks, user_texts, _ = handler.extract_new_content(temp_path)
         assert len(blocks) == 0
         assert len(user_texts) == 0
     finally:
@@ -455,14 +455,14 @@ def test_extract_skips_skill_expansions():
     try:
         mock_server = type('obj', (), {'last_voice_input': None})()
         handler = TranscriptHandler(None, None, None, mock_server)
-        blocks, user_texts = handler.extract_new_content(temp_path)
+        blocks, user_texts, _ = handler.extract_new_content(temp_path)
         assert len(user_texts) == 0
     finally:
         os.unlink(temp_path)
 
 
 def test_extract_skips_task_notifications():
-    """<task-notification> user messages should not be surfaced"""
+    """<task-notification> user messages should not be surfaced as user_texts"""
     with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
         f.write(json.dumps({
             "type": "user",
@@ -473,8 +473,65 @@ def test_extract_skips_task_notifications():
     try:
         mock_server = type('obj', (), {'last_voice_input': None})()
         handler = TranscriptHandler(None, None, None, mock_server)
-        blocks, user_texts = handler.extract_new_content(temp_path)
+        blocks, user_texts, _ = handler.extract_new_content(temp_path)
         assert len(user_texts) == 0
+    finally:
+        os.unlink(temp_path)
+
+
+def test_task_notification_extracts_tool_use_id():
+    """<task-notification> with tool-use-id should return it in task_completed_ids"""
+    notification = (
+        '<task-notification>\n'
+        '<task-id>b7ou45mop</task-id>\n'
+        '<tool-use-id>toolu_01Dtc8MmBh3YCbZnX4YFBDXg</tool-use-id>\n'
+        '<output-file>/tmp/test.output</output-file>\n'
+        '<status>completed</status>\n'
+        '<summary>done</summary>\n'
+        '</task-notification>\nRead the output file.'
+    )
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
+        f.write(json.dumps({
+            "type": "user",
+            "message": {"role": "user", "content": notification}
+        }) + "\n")
+        temp_path = f.name
+
+    try:
+        mock_server = type('obj', (), {'last_voice_input': None})()
+        handler = TranscriptHandler(None, None, None, mock_server)
+        blocks, user_texts, task_completed_ids = handler.extract_new_content(temp_path)
+        assert len(user_texts) == 0
+        assert len(task_completed_ids) == 1
+        assert task_completed_ids[0] == "toolu_01Dtc8MmBh3YCbZnX4YFBDXg"
+    finally:
+        os.unlink(temp_path)
+
+
+def test_task_notification_in_list_content_extracts_tool_use_id():
+    """<task-notification> in list-style content should also extract tool-use-id"""
+    notification = (
+        '<task-notification>\n'
+        '<task-id>abc123</task-id>\n'
+        '<tool-use-id>toolu_01ABC</tool-use-id>\n'
+        '</task-notification>'
+    )
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
+        f.write(json.dumps({
+            "type": "user",
+            "message": {"role": "user", "content": [
+                {"type": "text", "text": notification}
+            ]}
+        }) + "\n")
+        temp_path = f.name
+
+    try:
+        mock_server = type('obj', (), {'last_voice_input': None})()
+        handler = TranscriptHandler(None, None, None, mock_server)
+        blocks, user_texts, task_completed_ids = handler.extract_new_content(temp_path)
+        assert len(user_texts) == 0
+        assert len(task_completed_ids) == 1
+        assert task_completed_ids[0] == "toolu_01ABC"
     finally:
         os.unlink(temp_path)
 

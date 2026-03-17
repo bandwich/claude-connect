@@ -38,4 +38,23 @@ struct BashCollapsedPreviewTests {
         let preview = BashPreview.collapsedText(for: content)
         #expect(preview == "ls: /nonexistent: No such file or directory")
     }
+
+    @Test func completedBackgroundShowsDone() {
+        let content = "Command running in background with ID: b59gez7hy. Output is being written to: /private/tmp/claude-501/tasks/b59gez7hy.output"
+        let preview = BashPreview.collapsedText(for: content, isBackgroundComplete: true)
+        #expect(preview == "Done")
+    }
+
+    @Test func incompleteBackgroundShowsRunning() {
+        let content = "Command running in background with ID: b59gez7hy. Output is being written to: /private/tmp/claude-501/tasks/b59gez7hy.output"
+        let preview = BashPreview.collapsedText(for: content, isBackgroundComplete: false)
+        #expect(preview == "Running in background")
+    }
+
+    @Test func defaultIsBackgroundCompleteIsFalse() {
+        let content = "Command running in background with ID: b59gez7hy. Output is being written to: /private/tmp/claude-501/tasks/b59gez7hy.output"
+        // No isBackgroundComplete param → should default to false → "Running in background"
+        let preview = BashPreview.collapsedText(for: content)
+        #expect(preview == "Running in background")
+    }
 }

@@ -28,6 +28,7 @@ struct SessionView: View {
     @State private var showingPhotoPicker = false
     @State private var lastProcessedSeq: Int = -1
     @State private var promptTimeoutTask: Task<Void, Never>? = nil
+    @State private var completedBackgroundToolIds: Set<String> = []
     @AppStorage("ttsEnabled") private var ttsEnabled = true
     @FocusState private var isTextFieldFocused: Bool
 
@@ -54,7 +55,7 @@ struct SessionView: View {
                                 case .toolUse(_, let tool, let result):
                                     // ToolSearch is internal schema fetching — hide entirely
                                     if tool.name != "ToolSearch" {
-                                        ToolUseView(tool: tool, result: result)
+                                        ToolUseView(tool: tool, result: result, isBackgroundComplete: completedBackgroundToolIds.contains(tool.id))
                                             .id(item.id)
                                     }
                                 case .agentGroup(let agents):
@@ -787,6 +788,10 @@ struct SessionView: View {
             if stats.sessionId == session.id || stats.sessionId == effectiveSessionId || (session.isNewSession && effectiveSessionId.isEmpty) {
                 self.contextPercentage = stats.contextPercentage
             }
+        }
+
+        webSocketManager.onTaskCompleted = { toolUseId in
+            self.completedBackgroundToolIds.insert(toolUseId)
         }
 
         // Handle delivery status (mark failed messages)

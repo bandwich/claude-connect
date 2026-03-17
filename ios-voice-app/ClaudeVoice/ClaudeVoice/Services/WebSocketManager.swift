@@ -51,6 +51,7 @@ class WebSocketManager: NSObject, ObservableObject {
     var onUserMessage: ((UserMessage) -> Void)?
     var onActivityStatus: ((ActivityStatusMessage) -> Void)?
     var onDeliveryStatus: ((DeliveryStatusMessage) -> Void)?
+    var onTaskCompleted: ((String) -> Void)?  // tool_use_id
     @Published var pendingPermission: PermissionRequest? = nil {
         didSet {
             print("🔄 pendingPermission didSet: \(oldValue?.requestId ?? "nil") -> \(pendingPermission?.requestId ?? "nil")")
@@ -688,6 +689,13 @@ class WebSocketManager: NSObject, ObservableObject {
                 logToFile("✅ Decoded as ResyncResponse: \(resyncResponse.messages.count) messages from seq \(resyncResponse.fromSeq)")
                 DispatchQueue.main.async {
                     self.onResyncReceived?(resyncResponse)
+                }
+            } else if let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      dict["type"] as? String == "task_completed",
+                      let toolUseId = dict["tool_use_id"] as? String {
+                logToFile("✅ Decoded as task_completed: \(toolUseId)")
+                DispatchQueue.main.async {
+                    self.onTaskCompleted?(toolUseId)
                 }
             } else {
                 print("❌ Failed to decode message as any known type")

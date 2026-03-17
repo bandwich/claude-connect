@@ -69,7 +69,7 @@ class TestSyncReliability:
             loop.run_until_complete(asyncio.sleep(0.1))
 
             # Run reconciliation to catch any lines watchdog missed
-            missed_blocks, _, _ = handler.reconcile()
+            missed_blocks, _, _, _ = handler.reconcile()
             if missed_blocks:
                 for block in missed_blocks:
                     if hasattr(block, 'text'):
@@ -157,7 +157,7 @@ class TestSyncReliability:
             loop.run_until_complete(asyncio.sleep(0.1))
 
             # Reconcile to catch any missed
-            missed, _, _ = handler.reconcile()
+            missed, _, _, _ = handler.reconcile()
             received_blocks.extend(missed)
 
         finally:
@@ -205,7 +205,7 @@ class TestSequenceNumbers:
                 }
                 f.write(json.dumps(msg) + "\n")
 
-        blocks, user_texts, start_line = handler.extract_new_content_with_seq(str(transcript_file))
+        blocks, user_texts, _, start_line = handler.extract_new_content_with_seq(str(transcript_file))
         assert start_line == 0  # Started from line 0
         assert len(blocks) == 3
         assert handler.processed_line_count == 3
@@ -220,7 +220,7 @@ class TestSequenceNumbers:
                 }
                 f.write(json.dumps(msg) + "\n")
 
-        blocks2, _, start_line2 = handler.extract_new_content_with_seq(str(transcript_file))
+        blocks2, _, _, start_line2 = handler.extract_new_content_with_seq(str(transcript_file))
         assert start_line2 == 3  # Started from line 3
         assert len(blocks2) == 2
 
@@ -294,7 +294,7 @@ class TestUserMessageSync:
             loop.run_until_complete(asyncio.sleep(0.1))
 
             # Reconcile to catch anything watchdog missed
-            missed_blocks, missed_users, _ = handler.reconcile()
+            missed_blocks, missed_users, _, _ = handler.reconcile()
             for text in missed_users:
                 received_user.append((text, 0))
 
@@ -375,7 +375,7 @@ class TestUserMessageSync:
             loop.run_until_complete(asyncio.sleep(0.1))
 
             # Reconcile
-            missed_blocks, missed_users, _ = handler.reconcile()
+            missed_blocks, missed_users, _, _ = handler.reconcile()
             for block in missed_blocks:
                 if hasattr(block, 'text'):
                     received_content.append(block.text)
@@ -423,7 +423,7 @@ class TestUserMessageSync:
                 "timestamp": "2026-01-01T00:00:01Z"
             }) + "\n")
 
-        missed_blocks, missed_users, start_line = handler.reconcile()
+        missed_blocks, missed_users, _, start_line = handler.reconcile()
 
         loop.close()
 
