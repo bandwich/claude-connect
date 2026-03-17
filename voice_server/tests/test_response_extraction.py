@@ -614,3 +614,40 @@ def test_taskoutput_hidden_alongside_visible_tools():
         assert "toolu_01OUT" not in result_ids
     finally:
         os.unlink(temp_path)
+
+
+def test_extract_skips_synthetic_assistant_messages():
+    """Synthetic messages (model='<synthetic>') like 'No response requested' should be filtered"""
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
+        # Synthetic assistant message (Claude Code internal)
+        f.write(json.dumps({
+            "message": {
+                "role": "assistant",
+                "model": "<synthetic>",
+                "content": [
+                    {"type": "text", "text": "No response requested."}
+                ]
+            }
+        }) + "\n")
+        # Real assistant message
+        f.write(json.dumps({
+            "message": {
+                "role": "assistant",
+                "model": "claude-sonnet-4-20250514",
+                "content": [
+                    {"type": "text", "text": "Hello, how can I help?"}
+                ]
+            }
+        }) + "\n")
+        temp_path = f.name
+
+    try:
+        mock_server = type('obj', (), {'last_voice_input': None})()
+        handler = TranscriptHandler(None, None, None, mock_server)
+
+        blocks = handler.extract_new_assistant_content(temp_path)
+        text_blocks = [b for b in blocks if isinstance(b, TextBlock)]
+        assert len(text_blocks) == 1
+        assert text_blocks[0].text == "Hello, how can I help?"
+    finally:
+        os.unlink(temp_path)

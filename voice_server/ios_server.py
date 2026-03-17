@@ -268,6 +268,9 @@ class TranscriptHandler(FileSystemEventHandler):
                 role = msg.get('role') or entry.get('role')
 
                 if role == 'assistant':
+                    # Skip synthetic messages (Claude Code internal, e.g. "No response requested")
+                    if msg.get('model') == '<synthetic>':
+                        continue
                     content = msg.get('content', entry.get('content', ''))
 
                     if isinstance(content, str) and content.strip():
