@@ -338,6 +338,7 @@ permission_request   {"type": "permission_request", "request_id": "...", "prompt
 permission_resolved  {"type": "permission_resolved", "request_id": "..."}
 question_prompt      {"type": "question_prompt", "request_id": "...", "question": "...", "options": [...], ...}
 question_resolved    {"type": "question_resolved", "request_id": "..."}
+task_completed       {"type": "task_completed", "tool_use_id": "..."}
 ```
 
 ## Key Features
