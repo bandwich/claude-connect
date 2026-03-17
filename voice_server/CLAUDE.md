@@ -25,6 +25,8 @@ This is the core data flow — how Claude's output reaches iOS:
 
 **Hidden tools**: TaskCreate, TaskUpdate, TaskGet, TaskList, TaskStop, TaskOutput are tracked by ID and filtered from iOS display. Agent tool results have metadata (agentId, usage tags) stripped.
 
+**Synthetic messages**: Assistant messages with `model == "<synthetic>"` are Claude Code internal messages (e.g. "No response requested") and are filtered out before reaching iOS.
+
 ## Threading Model
 
 - watchdog runs in its own thread — all its callbacks must bridge to asyncio via `run_coroutine_threadsafe()`
