@@ -1,5 +1,25 @@
 import SwiftUI
 
+enum BashPreview {
+    static let maxCollapsedLines = 3
+
+    static func collapsedText(for content: String) -> String {
+        if content.hasPrefix("Command running in background") {
+            return "Running in background"
+        }
+        if content.isEmpty {
+            return "Done"
+        }
+        let lines = content.components(separatedBy: "\n")
+        if lines.count <= maxCollapsedLines {
+            return content
+        }
+        let preview = lines.prefix(maxCollapsedLines).joined(separator: "\n")
+        let remaining = lines.count - maxCollapsedLines
+        return "\(preview)\n… +\(remaining) lines"
+    }
+}
+
 struct ToolUseView: View {
     let tool: ToolUseBlock
     let result: ToolResultBlock?
@@ -146,9 +166,9 @@ struct ToolUseView: View {
 
     @ViewBuilder
     private func collapsedResultView(_ result: ToolResultBlock) -> some View {
-        let isError = result.isError == true
         if isExpanded {
             VStack(alignment: .leading, spacing: 4) {
+                let isError = result.isError == true
                 let content = displayContent(for: result)
                 Text(content.isEmpty ? "(empty)" : content)
                     .font(.system(.footnote, design: .monospaced))
@@ -174,18 +194,30 @@ struct ToolUseView: View {
                 }
             }
         } else {
+            let isError = result.isError == true
+            let previewText = BashPreview.collapsedText(for: displayContent(for: result))
             Button {
                 withAnimation { isExpanded = true }
             } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: isError ? "xmark.circle" : "checkmark")
-                        .font(.footnote)
-                        .foregroundColor(isError ? .red : .secondary)
-                    Text(isError ? "Error — tap to show" : "Done — tap to show output")
-                        .font(.footnote)
-                        .foregroundColor(isError ? .red : .secondary)
+                if isError {
+                    HStack(spacing: 4) {
+                        Image(systemName: "xmark.circle")
+                            .font(.footnote)
+                            .foregroundColor(.red)
+                        Text("Error — tap to show")
+                            .font(.footnote)
+                            .foregroundColor(.red)
+                    }
+                    .padding(.top, 2)
+                } else {
+                    Text(previewText)
+                        .font(.system(.footnote, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .lineLimit(BashPreview.maxCollapsedLines + 1)
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, 2)
                 }
-                .padding(.top, 2)
             }
         }
     }

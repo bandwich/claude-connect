@@ -105,6 +105,6 @@ NavigationStack from ClaudeVoiceApp.swift (not ContentView — ContentView is a 
 - `voiceState` ≠ `outputState`: voiceState tracks user input (listening/speaking), outputState tracks Claude's work (thinking/tool). Both affect UI independently
 - Context percentage is inverted for display: server sends % used, UI shows 100 - % as "remaining"
 - ToolSearch tool results are never displayed (filtered)
-- Tool results for Bash are collapsed by default (expandable). Task, Read, Edit, Grep, Glob, AskUserQuestion, ToolSearch results are fully hidden (show "Done" checkmark, not expandable)
+- Tool results for Bash are collapsed by default (expandable) — collapsed state shows a content preview (first 3 lines, truncated with "… +N lines"), "Running in background" for background commands, "Done" for empty output, or "Error — tap to show" for errors. Preview logic lives in `BashPreview` enum (ToolUseView.swift). Task, Read, Edit, Grep, Glob, AskUserQuestion, ToolSearch results are fully hidden (show "Done" checkmark, not expandable)
 - `@AppStorage` for persistent settings: ttsEnabled, serverIP, serverPort
 - All delegate callbacks on main thread (URLSession delegateQueue: .main)
