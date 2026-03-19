@@ -102,6 +102,51 @@ class TestPermissionHandler:
         assert request_id not in handler.permission_responses
 
     @pytest.mark.asyncio
+    async def test_cleanup_session_removes_only_that_sessions_requests(self):
+        """cleanup_session should only remove requests for the given session."""
+        handler = PermissionHandler()
+
+        # Session A has two pending requests
+        handler.register_request("req-a1")
+        handler.pending_messages["req-a1"] = {"type": "permission_request", "session_id": "session-a"}
+        handler.register_request("req-a2")
+        handler.pending_messages["req-a2"] = {"type": "question_prompt", "session_id": "session-a"}
+
+        # Session B has one pending request
+        handler.register_request("req-b1")
+        handler.pending_messages["req-b1"] = {"type": "permission_request", "session_id": "session-b"}
+
+        handler.cleanup_session("session-a")
+
+        # Session A's requests should be gone
+        assert "req-a1" not in handler.pending_permissions
+        assert "req-a1" not in handler.pending_messages
+        assert "req-a2" not in handler.pending_permissions
+        assert "req-a2" not in handler.pending_messages
+
+        # Session B's request should remain
+        assert "req-b1" in handler.pending_permissions
+        assert "req-b1" in handler.pending_messages
+
+    @pytest.mark.asyncio
+    async def test_clear_all_removes_everything(self):
+        """clear_all should remove all permission state."""
+        handler = PermissionHandler()
+
+        handler.register_request("req1")
+        handler.pending_messages["req1"] = {"type": "permission_request", "session_id": "s1"}
+        handler.register_request("req2")
+        handler.pending_messages["req2"] = {"type": "permission_request", "session_id": "s2"}
+        handler.timed_out_requests.add("req-old")
+
+        handler.clear_all()
+
+        assert len(handler.pending_permissions) == 0
+        assert len(handler.permission_responses) == 0
+        assert len(handler.pending_messages) == 0
+        assert len(handler.timed_out_requests) == 0
+
+    @pytest.mark.asyncio
     async def test_broadcast_to_clients(self):
         """Test broadcasting message to all WebSocket clients"""
         handler = PermissionHandler()

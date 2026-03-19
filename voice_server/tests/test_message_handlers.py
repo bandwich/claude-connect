@@ -54,6 +54,7 @@ class TestVoiceInputWithTmux:
         server = VoiceServer()
 
         server.tmux = Mock()
+        server._active_tmux_session = "claude-connect_test"
         server.tmux.session_exists.return_value = True
         server.tmux.send_input = Mock(return_value=True)
 
@@ -63,8 +64,8 @@ class TestVoiceInputWithTmux:
         # Handle voice input
         await server.handle_voice_input(mock_ws, {"text": "hello claude"})
 
-        # Verify send_input was called with text
-        server.tmux.send_input.assert_called_once_with("hello claude")
+        # Verify send_input was called with session name and text
+        server.tmux.send_input.assert_called_once_with("claude-connect_test", "hello claude")
 
 
 class TestCloseSession:
@@ -76,6 +77,7 @@ class TestCloseSession:
         from ios_server import VoiceServer
 
         server = VoiceServer()
+        server._active_tmux_session = "claude-connect_test"
 
         server.tmux = Mock()
         server.tmux.kill_session = Mock(return_value=True)
@@ -84,7 +86,7 @@ class TestCloseSession:
 
         await server.handle_close_session(mock_ws)
 
-        server.tmux.kill_session.assert_called_once()
+        server.tmux.kill_session.assert_called_once_with("claude-connect_test")
 
     @pytest.mark.asyncio
     async def test_close_session_returns_success_status(self):
@@ -92,8 +94,10 @@ class TestCloseSession:
         from ios_server import VoiceServer
 
         server = VoiceServer()
+        server._active_tmux_session = "claude-connect_test"
         server.tmux = Mock()
         server.tmux.kill_session = Mock(return_value=True)
+        server.tmux.session_exists = Mock(return_value=False)
 
         mock_ws = AsyncMock()
         sent_messages = []
@@ -102,9 +106,10 @@ class TestCloseSession:
         await server.handle_close_session(mock_ws)
 
         responses = [json.loads(m) for m in sent_messages]
-        closed_response = next((r for r in responses if r.get("type") == "session_closed"), None)
-        assert closed_response is not None
-        assert closed_response["success"] is True
+        # close_session now delegates to stop_session which sends session_stopped
+        stopped_response = next((r for r in responses if r.get("type") == "session_stopped"), None)
+        assert stopped_response is not None
+        assert stopped_response["success"] is True
 
 
 class TestNewSession:
@@ -126,8 +131,11 @@ class TestNewSession:
 
         await server.handle_new_session(mock_ws, {"project_path": "/Users/test/myproject"})
 
-        # Verify start_session was called with working_dir
-        server.tmux.start_session.assert_called_once_with(working_dir="/Users/test/myproject")
+        # Verify start_session was called with a tmux name and working_dir
+        server.tmux.start_session.assert_called_once()
+        call_args = server.tmux.start_session.call_args
+        assert call_args[1]["working_dir"] == "/Users/test/myproject"
+        assert call_args[0][0].startswith("claude-connect_pending-")
 
     @pytest.mark.asyncio
     async def test_new_session_returns_success_status(self):
@@ -171,8 +179,11 @@ class TestResumeSession:
 
         await server.handle_resume_session(mock_ws, {"session_id": "abc123-def456"})
 
-        # Verify start_session was called with resume_id (working_dir is None when no folder_name provided)
-        server.tmux.start_session.assert_called_once_with(working_dir=None, resume_id="abc123-def456")
+        # Verify start_session was called with tmux name, working_dir, resume_id, and env
+        server.tmux.start_session.assert_called_once_with(
+            "claude-connect_abc123-def456", working_dir=None, resume_id="abc123-def456",
+            env={"CLAUDE_CONNECT_SESSION_ID": "abc123-def456"}
+        )
 
     @pytest.mark.asyncio
     async def test_resume_session_returns_success(self):
@@ -242,7 +253,10 @@ class TestAddProject:
             await server.handle_add_project(mock_ws, {"name": "my-project"})
 
             expected_path = f"{tmpdir}/my-project"
-            server.tmux.start_session.assert_called_once_with(working_dir=expected_path)
+            server.tmux.start_session.assert_called_once()
+            call_args = server.tmux.start_session.call_args
+            assert call_args[0][0].startswith("claude-connect_pending-")
+            assert call_args[1]["working_dir"] == expected_path
 
     @pytest.mark.asyncio
     async def test_add_project_preserves_spaces_in_name(self):
@@ -266,7 +280,9 @@ class TestAddProject:
             expected_path = os.path.join(tmpdir, "Test project")
             assert os.path.exists(expected_path)
             assert os.path.isdir(expected_path)
-            server.tmux.start_session.assert_called_once_with(working_dir=expected_path)
+            server.tmux.start_session.assert_called_once()
+            call_args = server.tmux.start_session.call_args
+            assert call_args[1]["working_dir"] == expected_path
 
 
 class TestActiveSessionTracking:
@@ -297,6 +313,7 @@ class TestActiveSessionTracking:
 
         server = VoiceServer()
         server.active_session_id = "abc123"
+        server._active_tmux_session = "claude-connect_abc123"
         server.tmux = Mock()
         server.tmux.kill_session = Mock(return_value=True)
 
@@ -358,6 +375,7 @@ class TestConnectionStatusBroadcast:
 
         server = VoiceServer()
         server.tmux = Mock()
+        server._active_tmux_session = "claude-connect_test-session"
         server.tmux.session_exists = Mock(return_value=True)
         server.active_session_id = "test-session"
 
@@ -732,9 +750,10 @@ class TestInterruptHandler:
         from ios_server import VoiceServer
 
         server = VoiceServer()
+        server._active_tmux_session = "claude-connect_test"
 
         escape_called = False
-        def mock_send_escape():
+        def mock_send_escape(session_name):
             nonlocal escape_called
             escape_called = True
             return True
@@ -812,18 +831,26 @@ class TestResetSessionState:
         assert server._pending_session_snapshot is None
         assert server.current_branch == ""
 
-    def test_reset_session_state_clears_permissions(self):
-        """_reset_session_state should clear pending permissions."""
+    @pytest.mark.asyncio
+    async def test_reset_session_state_preserves_cross_session_permissions(self):
+        """_reset_session_state should NOT clear permissions from other sessions."""
         from ios_server import VoiceServer
 
         server = VoiceServer()
-        server.permission_handler.latest_request_id = "stale-req"
-        server.permission_handler.pending_messages["req1"] = {"type": "permission_request"}
+        # Simulate a pending permission for session A
+        server.permission_handler.pending_permissions["req-a"] = asyncio.Event()
+        server.permission_handler.pending_messages["req-a"] = {
+            "type": "permission_request",
+            "session_id": "session-a",
+        }
 
+        # Starting a new session calls _reset_session_state
         server._reset_session_state()
 
-        assert server.permission_handler.latest_request_id is None
-        assert len(server.permission_handler.pending_messages) == 0
+        # Session A's permission should still be pending
+        assert "req-a" in server.permission_handler.pending_permissions
+        assert "req-a" in server.permission_handler.pending_messages
+        assert server.permission_handler.is_request_pending("req-a")
 
 
 class TestPollClaudeReady:
@@ -836,7 +863,7 @@ class TestPollClaudeReady:
 
         server = VoiceServer()
         call_count = 0
-        def mock_capture(include_history=True):
+        def mock_capture(session_name, include_history=True):
             nonlocal call_count
             call_count += 1
             if call_count >= 3:
@@ -845,7 +872,7 @@ class TestPollClaudeReady:
 
         server.tmux = Mock()
         server.tmux.capture_pane = mock_capture
-        result = await server.poll_claude_ready(timeout=5.0, interval=0.1)
+        result = await server.poll_claude_ready(tmux_name="claude-connect_test", timeout=5.0, interval=0.1)
         assert result is True
 
     @pytest.mark.asyncio
@@ -856,7 +883,7 @@ class TestPollClaudeReady:
         server = VoiceServer()
         server.tmux = Mock()
         server.tmux.capture_pane = Mock(return_value="$ claude\n")
-        result = await server.poll_claude_ready(timeout=0.5, interval=0.1)
+        result = await server.poll_claude_ready(tmux_name="claude-connect_test", timeout=0.5, interval=0.1)
         assert result is False
 
 
@@ -870,7 +897,6 @@ class TestResumeSessionLifecycle:
 
         server = VoiceServer()
         server.active_session_id = "stale-session"
-        server.permission_handler.latest_request_id = "stale-request"
 
         server.tmux = Mock()
         server.tmux.start_session = Mock(return_value=True)
@@ -884,8 +910,6 @@ class TestResumeSessionLifecycle:
             "session_id": "new-session-id",
             "folder_name": "test-folder"
         })
-
-        assert server.permission_handler.latest_request_id is None
 
         sent = json.loads(mock_ws.send.call_args_list[0][0][0])
         assert sent["success"] is True
@@ -925,7 +949,6 @@ class TestNewSessionLifecycle:
         # Set up stale state
         server.active_session_id = "stale-session"
         server.transcript_path = "/old/path.jsonl"
-        server.permission_handler.latest_request_id = "stale-request"
 
         server.tmux = Mock()
         server.tmux.start_session = Mock(return_value=True)
@@ -936,7 +959,6 @@ class TestNewSessionLifecycle:
         await server.handle_new_session(mock_ws, {"project_path": "/tmp/test"})
 
         # Verify stale state was cleared
-        assert server.permission_handler.latest_request_id is None
         assert server.transcript_path is None
 
         # Verify success was sent
@@ -976,6 +998,7 @@ class TestUserInput:
 
         server = VoiceServer()
         server.tmux = Mock()
+        server._active_tmux_session = "claude-connect_test"
         server.tmux.session_exists.return_value = True
         server.tmux.send_input = Mock(return_value=True)
 
@@ -985,7 +1008,7 @@ class TestUserInput:
             json.dumps({"type": "user_input", "text": "hello claude", "images": [], "timestamp": 1234})
         )
 
-        server.tmux.send_input.assert_called_once_with("hello claude")
+        server.tmux.send_input.assert_called_once_with("claude-connect_test", "hello claude")
 
     @pytest.mark.asyncio
     async def test_user_input_with_images_saves_files(self):
@@ -995,6 +1018,7 @@ class TestUserInput:
 
         server = VoiceServer()
         server.tmux = Mock()
+        server._active_tmux_session = "claude-connect_test"
         server.tmux.session_exists.return_value = True
         server.tmux.send_input = Mock(return_value=True)
 
@@ -1012,8 +1036,10 @@ class TestUserInput:
             })
         )
 
-        # Verify send_input was called with text that includes an image path
-        call_args = server.tmux.send_input.call_args[0][0]
-        assert "what is this" in call_args
-        assert "/tmp/claude_voice_img_" in call_args
-        assert ".png" in call_args
+        # Verify send_input was called with session name and text that includes an image path
+        call_args = server.tmux.send_input.call_args[0]
+        assert call_args[0] == "claude-connect_test"  # session name
+        text_arg = call_args[1]
+        assert "what is this" in text_arg
+        assert "/tmp/claude_voice_img_" in text_arg
+        assert ".png" in text_arg

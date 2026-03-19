@@ -5,6 +5,7 @@ import asyncio
 import json
 from aiohttp import web
 from voice_server.permission_handler import PermissionHandler
+from voice_server.tmux_controller import session_name_for
 
 HTTP_PORT = 8766
 
@@ -23,6 +24,23 @@ def set_voice_server(server):
     """Set the voice server reference for transcript endpoints"""
     global _voice_server
     _voice_server = server
+
+
+def resolve_session_id(raw_id: str) -> str:
+    """Resolve a pending-* session ID to the real session ID.
+
+    When a new session starts, the tmux process gets CLAUDE_CONNECT_SESSION_ID=pending-<uuid>.
+    The real session ID is only known after deferred detection. This resolves the pending ID
+    by looking up the SessionContext in the voice server's active_sessions dict.
+    """
+    if not raw_id.startswith("pending-") or not _voice_server:
+        return raw_id
+    tmux_name = session_name_for(raw_id)
+    ctx = _voice_server.active_sessions.get(tmux_name)
+    if ctx and ctx.session_id:
+        return ctx.session_id
+    # Not resolved yet — return empty so the iOS filter passes it through
+    return ""
 
 
 def create_http_app(permission_handler: PermissionHandler) -> web.Application:
@@ -49,9 +67,12 @@ def create_http_app(permission_handler: PermissionHandler) -> web.Application:
         }
         prompt_type = prompt_type_map.get(tool_name, "bash")
 
+        session_id = resolve_session_id(request.headers.get("X-Session-Id", ""))
+
         ios_message = {
             "type": "permission_request",
             "request_id": request_id,
+            "session_id": session_id,
             "prompt_type": prompt_type,
             "tool_name": tool_name,
             "tool_input": payload.get("tool_input", {}),
@@ -118,6 +139,8 @@ def create_http_app(permission_handler: PermissionHandler) -> web.Application:
 
         timeout = float(request.query.get("timeout", "180"))
 
+        session_id = resolve_session_id(request.headers.get("X-Session-Id", ""))
+
         tool_input = payload.get("tool_input", {})
         questions = tool_input.get("questions", [])
 
@@ -136,6 +159,7 @@ def create_http_app(permission_handler: PermissionHandler) -> web.Application:
             ios_message = {
                 "type": "question_prompt",
                 "request_id": request_id,
+                "session_id": session_id,
                 "header": q.get("header", ""),
                 "question": q.get("question", ""),
                 "options": options if options else [],
@@ -224,7 +248,8 @@ def create_http_app(permission_handler: PermissionHandler) -> web.Application:
         except json.JSONDecodeError:
             return web.json_response({"error": "Invalid JSON"}, status=400)
 
-        request_id = payload.get("request_id", "") or permission_handler.latest_request_id or ""
+        session_id = resolve_session_id(request.headers.get("X-Session-Id", ""))
+        request_id = payload.get("request_id", "")
 
         if not request_id:
             return web.json_response({"status": "ok", "action": "no_request_id"})
@@ -240,11 +265,10 @@ def create_http_app(permission_handler: PermissionHandler) -> web.Application:
             await permission_handler.broadcast({
                 "type": "permission_resolved",
                 "request_id": request_id,
+                "session_id": session_id,
                 "answered_in": "terminal"
             })
             permission_handler.cleanup_request(request_id)
-            if request_id == permission_handler.latest_request_id:
-                permission_handler.latest_request_id = None
             return web.json_response({"status": "ok", "action": "resolved_timed_out"})
 
         # Already resolved or cleaned up — nothing to do
@@ -259,9 +283,10 @@ def create_http_app(permission_handler: PermissionHandler) -> web.Application:
         if _tmux_controller is None:
             return web.json_response({"error": "tmux controller not set"}, status=500)
 
+        tmux_name = _voice_server._active_tmux_session if _voice_server else None
         return web.json_response({
             "available": _tmux_controller.is_available(),
-            "session_exists": _tmux_controller.session_exists()
+            "session_exists": bool(tmux_name and _tmux_controller.session_exists(tmux_name))
         })
 
     async def handle_capture_pane(request: web.Request) -> web.Response:
@@ -269,7 +294,8 @@ def create_http_app(permission_handler: PermissionHandler) -> web.Application:
         if _tmux_controller is None:
             return web.json_response({"error": "tmux controller not set"}, status=500)
 
-        content = _tmux_controller.capture_pane()
+        tmux_name = _voice_server._active_tmux_session if _voice_server else None
+        content = _tmux_controller.capture_pane(tmux_name) if tmux_name else None
         if content is None:
             return web.json_response({"error": "no session"}, status=404)
 

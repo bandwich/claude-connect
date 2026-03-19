@@ -26,6 +26,7 @@ class WebSocketManager: NSObject, ObservableObject {
             print("🔄 activeSessionId didSet: \(oldValue ?? "nil") -> \(activeSessionId ?? "nil")")
         }
     }
+    @Published var activeSessionIds: [String] = []
     @Published var branch: String? = nil
     @Published var outputState: ClaudeOutputState = .idle {
         didSet {
@@ -348,6 +349,22 @@ class WebSocketManager: NSObject, ObservableObject {
         sendJSON(message)
     }
 
+    func stopSession(sessionId: String) {
+        let message: [String: Any] = [
+            "type": "stop_session",
+            "session_id": sessionId
+        ]
+        sendJSON(message)
+    }
+
+    func viewSession(sessionId: String) {
+        let message: [String: Any] = [
+            "type": "view_session",
+            "session_id": sessionId
+        ]
+        sendJSON(message)
+    }
+
     func addProject(name: String) {
         let message: [String: Any] = [
             "type": "add_project",
@@ -577,6 +594,9 @@ class WebSocketManager: NSObject, ObservableObject {
             } else if let sessionsResponse = try? JSONDecoder().decode(SessionsResponse.self, from: data) {
                 logToFile("✅ Decoded as SessionsResponse: \(sessionsResponse.sessions.count) sessions")
                 DispatchQueue.main.async {
+                    if let activeIds = sessionsResponse.activeSessionIds {
+                        self.activeSessionIds = activeIds
+                    }
                     self.onSessionsReceived?(sessionsResponse.sessions)
                 }
             } else if let historyResponse = try? JSONDecoder().decode(SessionHistoryResponse.self, from: data) {
@@ -594,6 +614,7 @@ class WebSocketManager: NSObject, ObservableObject {
                 DispatchQueue.main.async {
                     self.connected = connectionStatus.connected
                     self.activeSessionId = connectionStatus.activeSessionId
+                    self.activeSessionIds = connectionStatus.activeSessionIds ?? []
                     self.branch = connectionStatus.branch
                     self.onConnectionStatusReceived?(connectionStatus)
                 }
@@ -601,6 +622,13 @@ class WebSocketManager: NSObject, ObservableObject {
                       questionPrompt.type == "question_prompt" {
                 logToFile("✅ Decoded as QuestionPrompt: \(questionPrompt.requestId)")
                 DispatchQueue.main.async {
+                    if let promptSession = questionPrompt.sessionId,
+                       !promptSession.isEmpty,
+                       let viewedSession = self.activeSessionId,
+                       promptSession != viewedSession {
+                        self.logToFile("⏭️ Skipping question for non-viewed session: \(promptSession)")
+                        return
+                    }
                     self.inputBarMode = .questionPrompt(questionPrompt)
                 }
             } else if let questionResolved = try? JSONDecoder().decode(QuestionResolved.self, from: data),
@@ -615,6 +643,13 @@ class WebSocketManager: NSObject, ObservableObject {
             } else if let permissionRequest = try? JSONDecoder().decode(PermissionRequest.self, from: data) {
                 logToFile("✅ Decoded as PermissionRequest: \(permissionRequest.requestId)")
                 DispatchQueue.main.async {
+                    if let promptSession = permissionRequest.sessionId,
+                       !promptSession.isEmpty,
+                       let viewedSession = self.activeSessionId,
+                       promptSession != viewedSession {
+                        self.logToFile("⏭️ Skipping permission for non-viewed session: \(promptSession)")
+                        return
+                    }
                     self.pendingPermission = permissionRequest
                     self.handleInputBarPermission(permissionRequest)
                     self.onPermissionRequest?(permissionRequest)
@@ -719,6 +754,9 @@ class WebSocketManager: NSObject, ObservableObject {
                 }
             } else if let sessionsResponse = try? JSONDecoder().decode(SessionsResponse.self, from: data) {
                 DispatchQueue.main.async {
+                    if let activeIds = sessionsResponse.activeSessionIds {
+                        self.activeSessionIds = activeIds
+                    }
                     self.onSessionsReceived?(sessionsResponse.sessions)
                 }
             } else if let historyResponse = try? JSONDecoder().decode(SessionHistoryResponse.self, from: data) {
@@ -733,6 +771,7 @@ class WebSocketManager: NSObject, ObservableObject {
                 DispatchQueue.main.async {
                     self.connected = connectionStatus.connected
                     self.activeSessionId = connectionStatus.activeSessionId
+                    self.activeSessionIds = connectionStatus.activeSessionIds ?? []
                     self.branch = connectionStatus.branch
                     self.onConnectionStatusReceived?(connectionStatus)
                 }
@@ -740,6 +779,13 @@ class WebSocketManager: NSObject, ObservableObject {
                       questionPrompt.type == "question_prompt" {
                 logToFile("✅ Decoded as QuestionPrompt: \(questionPrompt.requestId)")
                 DispatchQueue.main.async {
+                    if let promptSession = questionPrompt.sessionId,
+                       !promptSession.isEmpty,
+                       let viewedSession = self.activeSessionId,
+                       promptSession != viewedSession {
+                        self.logToFile("⏭️ Skipping question for non-viewed session: \(promptSession)")
+                        return
+                    }
                     self.inputBarMode = .questionPrompt(questionPrompt)
                 }
             } else if let questionResolved = try? JSONDecoder().decode(QuestionResolved.self, from: data),
@@ -753,6 +799,13 @@ class WebSocketManager: NSObject, ObservableObject {
                 }
             } else if let permissionRequest = try? JSONDecoder().decode(PermissionRequest.self, from: data) {
                 DispatchQueue.main.async {
+                    if let promptSession = permissionRequest.sessionId,
+                       !promptSession.isEmpty,
+                       let viewedSession = self.activeSessionId,
+                       promptSession != viewedSession {
+                        self.logToFile("⏭️ Skipping permission for non-viewed session: \(promptSession)")
+                        return
+                    }
                     self.pendingPermission = permissionRequest
                     self.handleInputBarPermission(permissionRequest)
                     self.onPermissionRequest?(permissionRequest)

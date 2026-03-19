@@ -6,6 +6,7 @@
 # Exit 0 on success with decision, exit 2 to fall back to terminal
 
 SERVER_URL="${VOICE_SERVER_URL:-http://127.0.0.1:8766}"
+SESSION_ID="${CLAUDE_CONNECT_SESSION_ID:-}"
 
 # Save stdin to a temp file to avoid shell variable expansion mangling
 # JSON with special characters ($, backticks, quotes, backslashes)
@@ -18,6 +19,7 @@ cat > "$TMPFILE"
 # If server is down, curl fails fast and we fall back to terminal
 RESPONSE=$(curl -s -X POST \
   -H "Content-Type: application/json" \
+  -H "X-Session-Id: ${SESSION_ID}" \
   --data-binary @"$TMPFILE" \
   --connect-timeout 3 \
   --max-time 185 \

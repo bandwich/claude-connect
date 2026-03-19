@@ -55,7 +55,8 @@ voice_server/                  # Python server
 ├─ session_manager.py         # Claude Code session/project management
 ├─ content_models.py          # Pydantic models for content blocks
 ├─ tts_utils.py               # Kokoro TTS integration
-├─ tmux_controller.py         # Tmux session control
+├─ session_context.py         # Per-session state container (SessionContext)
+├─ tmux_controller.py         # Tmux session control (parameterized by session name)
 ├─ context_tracker.py         # Token usage calculation from transcripts
 ├─ usage_checker.py           # On-demand usage stats via OAuth API
 ├─ usage_parser.py            # Parser for OAuth API response
@@ -102,7 +103,6 @@ ios-voice-app/ClaudeVoice/     # iOS app (Swift/SwiftUI)
 │   ├─ PermissionCardView.swift # Permission approval + question prompt cards
 │   ├─ ProjectsListView.swift # Project browser
 │   ├─ ProjectDetailView.swift # Project detail with sessions + files tabs
-│   ├─ SessionsListView.swift # Session browser
 │   ├─ FilesView.swift        # File tree browser (lazy-loaded directories)
 │   ├─ FileView.swift         # File viewer (text + images with caching)
 │   ├─ DiffView.swift         # Diff viewer for Edit results
@@ -271,6 +271,7 @@ To enable remote permission control from the iOS app, add hooks to your Claude C
 
 **Environment Variables:**
 - `VOICE_SERVER_URL`: Override server URL (default: `http://localhost:8766`)
+- `CLAUDE_CONNECT_SESSION_ID`: Set automatically per tmux session for permission/question routing
 
 **Ports Used:**
 - WebSocket: 8765 (iOS app connection)
@@ -305,6 +306,8 @@ open_session         {"type": "open_session", "folder_name": "...", "session_id"
 new_session          {"type": "new_session", "folder_name": "..."}
 resume_session       {"type": "resume_session", "folder_name": "...", "session_id": "..."}
 close_session        {"type": "close_session"}
+stop_session         {"type": "stop_session", "session_id": "..."}
+view_session         {"type": "view_session", "session_id": "..."}
 add_project          {"type": "add_project", "name": "...", "path": "..."}
 list_directory       {"type": "list_directory", "path": "..."}
 read_file            {"type": "read_file", "path": "..."}
@@ -324,19 +327,20 @@ resync_response      {"type": "resync_response", "messages": [...]}
 activity_status      {"type": "activity_status", "state": "idle|thinking|tool_active|waiting_permission", "detail": "..."}
 delivery_status      {"type": "delivery_status", "status": "confirmed|failed", "text": "..."}
 projects_list        {"type": "projects_list", "projects": [...]}
-sessions_list        {"type": "sessions_list", "sessions": [...]}
+sessions_list        {"type": "sessions_list", "sessions": [...], "active_session_ids": [...]}
 session_history      {"type": "session_history", "messages": [...]}
 session_created      {"type": "session_created", "session_id": "..."}
 session_resumed      {"type": "session_resumed", "session_id": "..."}
 session_closed       {"type": "session_closed"}
-connection_status    {"type": "connection_status", "connected": true|false}
+session_stopped      {"type": "session_stopped", "session_id": "...", "success": true|false}
+connection_status    {"type": "connection_status", "connected": true|false, "active_session_ids": [...]}
 directory_listing    {"type": "directory_listing", "path": "...", "entries": [...]}
 file_contents        {"type": "file_contents", "path": "...", "contents": "..." | "image_data": "..."}
 context_update       {"type": "context_update", "session_id": "...", "context_percentage": ..., "tokens_used": ...}
 usage_response       {"type": "usage_response", "session": {...}, "week_all_models": {...}, ...}
-permission_request   {"type": "permission_request", "request_id": "...", "prompt_type": "bash|edit|...", ...}
-permission_resolved  {"type": "permission_resolved", "request_id": "..."}
-question_prompt      {"type": "question_prompt", "request_id": "...", "question": "...", "options": [...], ...}
+permission_request   {"type": "permission_request", "request_id": "...", "session_id": "...", "prompt_type": "bash|edit|...", ...}
+permission_resolved  {"type": "permission_resolved", "request_id": "...", "session_id": "..."}
+question_prompt      {"type": "question_prompt", "request_id": "...", "session_id": "...", "question": "...", "options": [...], ...}
 question_resolved    {"type": "question_resolved", "request_id": "..."}
 task_completed       {"type": "task_completed", "tool_use_id": "..."}
 ```
@@ -345,7 +349,8 @@ task_completed       {"type": "task_completed", "tool_use_id": "..."}
 
 - **Voice Interaction**: Speak commands, hear Claude's responses via Kokoro TTS
 - **Text + Image Input**: Type messages with photo attachments from iOS
-- **Session Browser**: Browse projects from `~/.claude/projects/`, view sessions, resume in tmux
+- **Multi-Session**: Run up to 5 concurrent Claude Code sessions, switch between them, stop individual sessions
+- **Session Browser**: Browse projects from `~/.claude/projects/`, view sessions (green dot = active), resume in tmux
 - **Conversation View**: See assistant text, tool use/results, terminal-typed user messages, and interrupts
 - **Tool Display**: Collapsible tool use blocks with input summaries and results
 - **Agent Groups**: Grouped status cards for multi-agent execution (running/completed)
@@ -362,6 +367,9 @@ task_completed       {"type": "task_completed", "tool_use_id": "..."}
 
 ## Server Design Details
 
+### Multi-Session Architecture
+`SessionContext` (`session_context.py`) bundles per-session state: session ID, folder name, tmux session name, transcript path, observer, activity state, and voice input dedup. `VoiceServer` holds `active_sessions: dict[str, SessionContext]` (keyed by tmux session name) and `viewed_session_id` (which session the iOS app is viewing). Each tmux session is named `claude-connect_<session_id>` via `session_name_for()`. Max 5 concurrent sessions (`MAX_ACTIVE_SESSIONS`). Hook scripts pass `CLAUDE_CONNECT_SESSION_ID` via `X-Session-Id` header so the server routes permissions/questions to the correct session. Server shutdown kills all `claude-connect_*` tmux sessions.
+
 ### Transcript Watching Pipeline
 The core data flow for streaming Claude's output to the iOS app:
 1. **watchdog** monitors the active Claude Code transcript JSONL file for changes
@@ -372,15 +380,15 @@ The core data flow for streaming Claude's output to the iOS app:
 6. Each message gets a sequence number (`seq`) for gap detection
 
 ### Activity State Detection
-`pane_parser.py` captures the tmux pane and parses the last ~15 lines:
+The pane poll loop iterates all active sessions, but only broadcasts activity for the viewed session. `pane_parser.py` captures the tmux pane and parses the last ~15 lines:
 - Spinner chars (✢✻✽✳·✶) → `thinking`
 - ⏺ + present tense verb → `tool_active` (with tool name as detail)
 - "Esc to cancel · Tab to amend" → `waiting_permission`
 - Otherwise → `idle`
 
 ### Permission Flow
-1. Claude Code triggers `PermissionRequest` hook → `permission_hook.sh` POSTs to HTTP server (port 8766)
-2. `http_server.py` generates `request_id`, broadcasts to iOS via WebSocket
+1. Claude Code triggers `PermissionRequest` hook → `permission_hook.sh` POSTs to HTTP server (port 8766) with `X-Session-Id` header
+2. `http_server.py` generates `request_id`, resolves pending session IDs, broadcasts to iOS via WebSocket
 3. iOS shows inline `PermissionCardView` with approve/deny + permission suggestions
 4. User decision flows back through WebSocket → HTTP response → hook stdout → Claude Code
 5. `PostToolUse` hook fires `post_tool_hook.sh` to dismiss stale prompts if the request timed out

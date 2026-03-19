@@ -14,6 +14,7 @@ WebSocketManager is the single state hub. Views bind via `@ObservedObject` and s
 - `pendingPermission` — current permission request awaiting user decision
 - `activityState` — tmux pane activity from server (thinking/tool_active/waiting_permission + detail)
 - `activeSessionId` — session ID of active tmux session
+- `activeSessionIds` — list of all active session IDs (for green dots + filtering)
 - `contextStats` — token usage percentage
 - `lastReceivedSeq` — last transcript line number for gap detection
 - `isPlayingAudio` — true while AudioPlayer is streaming (plain var, not @Published — updated by AudioPlayer callbacks)
@@ -55,6 +56,14 @@ Prompts auto-dismiss after 180 seconds (soft timeout). Late responses can still 
 - On reconnect: `requestResync()` (no params — reads `lastReceivedSeq` internally, sends type `"resync"`) → server sends all messages after that seq
 - Resync dedup happens at message level, not block level
 
+## Multi-Session Support
+
+- Sessions list shows green dots for active sessions (via `activeSessionIds` from server)
+- Tapping an active session sends `view_session` (switch view, no kill); tapping inactive sends `resume_session`
+- SessionView has an ellipsis menu with "Stop Session" (sends `stop_session`)
+- Back button navigates away without stopping the session
+- Permission/question prompts are filtered by `session_id` — only shown if they match the viewed session (nil/empty passes through for backward compatibility)
+
 ## Session ID Adoption
 
 New sessions don't have an ID when created — the server creates the tmux session before Claude generates a transcript file. SessionView adopts the ID from the first `assistant_response` message received. `isSessionSynced` handles this: for new sessions, `activeSessionId == nil` is acceptable.
@@ -95,7 +104,7 @@ Largest component (~800+ lines). Manages:
 
 NavigationStack from ClaudeVoiceApp.swift (not ContentView — ContentView is a standalone voice-only view):
 - `ProjectsListView` → `ProjectDetailView` (tabs: Sessions / Files)
-  - Sessions tab → `SessionsListView` → `SessionView`
+  - Sessions tab → `SessionView` (inline in ProjectDetailView)
   - Files tab → `FilesView` (lazy-loaded directories) → `FileView` (text + images with caching)
 - `SettingsView` — connection settings + usage stats
 - `QRScannerView` — camera-based QR code scanner for connection

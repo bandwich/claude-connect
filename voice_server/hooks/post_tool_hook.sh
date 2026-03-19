@@ -3,6 +3,7 @@
 # Notifies server when a tool completes (to dismiss permission prompt)
 
 SERVER_URL="${VOICE_SERVER_URL:-http://127.0.0.1:8766}"
+SESSION_ID="${CLAUDE_CONNECT_SESSION_ID:-}"
 
 # Read JSON payload from stdin
 PAYLOAD=$(cat)
@@ -11,6 +12,7 @@ PAYLOAD=$(cat)
 # Use 127.0.0.1 to avoid DNS resolution delays
 curl -s -X POST \
   -H "Content-Type: application/json" \
+  -H "X-Session-Id: ${SESSION_ID}" \
   -d "$PAYLOAD" \
   --connect-timeout 2 \
   --max-time 5 \

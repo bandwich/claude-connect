@@ -31,6 +31,12 @@ struct Session: Codable, Identifiable, Hashable {
 struct SessionsResponse: Codable {
     let type: String
     let sessions: [Session]
+    let activeSessionIds: [String]?
+
+    enum CodingKeys: String, CodingKey {
+        case type, sessions
+        case activeSessionIds = "active_session_ids"
+    }
 }
 
 struct SessionHistoryMessage: Codable, Identifiable {
@@ -177,12 +183,14 @@ struct ConnectionStatus: Codable {
     let type: String
     let connected: Bool
     let activeSessionId: String?
+    let activeSessionIds: [String]?
     let branch: String?
 
     enum CodingKeys: String, CodingKey {
         case type
         case connected
         case activeSessionId = "active_session_id"
+        case activeSessionIds = "active_session_ids"
         case branch
     }
 }

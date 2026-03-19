@@ -231,12 +231,13 @@ class TestVoiceServer:
         server = VoiceServer()
 
         server.tmux = Mock()
+        server._active_tmux_session = "claude-connect_test"
         server.tmux.send_input = Mock(return_value=True)
 
         await server.send_to_terminal("Test message")
 
-        # Should call tmux send_input
-        server.tmux.send_input.assert_called_once_with("Test message")
+        # Should call tmux send_input with session name and text
+        server.tmux.send_input.assert_called_once_with("claude-connect_test", "Test message")
 
     @pytest.mark.asyncio
     async def test_stream_audio(self):

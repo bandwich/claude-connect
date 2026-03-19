@@ -107,12 +107,12 @@ class TestHTTPServer(AioHTTPTestCase):
         # Simulate: PermissionRequest hook registers an Edit permission
         request_id = self.permission_handler.generate_request_id()
         self.permission_handler.register_request(request_id)
-        self.permission_handler.latest_request_id = request_id
 
         # Verify it's pending
         assert self.permission_handler.is_request_pending(request_id)
 
         # Simulate: PostToolUse fires for a Read tool (no request_id in payload)
+        # With latest_request_id removed, this hits the no_request_id path
         resp = await self.client.post(
             "/permission_resolved",
             json={"tool_name": "Read"}
@@ -120,7 +120,7 @@ class TestHTTPServer(AioHTTPTestCase):
 
         assert resp.status == 200
         data = await resp.json()
-        assert data["action"] == "ignored_pending"
+        assert data["action"] == "no_request_id"
 
         # The permission must STILL be pending — not resolved
         assert self.permission_handler.is_request_pending(request_id)

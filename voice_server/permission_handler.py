@@ -16,13 +16,11 @@ class PermissionHandler:
         self.pending_messages: dict[str, dict] = {}  # request_id -> original broadcast message
         self.websocket_clients: set = set()
         self.timed_out_requests: set[str] = set()
-        self.latest_request_id: Optional[str] = None
 
     def register_request(self, request_id: str) -> asyncio.Event:
         """Register a new permission request and return an Event to wait on"""
         event = asyncio.Event()
         self.pending_permissions[request_id] = event
-        self.latest_request_id = request_id
         return event
 
     def resolve_request(self, request_id: str, decision: dict) -> bool:
@@ -104,6 +102,22 @@ class PermissionHandler:
                     await client.send(json.dumps(message))
                 except Exception as e:
                     print(f"Error sending pending permission to client: {e}")
+
+    def cleanup_session(self, session_id: str):
+        """Clean up all permission state for a specific session."""
+        to_remove = [
+            rid for rid, msg in self.pending_messages.items()
+            if msg.get("session_id") == session_id
+        ]
+        for rid in to_remove:
+            self.cleanup_request(rid)
+
+    def clear_all(self):
+        """Clear all permission state (for full server reset)."""
+        self.pending_permissions.clear()
+        self.permission_responses.clear()
+        self.pending_messages.clear()
+        self.timed_out_requests.clear()
 
     def generate_request_id(self) -> str:
         """Generate a unique request ID"""

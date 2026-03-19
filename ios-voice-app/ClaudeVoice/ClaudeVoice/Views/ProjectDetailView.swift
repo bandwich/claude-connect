@@ -91,6 +91,13 @@ struct SessionsContentView: View {
                         Text(TimeFormatter.relativeTimeString(from: session.timestamp))
                             .font(.caption)
                             .foregroundColor(.secondary)
+
+                        if webSocketManager.activeSessionIds.contains(session.id) {
+                            Circle()
+                                .fill(Color.green)
+                                .frame(width: 8, height: 8)
+                                .padding(.leading, 4)
+                        }
                     }
                     .padding(.vertical, 4)
                     .contentShape(Rectangle())

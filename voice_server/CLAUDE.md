@@ -34,20 +34,38 @@ This is the core data flow — how Claude's output reaches iOS:
 - Everything else is asyncio on the main event loop
 - TTS generation runs in the default executor (thread pool) since Kokoro is blocking
 
+## Multi-Session Architecture
+
+Up to `MAX_ACTIVE_SESSIONS` (5) concurrent sessions. Each is tracked as a `SessionContext` (session_context.py) in `VoiceServer.active_sessions: dict[str, SessionContext]` keyed by tmux session name.
+
+**Tmux naming**: Each session gets `claude-connect_<session_id>` via `session_name_for()`. TmuxController methods all take an explicit `session_name` parameter — no hardcoded session name.
+
+**Viewed session**: `viewed_session_id` tracks which session the iOS app is looking at. TTS, activity updates, and permission/question prompts only flow to iOS for the viewed session. Other sessions keep running in the background.
+
+**Permission routing**: Each tmux session gets `CLAUDE_CONNECT_SESSION_ID` env var. Hook scripts include this as `X-Session-Id` HTTP header. `http_server.py` resolves pending-* IDs to real session IDs via `resolve_session_id()`, then includes `session_id` in WebSocket broadcasts. iOS filters prompts by viewed session.
+
+**Shutdown**: `TmuxController.cleanup_all()` kills all `claude-connect_*` tmux sessions on server exit.
+
 ## Session Lifecycle
 
-1. `_reset_session_state()` — clears active_session_id, folder_name, transcript path, stops watcher/reconciliation, clears pending permissions
-2. Create or resume tmux session via TmuxController
-3. For new sessions: snapshot existing session file IDs in `_pending_session_snapshot`
-4. File detection is deferred — the new `.jsonl` doesn't exist yet when tmux starts
-5. On first voice input: `_resolve_pending_session()` diffs current files vs snapshot to find the new one
-6. For resumed sessions: set `processed_line_count` to current file length (only process NEW content)
+1. `_reset_session_state()` — clears active_session_id, folder_name, transcript path, stops watcher/reconciliation (does NOT clear permission state — that's per-session via `cleanup_session()` or global via `clear_all()`)
+2. Create or resume tmux session via TmuxController (with `CLAUDE_CONNECT_SESSION_ID` env var)
+3. Create `SessionContext`, add to `active_sessions` dict
+4. For new sessions: snapshot existing session file IDs in `_pending_session_snapshot`
+5. File detection is deferred — the new `.jsonl` doesn't exist yet when tmux starts
+6. On first voice input: `_resolve_pending_session()` diffs current files vs snapshot to find the new one, updates SessionContext with real session ID
+7. For resumed sessions: set `processed_line_count` to current file length (only process NEW content)
+8. `view_session` switches `viewed_session_id` and transcript watcher without killing other sessions
+9. `stop_session` kills one session's tmux, removes its SessionContext
 
 ## Key State
 
 | Field | What it tracks | Reset |
 |-------|---------------|-------|
-| `active_session_id` | Which session is open in tmux | `_reset_session_state()` |
+| `active_sessions` | All running sessions (tmux name → SessionContext) | Sessions removed individually via `stop_session` |
+| `viewed_session_id` | Which session iOS is viewing | Set on view/resume, cleared on stop |
+| `_active_tmux_session` | Current tmux session name for terminal I/O | Follows viewed session |
+| `active_session_id` | Legacy: which session is active | `_reset_session_state()` |
 | `active_folder_name` | Project folder (encoded path) | `_reset_session_state()` |
 | `transcript_path` | File being watched | `_reset_session_state()` |
 | `processed_line_count` | Lines already sent to iOS | `set_session_file()` |
@@ -86,7 +104,8 @@ Only broadcasts on state change to reduce WebSocket traffic.
 
 ```
 ios_server.py (VoiceServer)
-├── tmux_controller.py     — subprocess wrapper for tmux commands
+├── session_context.py     — per-session state container (SessionContext dataclass)
+├── tmux_controller.py     — subprocess wrapper for tmux commands (parameterized by session name)
 ├── session_manager.py     — disk-based project/session inventory (~/.claude/projects/)
 ├── permission_handler.py  — request registration, Event-based waiting, timeout tracking
 ├── http_server.py         — aiohttp server for hook endpoints (/permission, /question, /permission_resolved)

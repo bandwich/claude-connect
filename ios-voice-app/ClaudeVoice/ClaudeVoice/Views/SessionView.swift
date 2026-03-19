@@ -192,28 +192,45 @@ struct SessionView: View {
             breadcrumb: "/\(project.name)",
             onBack: { selectedSessionBinding = nil }
         ) {
-            HStack(spacing: 12) {
-                // Context indicator
-                if let pct = contextPercentage {
+            HStack(spacing: 8) {
+                HStack(spacing: 12) {
+                    // Context indicator
+                    if let pct = contextPercentage {
+                        HStack(spacing: 4) {
+                            Circle()
+                                .fill(contextColor(pct))
+                                .frame(width: 8, height: 8)
+                            Text("\(Int(max(0, 100 - pct)))%")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        .accessibilityIdentifier("contextIndicator")
+                    }
+
+                    // Branch name
                     HStack(spacing: 4) {
-                        Circle()
-                            .fill(contextColor(pct))
-                            .frame(width: 8, height: 8)
-                        Text("\(Int(max(0, 100 - pct)))%")
+                        Image(systemName: "arrow.triangle.branch")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text(webSocketManager.branch ?? "main")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
-                    .accessibilityIdentifier("contextIndicator")
                 }
 
-                // Branch name
-                HStack(spacing: 4) {
-                    Image(systemName: "arrow.triangle.branch")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text(webSocketManager.branch ?? "main")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                // Ellipsis menu
+                if isActiveSession {
+                    Menu {
+                        Button("Stop Session", role: .destructive) {
+                            stopSession()
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 16))
+                            .foregroundColor(.secondary)
+                            .frame(width: 30, height: 30)
+                            .contentShape(Rectangle())
+                    }
                 }
             }
         }
@@ -373,6 +390,19 @@ struct SessionView: View {
         guard case .connected = webSocketManager.connectionState else { return false }
         let hasText = !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         return hasText || !attachedImages.isEmpty
+    }
+
+    private var isActiveSession: Bool {
+        webSocketManager.activeSessionIds.contains(session.id) || session.isNewSession
+    }
+
+    private func stopSession() {
+        let sessionId = session.isNewSession
+            ? (webSocketManager.activeSessionId ?? "")
+            : session.id
+        guard !sessionId.isEmpty else { return }
+        webSocketManager.stopSession(sessionId: sessionId)
+        selectedSessionBinding = nil
     }
 
     private var isSessionSynced: Bool {
@@ -862,7 +892,12 @@ struct SessionView: View {
             }
         }
 
-        webSocketManager.resumeSession(sessionId: session.id, folderName: project.folderName)
+        // If session is already active in tmux, just switch the view — don't re-resume
+        if webSocketManager.activeSessionIds.contains(session.id) {
+            webSocketManager.viewSession(sessionId: session.id)
+        } else {
+            webSocketManager.resumeSession(sessionId: session.id, folderName: project.folderName)
+        }
 
         // Timeout: if sync doesn't complete in 10s, fall back to normal input
         DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [self] in

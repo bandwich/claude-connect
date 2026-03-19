@@ -98,6 +98,7 @@ struct PermissionSuggestion: Codable, Equatable {
 struct PermissionRequest: Codable, Identifiable, Equatable {
     let type: String
     let requestId: String
+    let sessionId: String?
     let promptType: PermissionPromptType
     let toolName: String
     let toolInput: ToolInput?
@@ -107,9 +108,22 @@ struct PermissionRequest: Codable, Identifiable, Equatable {
 
     var id: String { requestId }
 
+    init(type: String, requestId: String, sessionId: String? = nil, promptType: PermissionPromptType, toolName: String, toolInput: ToolInput? = nil, context: PermissionContext? = nil, permissionSuggestions: [PermissionSuggestion]? = nil, timestamp: Double) {
+        self.type = type
+        self.requestId = requestId
+        self.sessionId = sessionId
+        self.promptType = promptType
+        self.toolName = toolName
+        self.toolInput = toolInput
+        self.context = context
+        self.permissionSuggestions = permissionSuggestions
+        self.timestamp = timestamp
+    }
+
     enum CodingKeys: String, CodingKey {
         case type
         case requestId = "request_id"
+        case sessionId = "session_id"
         case promptType = "prompt_type"
         case toolName = "tool_name"
         case toolInput = "tool_input"
@@ -169,6 +183,7 @@ struct QuestionOption: Codable, Equatable {
 struct QuestionPrompt: Codable, Identifiable, Equatable {
     let type: String
     let requestId: String
+    let sessionId: String?
     let header: String
     let question: String
     let options: [QuestionOption]
@@ -178,9 +193,22 @@ struct QuestionPrompt: Codable, Identifiable, Equatable {
 
     var id: String { requestId }
 
+    init(type: String, requestId: String, sessionId: String? = nil, header: String, question: String, options: [QuestionOption], multiSelect: Bool, questionIndex: Int, totalQuestions: Int) {
+        self.type = type
+        self.requestId = requestId
+        self.sessionId = sessionId
+        self.header = header
+        self.question = question
+        self.options = options
+        self.multiSelect = multiSelect
+        self.questionIndex = questionIndex
+        self.totalQuestions = totalQuestions
+    }
+
     enum CodingKeys: String, CodingKey {
         case type
         case requestId = "request_id"
+        case sessionId = "session_id"
         case header
         case question
         case options

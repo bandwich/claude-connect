@@ -27,7 +27,8 @@ from voice_server.content_models import TextBlock, ThinkingBlock, ToolUseBlock, 
 from voice_server.session_manager import SessionManager, HIDDEN_TOOLS
 from voice_server.context_tracker import ContextTracker
 from voice_server.usage_checker import UsageChecker
-from voice_server.tmux_controller import TmuxController
+from voice_server.tmux_controller import TmuxController, session_name_for
+from voice_server.session_context import SessionContext, MAX_ACTIVE_SESSIONS
 from voice_server.permission_handler import PermissionHandler
 from voice_server.http_server import start_http_server, set_tmux_controller, set_voice_server
 
@@ -445,8 +446,12 @@ class VoiceServer:
         self.projects_base_path = PROJECTS_BASE_PATH
         self.active_session_id = None  # Track which session is active in tmux
         self.active_folder_name = None  # Track which project folder is active
+        self._active_tmux_session = None  # Track current tmux session name
         self._pending_session_snapshot = None  # (folder_name, existing_ids) for deferred detection
         self.current_branch = ""  # Track git branch from transcript
+        # Multi-session support
+        self.active_sessions: dict[str, SessionContext] = {}  # tmux_session_name -> SessionContext
+        self.viewed_session_id: Optional[str] = None  # Which session the iOS app is viewing
         self.tts_enabled = True  # TTS on by default, toggled via set_preference
         # TTS queue: serializes audio generation/streaming (created in start())
         self.tts_queue = None
@@ -458,6 +463,24 @@ class VoiceServer:
         self._last_activity_state = None
         # Reconciliation loop for catching missed watchdog events
         self._reconciliation_task = None
+
+    # --- Multi-session helpers ---
+
+    def _get_viewed_context(self) -> Optional[SessionContext]:
+        """Get the SessionContext for the currently viewed session."""
+        if not self.viewed_session_id:
+            return None
+        for ctx in self.active_sessions.values():
+            if ctx.session_id == self.viewed_session_id:
+                return ctx
+        return None
+
+    def _get_context_by_session_id(self, session_id: str) -> Optional[SessionContext]:
+        """Get SessionContext by Claude session ID."""
+        for ctx in self.active_sessions.values():
+            if ctx.session_id == session_id:
+                return ctx
+        return None
 
     def find_transcript_path(self):
         """Find the transcript file to watch.
@@ -640,10 +663,15 @@ class VoiceServer:
 
     async def send_connection_status(self, websocket):
         """Send connection status to a single client"""
+        active_session_ids = [
+            ctx.session_id for ctx in self.active_sessions.values()
+            if ctx.session_id and self.tmux.session_exists(ctx.tmux_session_name)
+        ]
         response = {
             "type": "connection_status",
-            "connected": self.tmux.session_exists(),
+            "connected": bool(self._active_tmux_session and self.tmux.session_exists(self._active_tmux_session)),
             "active_session_id": self.active_session_id,
+            "active_session_ids": active_session_ids,
             "branch": self._get_current_branch()
         }
         await websocket.send(json.dumps(response))
@@ -658,8 +686,11 @@ class VoiceServer:
 
     async def send_to_terminal(self, text: str):
         """Send text to Claude Code terminal via tmux"""
-        print(f"[DEBUG] send_to_terminal: session_exists={self.tmux.session_exists()}")
-        result = self.tmux.send_input(text)
+        print(f"[DEBUG] send_to_terminal: tmux_session={self._active_tmux_session}")
+        if not self._active_tmux_session:
+            print("[DEBUG] send_to_terminal: no active tmux session")
+            return
+        result = self.tmux.send_input(self._active_tmux_session, text)
         print(f"[DEBUG] send_input returned: {result}")
 
         # If we have a pending snapshot, resolve it now that Claude has input
@@ -679,7 +710,23 @@ class VoiceServer:
         if session_id:
             print(f"[DEBUG] Deferred detection found new session: {session_id}")
             self.active_session_id = session_id
+            self.viewed_session_id = session_id
+
+            # Update the SessionContext with the real session ID
+            if self._active_tmux_session and self._active_tmux_session in self.active_sessions:
+                ctx = self.active_sessions[self._active_tmux_session]
+                ctx.session_id = session_id
+                ctx.pending_session_snapshot = None
+
             self.switch_watched_session(folder_name, session_id, from_beginning=True)
+
+            # Broadcast so iOS knows the session ID
+            await self.broadcast_connection_status()
+            await self.broadcast_message({
+                "type": "session_created",
+                "success": True,
+                "session_id": session_id
+            })
         else:
             print(f"[WARN] Deferred detection timed out for new session file")
 
@@ -767,6 +814,11 @@ class VoiceServer:
             # resetting when switching to a different transcript file.
             self.waiting_for_response = True
             self.last_voice_input = text
+            # Also set on the viewed SessionContext
+            ctx = self._get_viewed_context()
+            if ctx:
+                ctx.waiting_for_response = True
+                ctx.last_voice_input = text
 
             print(f"[{time.strftime('%H:%M:%S')}] Sending to terminal...")
             for client in list(self.clients):
@@ -1058,15 +1110,32 @@ class VoiceServer:
                 pass
 
     async def _pane_poll_loop(self):
-        """Poll tmux pane for activity status, broadcast on change."""
+        """Poll tmux panes for all active sessions, broadcast on change."""
         from voice_server.pane_parser import parse_pane_status
         try:
             while True:
-                if self.tmux.session_exists() and self.active_session_id:
-                    pane_text = self.tmux.capture_pane(include_history=False)
+                for tmux_name, ctx in list(self.active_sessions.items()):
+                    if not self.tmux.session_exists(tmux_name):
+                        continue
+                    pane_text = self.tmux.capture_pane(tmux_name, include_history=False)
                     state = parse_pane_status(pane_text)
 
-                    # Only broadcast on state change
+                    if ctx.last_activity_state is None or \
+                       state.state != ctx.last_activity_state.state or \
+                       state.detail != ctx.last_activity_state.detail:
+                        ctx.last_activity_state = state
+                        # Only broadcast activity for the viewed session
+                        if ctx.session_id == self.viewed_session_id:
+                            await self.broadcast_message({
+                                "type": "activity_status",
+                                "state": state.state,
+                                "detail": state.detail
+                            })
+
+                # Fallback: also poll the single active session if no multi-session contexts
+                if not self.active_sessions and self._active_tmux_session and self.tmux.session_exists(self._active_tmux_session):
+                    pane_text = self.tmux.capture_pane(self._active_tmux_session, include_history=False)
+                    state = parse_pane_status(pane_text)
                     if self._last_activity_state is None or \
                        state.state != self._last_activity_state.state or \
                        state.detail != self._last_activity_state.detail:
@@ -1083,9 +1152,9 @@ class VoiceServer:
 
     async def handle_interrupt(self):
         """Handle interrupt request from iOS - send Escape to tmux"""
-        if self.tmux.session_exists():
-            self.tmux.send_escape()
-            print(f"[{time.strftime('%H:%M:%S')}] Sent interrupt (Escape) to tmux")
+        if self._active_tmux_session and self.tmux.session_exists(self._active_tmux_session):
+            self.tmux.send_escape(self._active_tmux_session)
+            print(f"[{time.strftime('%H:%M:%S')}] Sent interrupt (Escape) to {self._active_tmux_session}")
 
     async def handle_list_projects(self, websocket):
         """Handle list_projects request"""
@@ -1108,6 +1177,12 @@ class VoiceServer:
         """Handle list_sessions request"""
         folder_name = data.get("folder_name", "")
         sessions = self.session_manager.list_sessions(folder_name)
+
+        active_ids = [
+            ctx.session_id for ctx in self.active_sessions.values()
+            if ctx.session_id and ctx.folder_name == folder_name
+        ]
+
         response = {
             "type": "sessions",
             "sessions": [
@@ -1118,7 +1193,8 @@ class VoiceServer:
                     "message_count": s.message_count
                 }
                 for s in sessions
-            ]
+            ],
+            "active_session_ids": active_ids
         }
         await websocket.send(json.dumps(response))
 
@@ -1157,18 +1233,70 @@ class VoiceServer:
             self._reconciliation_task.cancel()
             self._reconciliation_task = None
 
-        success = self.tmux.kill_session()
-        if success:
+        # Delegate to stop_session for the currently viewed session
+        if self._active_tmux_session:
+            # Find session_id for the active tmux session
+            session_id = self.active_session_id or ""
+            await self.handle_stop_session(websocket, {"session_id": session_id})
+        else:
+            await websocket.send(json.dumps({
+                "type": "session_closed",
+                "success": False
+            }))
+
+    async def handle_stop_session(self, websocket, data):
+        """Handle stop_session request - kills one session's tmux"""
+        session_id = data.get("session_id", "")
+        ctx = self._get_context_by_session_id(session_id) if session_id else None
+
+        # Also try by tmux session name if no context found by session_id
+        if not ctx and self._active_tmux_session:
+            ctx = self.active_sessions.get(self._active_tmux_session)
+
+        success = False
+        if ctx:
+            ctx.cleanup()
+            success = self.tmux.kill_session(ctx.tmux_session_name)
+            self.active_sessions.pop(ctx.tmux_session_name, None)
+            self.permission_handler.cleanup_session(session_id)
+            if self._active_tmux_session == ctx.tmux_session_name:
+                self._active_tmux_session = None
+                self.active_session_id = None
+            if self.viewed_session_id == session_id:
+                self.viewed_session_id = None
+
+        # Also kill legacy single session if it matches
+        elif self._active_tmux_session:
+            success = self.tmux.kill_session(self._active_tmux_session)
+            self._active_tmux_session = None
             self.active_session_id = None
 
-        response = {
-            "type": "session_closed",
-            "success": success
-        }
-        await websocket.send(json.dumps(response))
+        await websocket.send(json.dumps({
+            "type": "session_stopped",
+            "success": success,
+            "session_id": session_id
+        }))
+        await self.broadcast_connection_status()
 
-        if success:
+    async def handle_view_session(self, websocket, data):
+        """Handle view_session request - switch which session the app is viewing"""
+        session_id = data.get("session_id", "")
+        ctx = self._get_context_by_session_id(session_id)
+        if ctx:
+            self.viewed_session_id = session_id
+            self._active_tmux_session = ctx.tmux_session_name
+            self.active_session_id = session_id
+            self.switch_watched_session(ctx.folder_name, session_id)
+            print(f"[INFO] Viewing session: {session_id}")
             await self.broadcast_connection_status()
+            # Immediately send this session's current activity state
+            # so the iOS app doesn't show stale state from the previous session
+            state = ctx.last_activity_state
+            await self.broadcast_message({
+                "type": "activity_status",
+                "state": state.state if state else "idle",
+                "detail": state.detail if state else ""
+            })
 
     def _reset_session_state(self):
         """Reset all session-related state.
@@ -1184,6 +1312,7 @@ class VoiceServer:
         # Reset session tracking
         self.active_session_id = None
         self.active_folder_name = None
+        self._active_tmux_session = None
         self._pending_session_snapshot = None
         self.current_branch = ""
         self.transcript_path = None
@@ -1197,23 +1326,24 @@ class VoiceServer:
         if self.observer:
             self.observer.unschedule_all()
 
-        # Clear pending permissions/questions
-        self.permission_handler.pending_permissions.clear()
-        self.permission_handler.permission_responses.clear()
-        self.permission_handler.pending_messages.clear()
-        self.permission_handler.timed_out_requests.clear()
-        self.permission_handler.latest_request_id = None
+        # NOTE: Do NOT clear permission_handler state here.
+        # Permissions are global (shared across sessions). Clearing them
+        # would wipe pending permissions for other active sessions.
 
-    async def poll_claude_ready(self, timeout: float = 15.0, interval: float = 0.3) -> bool:
+    async def poll_claude_ready(self, tmux_name: str = None, timeout: float = 15.0, interval: float = 0.3) -> bool:
         """Poll tmux pane until Claude Code is loaded and ready.
 
         Returns True if Claude becomes ready within timeout, False otherwise.
         """
         from voice_server.pane_parser import is_claude_ready
 
+        tmux_name = tmux_name or self._active_tmux_session
+        if not tmux_name:
+            return False
+
         elapsed = 0.0
         while elapsed < timeout:
-            pane_text = self.tmux.capture_pane(include_history=False)
+            pane_text = self.tmux.capture_pane(tmux_name, include_history=False)
             if is_claude_ready(pane_text):
                 print(f"[INFO] Claude ready after {elapsed:.1f}s")
                 return True
@@ -1228,14 +1358,32 @@ class VoiceServer:
 
         Called by /reset HTTP endpoint to ensure clean state between E2E tests.
         """
-        self.tmux.kill_session()
+        # Kill all active sessions
+        for ctx in list(self.active_sessions.values()):
+            ctx.cleanup()
+            self.tmux.kill_session(ctx.tmux_session_name)
+        self.active_sessions.clear()
+        self.viewed_session_id = None
+        # Also kill the legacy single-session if present
+        if self._active_tmux_session:
+            self.tmux.kill_session(self._active_tmux_session)
         self._reset_session_state()
+        self.permission_handler.clear_all()
         print("[RESET] Server state cleared for test isolation")
 
     async def handle_new_session(self, websocket, data):
         """Handle new_session request - starts claude in tmux"""
         project_path = data.get("project_path", "")
         print(f"[DEBUG] handle_new_session: project_path={project_path}")
+
+        # Check session limit
+        if len(self.active_sessions) >= MAX_ACTIVE_SESSIONS:
+            await websocket.send(json.dumps({
+                "type": "session_created",
+                "success": False,
+                "error": f"Maximum {MAX_ACTIVE_SESSIONS} active sessions reached"
+            }))
+            return
 
         # Full state reset before anything else
         self._reset_session_state()
@@ -1248,24 +1396,46 @@ class VoiceServer:
             existing_ids = self.session_manager.list_session_ids(folder_name)
             print(f"[DEBUG] Snapshot: {len(existing_ids)} existing sessions in {folder_name}")
 
-        success = self.tmux.start_session(working_dir=project_path if project_path else None)
-        print(f"[DEBUG] start_session returned: {success}, session_exists: {self.tmux.session_exists()}")
+        import uuid
+        temp_id = f"pending-{uuid.uuid4().hex[:8]}"
+        tmux_name = session_name_for(temp_id)
+
+        success = self.tmux.start_session(
+            tmux_name,
+            working_dir=project_path if project_path else None,
+            env={"CLAUDE_CONNECT_SESSION_ID": temp_id}
+        )
+        print(f"[DEBUG] start_session returned: {success}, tmux_name: {tmux_name}")
 
         error = None
         if success:
+            self._active_tmux_session = tmux_name
             # Verify Claude actually started and is ready for input
-            ready = await self.poll_claude_ready()
+            ready = await self.poll_claude_ready(tmux_name)
             if ready:
                 self.active_session_id = None  # New session has no ID yet
+
+                # Create SessionContext and add to active_sessions
+                ctx = SessionContext(
+                    session_id=None,
+                    folder_name=folder_name or "",
+                    tmux_session_name=tmux_name,
+                )
 
                 # Save snapshot for deferred detection on first voice input
                 if folder_name:
                     self._pending_session_snapshot = (folder_name, existing_ids)
+                    ctx.pending_session_snapshot = (folder_name, existing_ids)
                     self.active_folder_name = folder_name
                     print(f"[INFO] Session snapshot saved, will detect new file on first voice input")
+
+                self.active_sessions[tmux_name] = ctx
+                self.viewed_session_id = None  # Will be set once session ID is detected
+                print(f"[INFO] New session started: tmux={tmux_name}")
             else:
                 # Claude didn't start — clean up
-                self.tmux.kill_session()
+                self.tmux.kill_session(tmux_name)
+                self._active_tmux_session = None
                 success = False
                 error = "Claude failed to start"
                 print(f"[ERROR] Claude not ready after timeout, killed tmux session")
@@ -1286,6 +1456,33 @@ class VoiceServer:
         session_id = data.get("session_id", "")
         folder_name = data.get("folder_name", "")
 
+        # Check if this session is already active — just switch view
+        existing_ctx = self._get_context_by_session_id(session_id)
+        if existing_ctx:
+            self.viewed_session_id = session_id
+            self._active_tmux_session = existing_ctx.tmux_session_name
+            self.active_session_id = session_id
+            if folder_name:
+                self.active_folder_name = folder_name
+                self.switch_watched_session(folder_name, session_id)
+            await websocket.send(json.dumps({
+                "type": "session_resumed",
+                "success": True,
+                "session_id": session_id
+            }))
+            await self.broadcast_connection_status()
+            return
+
+        # Check session limit
+        if len(self.active_sessions) >= MAX_ACTIVE_SESSIONS:
+            await websocket.send(json.dumps({
+                "type": "session_resumed",
+                "success": False,
+                "session_id": session_id,
+                "error": f"Maximum {MAX_ACTIVE_SESSIONS} active sessions reached"
+            }))
+            return
+
         # Full state reset before anything else
         self._reset_session_state()
 
@@ -1299,18 +1496,36 @@ class VoiceServer:
                 working_dir = self.session_manager.get_session_cwd(folder_name, session_id)
                 print(f"[DEBUG] handle_resume_session: get_session_cwd -> {working_dir}")
 
-            success = self.tmux.start_session(working_dir=working_dir, resume_id=session_id)
+            tmux_name = session_name_for(session_id)
+            success = self.tmux.start_session(
+                tmux_name, working_dir=working_dir, resume_id=session_id,
+                env={"CLAUDE_CONNECT_SESSION_ID": session_id}
+            )
             print(f"[DEBUG] start_session(resume_id={session_id}) returned: {success}")
 
             if success:
+                self._active_tmux_session = tmux_name
                 # Verify Claude actually started
-                ready = await self.poll_claude_ready()
+                ready = await self.poll_claude_ready(tmux_name)
                 if ready:
                     self.active_session_id = session_id
+
+                    # Create SessionContext and add to active_sessions
+                    ctx = SessionContext(
+                        session_id=session_id,
+                        folder_name=folder_name,
+                        tmux_session_name=tmux_name,
+                    )
+                    self.active_sessions[tmux_name] = ctx
+                    self.viewed_session_id = session_id
+
                     if folder_name:
                         self.switch_watched_session(folder_name, session_id)
+
+                    print(f"[INFO] Resumed session: {session_id}, tmux={tmux_name}")
                 else:
-                    self.tmux.kill_session()
+                    self.tmux.kill_session(tmux_name)
+                    self._active_tmux_session = None
                     success = False
                     error = "Claude failed to start"
                     print(f"[ERROR] Claude not ready after timeout, killed tmux session")
@@ -1452,9 +1667,13 @@ class VoiceServer:
 
         try:
             os.makedirs(project_path, exist_ok=True)
-            success = self.tmux.start_session(working_dir=project_path)
+            import uuid
+            temp_id = f"pending-{uuid.uuid4().hex[:8]}"
+            tmux_name = session_name_for(temp_id)
+            success = self.tmux.start_session(tmux_name, working_dir=project_path)
 
             if success:
+                self._active_tmux_session = tmux_name
                 # Wait for Claude to initialize by polling for transcript
                 folder_name = self.session_manager.encode_path_to_folder(project_path)
                 await poll_for_session_file(
@@ -1463,7 +1682,7 @@ class VoiceServer:
                     interval=0.2
                 )
                 # Send Enter to accept any prompts
-                self.tmux.send_input("")
+                self.tmux.send_input(tmux_name, "")
 
         except Exception as e:
             print(f"Error creating project: {e}")
@@ -1532,8 +1751,9 @@ class VoiceServer:
         else:
             text = 'n'
 
-        self.tmux.send_input(text)
-        print(f"Injected late response: {text}")
+        if self._active_tmux_session:
+            self.tmux.send_input(self._active_tmux_session, text)
+            print(f"Injected late response: {text}")
 
     async def handle_usage_request(self, websocket):
         """Handle usage_request - send cached immediately, then fetch fresh."""
@@ -1580,6 +1800,10 @@ class VoiceServer:
                 await self.handle_get_session(websocket, data)
             elif msg_type == 'close_session':
                 await self.handle_close_session(websocket)
+            elif msg_type == 'stop_session':
+                await self.handle_stop_session(websocket, data)
+            elif msg_type == 'view_session':
+                await self.handle_view_session(websocket, data)
             elif msg_type == 'new_session':
                 await self.handle_new_session(websocket, data)
             elif msg_type == 'resume_session':
@@ -1688,6 +1912,10 @@ class VoiceServer:
                     self._tts_worker_task.cancel()
                 if self._pane_poll_task:
                     self._pane_poll_task.cancel()
+                # Kill all active tmux sessions on shutdown
+                killed = self.tmux.cleanup_all()
+                if killed:
+                    print(f"[SHUTDOWN] Killed {killed} active session(s)")
 
 
 def main():
