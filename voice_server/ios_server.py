@@ -1069,6 +1069,18 @@ class VoiceServer:
                 import traceback
                 traceback.print_exc()
 
+    async def cancel_tts(self):
+        """Cancel any active or queued TTS and tell clients to stop audio."""
+        if self.tts_cancel:
+            self.tts_cancel.set()
+        if self.tts_queue:
+            while not self.tts_queue.empty():
+                try:
+                    self.tts_queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+        await self._send_stop_audio()
+
     async def _send_stop_audio(self):
         """Send stop_audio message to all connected clients."""
         message = json.dumps({"type": "stop_audio"})
@@ -1228,6 +1240,8 @@ class VoiceServer:
 
     async def handle_close_session(self, websocket):
         """Handle close_session request - kills the active tmux session"""
+        await self.cancel_tts()
+
         # Stop reconciliation loop before clearing session
         if self._reconciliation_task and not self._reconciliation_task.done():
             self._reconciliation_task.cancel()
@@ -1247,6 +1261,8 @@ class VoiceServer:
     async def handle_stop_session(self, websocket, data):
         """Handle stop_session request - kills one session's tmux"""
         session_id = data.get("session_id", "")
+        if session_id and session_id == self.viewed_session_id:
+            await self.cancel_tts()
         ctx = self._get_context_by_session_id(session_id) if session_id else None
 
         # Also try by tmux session name if no context found by session_id
@@ -1283,6 +1299,7 @@ class VoiceServer:
         session_id = data.get("session_id", "")
         ctx = self._get_context_by_session_id(session_id)
         if ctx:
+            await self.cancel_tts()
             self.viewed_session_id = session_id
             self._active_tmux_session = ctx.tmux_session_name
             self.active_session_id = session_id

@@ -344,6 +344,113 @@ class TestActiveSessionTracking:
         assert server.active_session_id is None
 
 
+class TestTTSCancelOnSessionLeave:
+    """Tests that TTS is cancelled when leaving a session"""
+
+    @pytest.mark.asyncio
+    async def test_close_session_cancels_tts(self):
+        """close_session should cancel any active TTS"""
+        from ios_server import VoiceServer
+
+        server = VoiceServer()
+        server.tts_queue = asyncio.Queue()
+        server.tts_cancel = asyncio.Event()
+        server.tts_active = True
+        server._active_tmux_session = "claude-connect_test"
+        server.active_session_id = "test"
+        server.tmux = Mock()
+        server.tmux.kill_session = Mock(return_value=True)
+        server.clients = set()
+
+        # Put something in the TTS queue
+        await server.tts_queue.put("some text")
+
+        mock_ws = AsyncMock()
+        await server.handle_close_session(mock_ws)
+
+        assert server.tts_cancel.is_set()
+        assert server.tts_queue.empty()
+
+    @pytest.mark.asyncio
+    async def test_stop_session_cancels_tts(self):
+        """stop_session should cancel TTS when stopping the viewed session"""
+        from ios_server import VoiceServer
+        from session_context import SessionContext
+
+        server = VoiceServer()
+        server.tts_queue = asyncio.Queue()
+        server.tts_cancel = asyncio.Event()
+        server.tts_active = True
+        server.viewed_session_id = "sess1"
+        server.tmux = Mock()
+        server.tmux.kill_session = Mock(return_value=True)
+        server.clients = set()
+
+        ctx = SessionContext(session_id="sess1", folder_name="test", tmux_session_name="claude-connect_sess1")
+        server.active_sessions["claude-connect_sess1"] = ctx
+
+        await server.tts_queue.put("queued text")
+
+        mock_ws = AsyncMock()
+        await server.handle_stop_session(mock_ws, {"session_id": "sess1"})
+
+        assert server.tts_cancel.is_set()
+        assert server.tts_queue.empty()
+
+    @pytest.mark.asyncio
+    async def test_stop_session_does_not_cancel_tts_for_other_session(self):
+        """stop_session should NOT cancel TTS when stopping a non-viewed session"""
+        from ios_server import VoiceServer
+        from session_context import SessionContext
+
+        server = VoiceServer()
+        server.tts_queue = asyncio.Queue()
+        server.tts_cancel = asyncio.Event()
+        server.tts_active = True
+        server.viewed_session_id = "sess1"
+        server.tmux = Mock()
+        server.tmux.kill_session = Mock(return_value=True)
+        server.clients = set()
+
+        ctx = SessionContext(session_id="sess2", folder_name="test", tmux_session_name="claude-connect_sess2")
+        server.active_sessions["claude-connect_sess2"] = ctx
+
+        await server.tts_queue.put("queued text")
+
+        mock_ws = AsyncMock()
+        await server.handle_stop_session(mock_ws, {"session_id": "sess2"})
+
+        assert not server.tts_cancel.is_set()
+        assert not server.tts_queue.empty()
+
+    @pytest.mark.asyncio
+    async def test_view_session_cancels_tts(self):
+        """view_session should cancel TTS from the previous session"""
+        from ios_server import VoiceServer
+        from session_context import SessionContext
+
+        server = VoiceServer()
+        server.tts_queue = asyncio.Queue()
+        server.tts_cancel = asyncio.Event()
+        server.tts_active = True
+        server.viewed_session_id = "old-session"
+        server.clients = set()
+
+        ctx = SessionContext(session_id="new-session", folder_name="test", tmux_session_name="claude-connect_new")
+        server.active_sessions["claude-connect_new"] = ctx
+        server.switch_watched_session = Mock()
+        server.broadcast_connection_status = AsyncMock()
+        server.broadcast_message = AsyncMock()
+
+        await server.tts_queue.put("old session text")
+
+        mock_ws = AsyncMock()
+        await server.handle_view_session(mock_ws, {"session_id": "new-session"})
+
+        assert server.tts_cancel.is_set()
+        assert server.tts_queue.empty()
+
+
 class TestConnectionStatusBranch:
     """Tests for branch field in connection_status"""
 
