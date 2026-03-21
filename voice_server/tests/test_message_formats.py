@@ -247,10 +247,10 @@ class TestiOSToServerMessageFormats:
         assert "folder_name" in message
         assert "session_id" in message
 
-    def test_close_session_message_format(self):
-        """Verify close_session message format"""
-        message = {"type": "close_session"}
-        assert message["type"] == "close_session"
+    def test_stop_audio_message_format(self):
+        """Verify stop_audio message format"""
+        message = {"type": "stop_audio"}
+        assert message["type"] == "stop_audio"
 
     def test_new_session_message_format(self):
         """Verify new_session message has required fields"""

@@ -265,6 +265,8 @@ struct SessionView: View {
             // Stop recording and audio when navigating away
             speechRecognizer.stopRecording()
             audioPlayer.stop()
+            // Tell server to cancel any in-progress TTS for this session
+            webSocketManager.stopAudio()
         }
         .onChange(of: webSocketManager.connectionState) { _, newState in
             // Retry sync when connection is established (for resumed sessions)

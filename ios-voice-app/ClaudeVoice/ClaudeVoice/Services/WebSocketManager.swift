@@ -327,8 +327,8 @@ class WebSocketManager: NSObject, ObservableObject {
 
     // MARK: - Session Action Methods
 
-    func closeSession() {
-        let message = ["type": "close_session"]
+    func stopAudio() {
+        let message = ["type": "stop_audio"]
         sendJSON(message)
     }
 

@@ -1238,26 +1238,6 @@ class VoiceServer:
         }
         await websocket.send(json.dumps(response))
 
-    async def handle_close_session(self, websocket):
-        """Handle close_session request - kills the active tmux session"""
-        await self.cancel_tts()
-
-        # Stop reconciliation loop before clearing session
-        if self._reconciliation_task and not self._reconciliation_task.done():
-            self._reconciliation_task.cancel()
-            self._reconciliation_task = None
-
-        # Delegate to stop_session for the currently viewed session
-        if self._active_tmux_session:
-            # Find session_id for the active tmux session
-            session_id = self.active_session_id or ""
-            await self.handle_stop_session(websocket, {"session_id": session_id})
-        else:
-            await websocket.send(json.dumps({
-                "type": "session_closed",
-                "success": False
-            }))
-
     async def handle_stop_session(self, websocket, data):
         """Handle stop_session request - kills one session's tmux"""
         session_id = data.get("session_id", "")
@@ -1815,8 +1795,8 @@ class VoiceServer:
                 await self.handle_list_sessions(websocket, data)
             elif msg_type == 'get_session':
                 await self.handle_get_session(websocket, data)
-            elif msg_type == 'close_session':
-                await self.handle_close_session(websocket)
+            elif msg_type == 'stop_audio':
+                await self.cancel_tts()
             elif msg_type == 'stop_session':
                 await self.handle_stop_session(websocket, data)
             elif msg_type == 'view_session':

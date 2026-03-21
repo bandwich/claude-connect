@@ -68,50 +68,6 @@ class TestVoiceInputWithTmux:
         server.tmux.send_input.assert_called_once_with("claude-connect_test", "hello claude")
 
 
-class TestCloseSession:
-    """Tests for close_session handler"""
-
-    @pytest.mark.asyncio
-    async def test_close_session_kills_tmux_session(self):
-        """close_session should kill tmux session via TmuxController"""
-        from ios_server import VoiceServer
-
-        server = VoiceServer()
-        server._active_tmux_session = "claude-connect_test"
-
-        server.tmux = Mock()
-        server.tmux.kill_session = Mock(return_value=True)
-
-        mock_ws = AsyncMock()
-
-        await server.handle_close_session(mock_ws)
-
-        server.tmux.kill_session.assert_called_once_with("claude-connect_test")
-
-    @pytest.mark.asyncio
-    async def test_close_session_returns_success_status(self):
-        """close_session should send success status to client"""
-        from ios_server import VoiceServer
-
-        server = VoiceServer()
-        server._active_tmux_session = "claude-connect_test"
-        server.tmux = Mock()
-        server.tmux.kill_session = Mock(return_value=True)
-        server.tmux.session_exists = Mock(return_value=False)
-
-        mock_ws = AsyncMock()
-        sent_messages = []
-        mock_ws.send = AsyncMock(side_effect=lambda msg: sent_messages.append(msg))
-
-        await server.handle_close_session(mock_ws)
-
-        responses = [json.loads(m) for m in sent_messages]
-        # close_session now delegates to stop_session which sends session_stopped
-        stopped_response = next((r for r in responses if r.get("type") == "session_stopped"), None)
-        assert stopped_response is not None
-        assert stopped_response["success"] is True
-
-
 class TestNewSession:
     """Tests for new_session handler"""
 
@@ -307,20 +263,28 @@ class TestActiveSessionTracking:
         assert server.active_session_id == "abc123"
 
     @pytest.mark.asyncio
-    async def test_close_session_clears_active_session_id(self):
-        """close_session should clear active_session_id"""
+    async def test_stop_session_clears_active_session_id(self):
+        """stop_session should clear active_session_id when stopping the active session"""
         from ios_server import VoiceServer
+        from session_context import SessionContext
 
         server = VoiceServer()
         server.active_session_id = "abc123"
         server._active_tmux_session = "claude-connect_abc123"
+        server.viewed_session_id = "abc123"
         server.tmux = Mock()
         server.tmux.kill_session = Mock(return_value=True)
+        server.tts_queue = asyncio.Queue()
+        server.tts_cancel = asyncio.Event()
+        server.clients = set()
+
+        ctx = SessionContext(session_id="abc123", folder_name="test", tmux_session_name="claude-connect_abc123")
+        server.active_sessions["claude-connect_abc123"] = ctx
 
         mock_ws = AsyncMock()
         mock_ws.send = AsyncMock()
 
-        await server.handle_close_session(mock_ws)
+        await server.handle_stop_session(mock_ws, {"session_id": "abc123"})
 
         assert server.active_session_id is None
 
@@ -348,25 +312,20 @@ class TestTTSCancelOnSessionLeave:
     """Tests that TTS is cancelled when leaving a session"""
 
     @pytest.mark.asyncio
-    async def test_close_session_cancels_tts(self):
-        """close_session should cancel any active TTS"""
+    async def test_stop_audio_message_cancels_tts(self):
+        """Inbound stop_audio message should cancel any active TTS"""
         from ios_server import VoiceServer
 
         server = VoiceServer()
         server.tts_queue = asyncio.Queue()
         server.tts_cancel = asyncio.Event()
         server.tts_active = True
-        server._active_tmux_session = "claude-connect_test"
-        server.active_session_id = "test"
-        server.tmux = Mock()
-        server.tmux.kill_session = Mock(return_value=True)
         server.clients = set()
 
-        # Put something in the TTS queue
         await server.tts_queue.put("some text")
 
         mock_ws = AsyncMock()
-        await server.handle_close_session(mock_ws)
+        await server.handle_message(mock_ws, json.dumps({"type": "stop_audio"}))
 
         assert server.tts_cancel.is_set()
         assert server.tts_queue.empty()
