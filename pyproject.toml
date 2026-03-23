@@ -17,6 +17,8 @@ dependencies = [
     "kokoro>=0.3",
     "soundfile>=0.12",
     "numpy>=1.20",
+    # Pin spacy: 3.8.13 requires thinc>=8.3.12 which needs Python >=3.10
+    "spacy<3.8.13",
 ]
 
 [project.scripts]
