@@ -29,6 +29,9 @@ struct SessionView: View {
     @State private var lastProcessedSeq: Int = -1
     @State private var promptTimeoutTask: Task<Void, Never>? = nil
     @State private var completedBackgroundToolIds: Set<String> = []
+    @State private var isNearBottom: Bool = true
+    @State private var scrollTrackingEnabled: Bool = false
+    @State private var scrollViewWidth: CGFloat = 0
     @AppStorage("ttsEnabled") private var ttsEnabled = true
     @FocusState private var isTextFieldFocused: Bool
 
@@ -36,7 +39,7 @@ struct SessionView: View {
         VStack(spacing: 0) {
             // Message history
             ScrollViewReader { proxy in
-                GeometryReader { geometry in
+                ZStack(alignment: .bottomTrailing) {
                     ScrollView(.vertical, showsIndicators: true) {
                         VStack(alignment: .leading, spacing: 12) {
                             ForEach(items) { item in
@@ -95,30 +98,62 @@ struct SessionView: View {
                                 .id("activity-status")
                                 .transition(.opacity)
                             }
+
+                            // Bottom anchor for scroll-to-bottom button
+                            Color.clear
+                                .frame(height: 1)
+                                .id("bottom-anchor")
                         }
                         .padding()
-                        .frame(maxWidth: geometry.size.width, alignment: .leading)
+                        .frame(maxWidth: scrollViewWidth > 0 ? scrollViewWidth : .infinity, alignment: .leading)
                     }
                     .contentMargins(.bottom, 20, for: .scrollContent)
+                    .onScrollGeometryChange(for: CGFloat.self) { geo in
+                        geo.contentSize.height - geo.contentOffset.y - geo.containerSize.height
+                    } action: { _, dist in
+                        if scrollTrackingEnabled {
+                            isNearBottom = dist < 400
+                        }
+                    }
+                    .background {
+                        GeometryReader { geo in
+                            Color.clear.onAppear { scrollViewWidth = geo.size.width }
+                                .onChange(of: geo.size.width) { _, w in scrollViewWidth = w }
+                        }
+                    }
+
+                    if !isNearBottom && scrollTrackingEnabled {
+                        Button(action: {
+                            withAnimation {
+                                proxy.scrollTo("bottom-anchor", anchor: .bottom)
+                            }
+                        }) {
+                            Image(systemName: "chevron.down.circle.fill")
+                                .font(.system(size: 32))
+                                .foregroundStyle(.white, .blue)
+                                .shadow(radius: 4)
+                        }
+                        .padding(.trailing, 16)
+                        .padding(.bottom, 8)
+                        .transition(.scale.combined(with: .opacity))
+                    }
                 }
                 .onChange(of: items.count) { _, _ in
-                    guard let lastItem = items.last else { return }
-
                     if isInitialLoad {
                         isInitialLoad = false
-                        DispatchQueue.main.async {
-                            proxy.scrollTo(lastItem.id, anchor: .bottom)
-                        }
-                    } else {
-                        withAnimation {
-                            proxy.scrollTo(lastItem.id, anchor: .bottom)
+                        proxy.scrollTo("bottom-anchor", anchor: .bottom)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                            scrollTrackingEnabled = true
                         }
                     }
                 }
-                .onChange(of: webSocketManager.activityState) { _, newValue in
-                    if let activity = newValue, activity.state != "idle" {
-                        withAnimation {
-                            proxy.scrollTo("activity-status", anchor: .bottom)
+                .onChange(of: isTextFieldFocused) { _, focused in
+                    if focused {
+                        // Keyboard appearing — scroll to bottom after layout adjusts
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            withAnimation {
+                                proxy.scrollTo("bottom-anchor", anchor: .bottom)
+                            }
                         }
                     }
                 }
@@ -260,8 +295,12 @@ struct SessionView: View {
                 }
             }
         }
-        .onAppear(perform: setupView)
+        .onAppear {
+            webSocketManager.currentlyViewingSessionId = session.isNewSession ? nil : session.id
+            setupView()
+        }
         .onDisappear {
+            webSocketManager.currentlyViewingSessionId = nil
             // Stop recording and audio when navigating away
             speechRecognizer.stopRecording()
             audioPlayer.stop()
@@ -399,9 +438,7 @@ struct SessionView: View {
     }
 
     private func stopSession() {
-        let sessionId = session.isNewSession
-            ? (webSocketManager.activeSessionId ?? "")
-            : session.id
+        let sessionId = session.isNewSession ? effectiveSessionId : session.id
         guard !sessionId.isEmpty else { return }
         webSocketManager.stopSession(sessionId: sessionId)
         selectedSessionBinding = nil
@@ -409,11 +446,11 @@ struct SessionView: View {
 
     private var isSessionSynced: Bool {
         if session.isNewSession {
-            // New session is synced when connected (activeSessionId may or may not be set yet)
-            return webSocketManager.connected && (webSocketManager.activeSessionId == nil || webSocketManager.activeSessionId == effectiveSessionId)
+            // New session is synced when connected (server may not have assigned ID yet)
+            return webSocketManager.connected && (effectiveSessionId.isEmpty || webSocketManager.activeSessionIds.contains(effectiveSessionId))
         } else {
-            // Resumed session is synced when activeSessionId matches
-            return webSocketManager.activeSessionId == session.id
+            // Resumed session is synced when it appears in active sessions
+            return webSocketManager.activeSessionIds.contains(session.id)
         }
     }
 
@@ -580,7 +617,10 @@ struct SessionView: View {
             if effectiveSessionId.isEmpty {
                 // New session: adopt the session ID from the first response
                 if let newId = response.sessionId {
-                    DispatchQueue.main.async { effectiveSessionId = newId }
+                    DispatchQueue.main.async {
+                        effectiveSessionId = newId
+                        webSocketManager.currentlyViewingSessionId = newId
+                    }
                     print("[SessionView] Adopted session ID: \(newId)")
                 }
             } else {

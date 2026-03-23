@@ -866,6 +866,7 @@ class VoiceServer:
             except Exception as e:
                 print(f"Error sending content: {e}")
 
+
     async def handle_user_message(self, text: str, seq: int = 0):
         """Send user text message to iOS clients (for terminal-typed input)"""
         # Skip echo of messages we sent from the app (voice_input or user_input)
@@ -1202,7 +1203,7 @@ class VoiceServer:
                     "id": s.id,
                     "title": s.title,
                     "timestamp": s.timestamp,
-                    "message_count": s.message_count
+                    "message_count": s.message_count,
                 }
                 for s in sessions
             ],

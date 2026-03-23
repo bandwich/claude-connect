@@ -5,6 +5,7 @@ import re
 import json
 import glob
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Optional
 
 
@@ -78,6 +79,9 @@ class SessionManager:
 
                 if actual_path:
                     decoded_path = actual_path
+                    # Skip projects whose actual directory no longer exists
+                    if not os.path.exists(decoded_path):
+                        continue
                 else:
                     # Fallback: naive decode (can't distinguish _ from / in encoded form)
                     decoded_path = entry.replace("-", "/")
@@ -237,9 +241,6 @@ class SessionManager:
         sessions = []
         session_files = glob.glob(os.path.join(project_dir, "*.jsonl"))
 
-        # Sort by modification time (most recent first)
-        session_files.sort(key=os.path.getmtime, reverse=True)
-
         for filepath in session_files:
             session_id = os.path.splitext(os.path.basename(filepath))[0]
             title, message_count, timestamp = self._parse_session_file(filepath)
@@ -255,11 +256,9 @@ class SessionManager:
                 message_count=message_count
             ))
 
-            # Stop once we have enough valid sessions
-            if len(sessions) >= limit:
-                break
-
-        return sessions
+        # Sort by last message timestamp (most recent first)
+        sessions.sort(key=lambda s: s.timestamp, reverse=True)
+        return sessions[:limit]
 
     @staticmethod
     def _is_system_injected(text: str) -> bool:
@@ -291,6 +290,15 @@ class SessionManager:
 
                         if role in ('user', 'assistant'):
                             message_count += 1
+
+                            # Track last message timestamp
+                            entry_ts = entry.get('timestamp', '')
+                            if entry_ts:
+                                try:
+                                    parsed = datetime.fromisoformat(entry_ts.replace('Z', '+00:00')).timestamp()
+                                    last_timestamp = parsed
+                                except Exception:
+                                    pass
 
                             # Get title from first real user message
                             if role == 'user' and title == "Untitled":

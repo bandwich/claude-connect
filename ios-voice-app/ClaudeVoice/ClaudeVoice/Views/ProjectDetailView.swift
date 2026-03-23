@@ -72,6 +72,7 @@ struct SessionsContentView: View {
         ZStack(alignment: .bottomTrailing) {
             List(sessions) { session in
                 Button(action: {
+                    webSocketManager.unreadSessionIds.remove(session.id)
                     selectedSession = session
                 }) {
                     HStack {
@@ -92,7 +93,12 @@ struct SessionsContentView: View {
                             .font(.caption)
                             .foregroundColor(.secondary)
 
-                        if webSocketManager.activeSessionIds.contains(session.id) {
+                        if webSocketManager.unreadSessionIds.contains(session.id) {
+                            Circle()
+                                .fill(Color.blue)
+                                .frame(width: 8, height: 8)
+                                .padding(.leading, 4)
+                        } else if webSocketManager.activeSessionIds.contains(session.id) {
                             Circle()
                                 .fill(Color.green)
                                 .frame(width: 8, height: 8)

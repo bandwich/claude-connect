@@ -13,8 +13,9 @@ WebSocketManager is the single state hub. Views bind via `@ObservedObject` and s
 - `inputBarMode` — what the input bar shows (see state machine below)
 - `pendingPermission` — current permission request awaiting user decision
 - `activityState` — tmux pane activity from server (thinking/tool_active/waiting_permission + detail)
-- `activeSessionId` — session ID of active tmux session
 - `activeSessionIds` — list of all active session IDs (for green dots + filtering)
+- `unreadSessionIds` — sessions with unread messages (for blue dots)
+- `currentlyViewingSessionId` — which session the user is viewing (plain var, not @Published — set by SessionView onAppear/onDisappear)
 - `contextStats` — token usage percentage
 - `lastReceivedSeq` — last transcript line number for gap detection
 - `isPlayingAudio` — true while AudioPlayer is streaming (plain var, not @Published — updated by AudioPlayer callbacks)
@@ -58,7 +59,7 @@ Prompts auto-dismiss after 180 seconds (soft timeout). Late responses can still 
 
 ## Multi-Session Support
 
-- Sessions list shows green dots for active sessions (via `activeSessionIds` from server)
+- Sessions list shows green dots for active sessions (via `activeSessionIds` from server), blue dots for unread sessions (via `unreadSessionIds`)
 - Tapping an active session sends `view_session` (switch view, no kill); tapping inactive sends `resume_session`
 - SessionView has an ellipsis menu with "Stop Session" (sends `stop_session`)
 - Back button navigates away without stopping the session
@@ -66,7 +67,7 @@ Prompts auto-dismiss after 180 seconds (soft timeout). Late responses can still 
 
 ## Session ID Adoption
 
-New sessions don't have an ID when created — the server creates the tmux session before Claude generates a transcript file. SessionView adopts the ID from the first `assistant_response` message received. `isSessionSynced` handles this: for new sessions, `activeSessionId == nil` is acceptable.
+New sessions don't have an ID when created — the server creates the tmux session before Claude generates a transcript file. SessionView adopts the ID from the first `assistant_response` message received. `isSessionSynced` handles this: for new sessions, checks `activeSessionIds.contains()` rather than requiring an exact match.
 
 ## Connection & Reconnection
 
@@ -95,7 +96,7 @@ Largest component (~800+ lines). Manages:
 - Conversation rendering (ScrollView of ConversationItems)
 - Real-time callback chain: onAssistantResponse → seq dedup → parse blocks → append items
 - Echo suppression: `lastVoiceInputText` filters server echo of locally-shown voice input
-- Auto-scroll: no animation on first load, animated on new messages
+- Scroll: scrolls to bottom on initial load and keyboard appear only. No auto-scroll on new messages. Scroll-to-bottom button (chevron) appears in bottom-right when user scrolls up, detected via `onScrollGeometryChange` (dist threshold 400). Tracking is delayed 1s after initial load to avoid false triggers.
 - Activity indicator with interrupt button
 - Permission resolution cards (`permissionResolutions` dictionary)
 - Image attachments for messages

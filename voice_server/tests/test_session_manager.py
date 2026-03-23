@@ -459,6 +459,83 @@ class TestSessionManager:
         result = manager.find_new_session("-Users-test-project", existing)
         assert result == "new-session"
 
+    def test_list_sessions_sorted_by_message_timestamp_not_mtime(self, tmp_path):
+        """Sessions should be sorted by last message timestamp, not file mtime"""
+        from session_manager import SessionManager
+
+        project_dir = tmp_path / "-Users-test-myproject"
+        project_dir.mkdir()
+
+        # Session A: old file mtime, but NEWER message timestamp
+        session_a = project_dir / "aaa111.jsonl"
+        session_a.write_text(json.dumps({
+            "type": "user",
+            "message": {"role": "user", "content": "Session A"},
+            "timestamp": "2026-03-20T12:00:00Z"
+        }))
+
+        # Session B: new file mtime, but OLDER message timestamp
+        session_b = project_dir / "bbb222.jsonl"
+        session_b.write_text(json.dumps({
+            "type": "user",
+            "message": {"role": "user", "content": "Session B"},
+            "timestamp": "2026-03-10T12:00:00Z"
+        }))
+
+        # Set file mtimes: B is newer on disk than A
+        os.utime(session_a, (time.time() - 200, time.time() - 200))
+        os.utime(session_b, (time.time(), time.time()))
+
+        manager = SessionManager(projects_dir=str(tmp_path))
+        sessions = manager.list_sessions("-Users-test-myproject")
+
+        assert len(sessions) == 2
+        # Session A should be first (newer message timestamp) despite older file mtime
+        assert sessions[0].id == "aaa111"
+        assert sessions[1].id == "bbb222"
+
+    def test_list_projects_excludes_deleted_paths(self, tmp_path):
+        """Should not return projects whose decoded path no longer exists on disk"""
+        from session_manager import SessionManager
+
+        # Use a subdirectory as projects_dir to avoid picking up helper dirs
+        projects_dir = tmp_path / "projects"
+        projects_dir.mkdir()
+
+        # Create a project folder whose decoded path does NOT exist
+        project_dir = projects_dir / "-Users-test-deleted_project"
+        project_dir.mkdir()
+        (project_dir / "session1.jsonl").write_text(json.dumps({
+            "type": "system",
+            "cwd": "/Users/test/deleted_project"
+        }) + "\n" + json.dumps({
+            "type": "user",
+            "message": {"role": "user", "content": "hello"},
+            "timestamp": "2026-01-01T10:00:00Z"
+        }))
+
+        # Create a project folder whose decoded path DOES exist
+        existing_path = tmp_path / "existing_project"
+        existing_path.mkdir()
+        encoded_name = str(existing_path).replace("/", "-")
+        project_dir2 = projects_dir / encoded_name
+        project_dir2.mkdir()
+        (project_dir2 / "session1.jsonl").write_text(json.dumps({
+            "type": "system",
+            "cwd": str(existing_path)
+        }) + "\n" + json.dumps({
+            "type": "user",
+            "message": {"role": "user", "content": "hello"},
+            "timestamp": "2026-01-01T10:00:00Z"
+        }))
+
+        manager = SessionManager(projects_dir=str(projects_dir))
+        projects = manager.list_projects()
+
+        # Only the existing project should appear
+        assert len(projects) == 1
+        assert projects[0].path == str(existing_path)
+
     def test_find_new_session_returns_none_when_no_new(self, tmp_path):
         """find_new_session returns None when all sessions are in exclude set"""
         from session_manager import SessionManager

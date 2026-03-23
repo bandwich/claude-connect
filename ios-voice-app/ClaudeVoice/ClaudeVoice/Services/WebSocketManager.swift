@@ -21,12 +21,9 @@ class WebSocketManager: NSObject, ObservableObject {
             print("🔄 connected didSet: \(oldValue) -> \(connected)")
         }
     }
-    @Published var activeSessionId: String? = nil {
-        didSet {
-            print("🔄 activeSessionId didSet: \(oldValue ?? "nil") -> \(activeSessionId ?? "nil")")
-        }
-    }
     @Published var activeSessionIds: [String] = []
+    @Published var unreadSessionIds: Set<String> = []
+    var currentlyViewingSessionId: String?  // Set by SessionView onAppear/onDisappear
     @Published var branch: String? = nil
     @Published var outputState: ClaudeOutputState = .idle {
         didSet {
@@ -613,7 +610,7 @@ class WebSocketManager: NSObject, ObservableObject {
                 logToFile("Decoded as ConnectionStatus: connected=\(connectionStatus.connected), session=\(connectionStatus.activeSessionId ?? "none")")
                 DispatchQueue.main.async {
                     self.connected = connectionStatus.connected
-                    self.activeSessionId = connectionStatus.activeSessionId
+
                     self.activeSessionIds = connectionStatus.activeSessionIds ?? []
                     self.branch = connectionStatus.branch
                     self.onConnectionStatusReceived?(connectionStatus)
@@ -624,7 +621,7 @@ class WebSocketManager: NSObject, ObservableObject {
                 DispatchQueue.main.async {
                     if let promptSession = questionPrompt.sessionId,
                        !promptSession.isEmpty,
-                       let viewedSession = self.activeSessionId,
+                       let viewedSession = self.currentlyViewingSessionId,
                        promptSession != viewedSession {
                         self.logToFile("⏭️ Skipping question for non-viewed session: \(promptSession)")
                         return
@@ -645,7 +642,7 @@ class WebSocketManager: NSObject, ObservableObject {
                 DispatchQueue.main.async {
                     if let promptSession = permissionRequest.sessionId,
                        !promptSession.isEmpty,
-                       let viewedSession = self.activeSessionId,
+                       let viewedSession = self.currentlyViewingSessionId,
                        promptSession != viewedSession {
                         self.logToFile("⏭️ Skipping permission for non-viewed session: \(promptSession)")
                         return
@@ -770,7 +767,7 @@ class WebSocketManager: NSObject, ObservableObject {
             } else if let connectionStatus = try? JSONDecoder().decode(ConnectionStatus.self, from: data) {
                 DispatchQueue.main.async {
                     self.connected = connectionStatus.connected
-                    self.activeSessionId = connectionStatus.activeSessionId
+
                     self.activeSessionIds = connectionStatus.activeSessionIds ?? []
                     self.branch = connectionStatus.branch
                     self.onConnectionStatusReceived?(connectionStatus)
@@ -781,7 +778,7 @@ class WebSocketManager: NSObject, ObservableObject {
                 DispatchQueue.main.async {
                     if let promptSession = questionPrompt.sessionId,
                        !promptSession.isEmpty,
-                       let viewedSession = self.activeSessionId,
+                       let viewedSession = self.currentlyViewingSessionId,
                        promptSession != viewedSession {
                         self.logToFile("⏭️ Skipping question for non-viewed session: \(promptSession)")
                         return
@@ -801,7 +798,7 @@ class WebSocketManager: NSObject, ObservableObject {
                 DispatchQueue.main.async {
                     if let promptSession = permissionRequest.sessionId,
                        !promptSession.isEmpty,
-                       let viewedSession = self.activeSessionId,
+                       let viewedSession = self.currentlyViewingSessionId,
                        promptSession != viewedSession {
                         self.logToFile("⏭️ Skipping permission for non-viewed session: \(promptSession)")
                         return
@@ -877,6 +874,12 @@ class WebSocketManager: NSObject, ObservableObject {
         // Track sequence number for gap detection
         if let seq = message.seq, seq >= lastReceivedSeq {
             DispatchQueue.main.async { self.lastReceivedSeq = seq }
+        }
+
+        // Track unread: if this message is for a session we're not currently on screen, mark it unread
+        if let sessionId = message.sessionId, !sessionId.isEmpty,
+           sessionId != currentlyViewingSessionId {
+            DispatchQueue.main.async { self.unreadSessionIds.insert(sessionId) }
         }
 
         // Update branch if provided
