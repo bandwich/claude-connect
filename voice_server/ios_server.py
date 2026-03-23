@@ -22,7 +22,7 @@ from typing import Optional
 
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
-from voice_server.tts_utils import generate_tts_audio, samples_to_wav_bytes
+from voice_server.tts_utils import generate_tts_audio, samples_to_wav_bytes, warmup_tts
 from voice_server.content_models import TextBlock, ThinkingBlock, ToolUseBlock, ToolResultBlock, ContentBlock, AssistantResponse
 from voice_server.session_manager import SessionManager, HIDDEN_TOOLS
 from voice_server.context_tracker import ContextTracker
@@ -1920,6 +1920,9 @@ def main():
     """Entry point for claude-connect command."""
     from voice_server.setup_check import ensure_dependencies
     ensure_dependencies()
+    print("[TTS] Warming up Kokoro pipeline...")
+    warmup_tts()
+    print("[TTS] Pipeline ready")
     asyncio.run(VoiceServer().start())
 
 

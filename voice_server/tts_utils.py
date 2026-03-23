@@ -13,6 +13,16 @@ sys.path.insert(0, '/Users/aaron/Desktop/max/.venv/lib/python3.9/site-packages')
 from kokoro import KPipeline
 import soundfile as sf
 
+# Cached pipeline instance (initialized eagerly via warmup_tts())
+_pipeline = None
+
+
+def warmup_tts(lang_code: str = "en-us"):
+    """Initialize the Kokoro TTS pipeline eagerly so first TTS has no load delay."""
+    global _pipeline
+    if _pipeline is None:
+        _pipeline = KPipeline(lang_code=lang_code)
+
 
 def generate_tts_audio(text: str, voice: str = "af_heart", lang_code: str = "en-us") -> np.ndarray:
     """
@@ -26,8 +36,10 @@ def generate_tts_audio(text: str, voice: str = "af_heart", lang_code: str = "en-
     Returns:
         numpy array of audio samples at 24kHz
     """
-    pipeline = KPipeline(lang_code=lang_code)
-    audio_chunks = pipeline(text, voice=voice)
+    global _pipeline
+    if _pipeline is None:
+        _pipeline = KPipeline(lang_code=lang_code)
+    audio_chunks = _pipeline(text, voice=voice)
 
     all_samples = []
     for chunk in audio_chunks:

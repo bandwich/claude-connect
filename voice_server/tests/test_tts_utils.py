@@ -21,6 +21,16 @@ from voice_server.tts_utils import (
 class TestGenerateTTSAudio:
     """Tests for generate_tts_audio function"""
 
+    def setup_method(self):
+        """Clear cached pipeline before each test"""
+        import voice_server.tts_utils as tts_mod
+        tts_mod._pipeline = None
+
+    def teardown_method(self):
+        """Clear cached pipeline after each test"""
+        import voice_server.tts_utils as tts_mod
+        tts_mod._pipeline = None
+
     @patch('voice_server.tts_utils.KPipeline')
     def test_generate_tts_audio(self, mock_pipeline_class):
         """Test basic TTS generation returns valid numpy array"""
@@ -190,6 +200,51 @@ class TestSamplesToWavBytes:
         # Should still have valid WAV header
         assert wav_bytes[:4] == b'RIFF'
         assert wav_bytes[8:12] == b'WAVE'
+
+
+class TestWarmupTTS:
+    """Tests for TTS pipeline caching and warmup"""
+
+    @patch('voice_server.tts_utils.KPipeline')
+    def test_warmup_initializes_pipeline(self, mock_pipeline_class):
+        """Test that warmup_tts creates the cached pipeline"""
+        from voice_server.tts_utils import warmup_tts, _pipeline
+        import voice_server.tts_utils as tts_mod
+
+        # Clear any cached pipeline
+        tts_mod._pipeline = None
+
+        warmup_tts()
+
+        mock_pipeline_class.assert_called_once_with(lang_code="en-us")
+        assert tts_mod._pipeline is not None
+
+        # Cleanup
+        tts_mod._pipeline = None
+
+    @patch('voice_server.tts_utils.KPipeline')
+    def test_generate_reuses_cached_pipeline(self, mock_pipeline_class):
+        """Test that generate_tts_audio reuses the cached pipeline instead of creating a new one"""
+        import voice_server.tts_utils as tts_mod
+
+        mock_pipeline_instance = Mock()
+        mock_chunk = Mock()
+        mock_chunk.output.audio.numpy.return_value = np.array([0.1, 0.2])
+        mock_pipeline_instance.return_value = [mock_chunk]
+
+        # Pre-cache the pipeline
+        tts_mod._pipeline = mock_pipeline_instance
+
+        generate_tts_audio("Hello")
+        generate_tts_audio("World")
+
+        # KPipeline constructor should NOT have been called since we pre-cached
+        mock_pipeline_class.assert_not_called()
+        # But the pipeline should have been called twice
+        assert mock_pipeline_instance.call_count == 2
+
+        # Cleanup
+        tts_mod._pipeline = None
 
 
 if __name__ == '__main__':
