@@ -346,6 +346,10 @@ class SessionManager:
                     if role not in ('user', 'assistant'):
                         continue
 
+                    # Skip synthetic messages (Claude Code internal, e.g. "No response requested")
+                    if role == 'assistant' and msg.get('model') == '<synthetic>':
+                        continue
+
                     content = msg.get('content', entry.get('content', ''))
 
                     timestamp_str = entry.get('timestamp', '')

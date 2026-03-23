@@ -419,6 +419,38 @@ class TestSessionManager:
         messages = manager.get_session_history("-Users-test-proj", "sess1")
         assert len(messages) == 0
 
+    def test_get_session_history_skips_synthetic_messages(self, tmp_path):
+        """Synthetic assistant messages (model='<synthetic>') like 'No response requested' should be filtered"""
+        from session_manager import SessionManager
+
+        project_dir = tmp_path / "-Users-test-proj"
+        project_dir.mkdir()
+        session_file = project_dir / "sess1.jsonl"
+        lines = [
+            json.dumps({
+                "timestamp": "2026-01-01T00:00:00Z",
+                "message": {
+                    "role": "assistant",
+                    "model": "<synthetic>",
+                    "content": [{"type": "text", "text": "No response requested."}]
+                }
+            }),
+            json.dumps({
+                "timestamp": "2026-01-01T00:00:01Z",
+                "message": {
+                    "role": "assistant",
+                    "model": "claude-sonnet-4-20250514",
+                    "content": [{"type": "text", "text": "Hello, how can I help?"}]
+                }
+            }),
+        ]
+        session_file.write_text("\n".join(lines) + "\n")
+
+        manager = SessionManager(projects_dir=str(tmp_path))
+        messages = manager.get_session_history("-Users-test-proj", "sess1")
+        assert len(messages) == 1
+        assert messages[0].content == "Hello, how can I help?"
+
     def test_list_session_ids_returns_all_ids(self, tmp_path):
         """list_session_ids returns set of all session IDs in a folder"""
         from session_manager import SessionManager
