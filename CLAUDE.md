@@ -51,20 +51,28 @@ iPhone App                         Mac Server
 
 ```
 voice_server/                  # Python server
-├─ ios_server.py              # Main WebSocket server + transcript watcher
-├─ session_manager.py         # Claude Code session/project management
-├─ content_models.py          # Pydantic models for content blocks
-├─ tts_utils.py               # Kokoro TTS integration
-├─ session_context.py         # Per-session state container (SessionContext)
-├─ tmux_controller.py         # Tmux session control (parameterized by session name)
-├─ context_tracker.py         # Token usage calculation from transcripts
-├─ usage_checker.py           # On-demand usage stats via OAuth API
-├─ usage_parser.py            # Parser for OAuth API response
-├─ permission_handler.py      # Permission request/response handling
-├─ http_server.py             # HTTP server for Claude Code hooks
-├─ pane_parser.py             # Tmux pane parsing for activity state detection
-├─ setup_check.py             # Interactive dependency checking at startup
-├─ qr_display.py              # QR code generation for iOS connection
+├─ server.py                  # Main WebSocket server (VoiceServer coordinator)
+├─ tts_utils.py               # Legacy re-export (tests import from here)
+├─ models/
+│   ├─ content_models.py      # Pydantic models for content blocks
+│   └─ session_context.py     # Per-session state container (SessionContext)
+├─ services/
+│   ├─ transcript_watcher.py  # TranscriptHandler (watchdog) + poll_for_session_file
+│   ├─ tts_manager.py         # TTS queue, generation, audio streaming
+│   ├─ session_manager.py     # Disk-based project/session inventory
+│   ├─ permission_handler.py  # Permission request/response handling
+│   ├─ context_tracker.py     # Token usage calculation from transcripts
+│   ├─ usage_checker.py       # On-demand usage stats via OAuth API
+│   └─ usage_parser.py        # Parser for OAuth API response
+├─ handlers/
+│   ├─ file_handler.py        # File browsing, reading, project creation
+│   └─ input_handler.py       # Voice/text input, delivery verification
+├─ infra/
+│   ├─ tmux_controller.py     # Tmux session control (parameterized by session name)
+│   ├─ http_server.py         # HTTP server for Claude Code hooks (port 8766)
+│   ├─ pane_parser.py         # Tmux pane parsing for activity state detection
+│   ├─ setup_check.py         # Interactive dependency checking at startup
+│   └─ qr_display.py          # QR code generation for iOS connection
 ├─ hooks/
 │   ├─ permission_hook.sh     # PermissionRequest hook → POST to HTTP server
 │   ├─ question_hook.sh       # PreToolUse hook → forward AskUserQuestion to iOS
@@ -74,7 +82,7 @@ voice_server/                  # Python server
 │   ├─ mock_transcript.py     # Test transcript fixture generation
 │   ├─ test_config.py         # Test environment config (ports, paths)
 │   └─ generate_test_audio.py # Pre-generate test WAV files
-└─ tests/                     # pytest test suite (~287 tests)
+└─ tests/                     # pytest test suite (~315 tests)
 
 ios-voice-app/ClaudeVoice/     # iOS app (Swift/SwiftUI)
 ├─ ClaudeVoiceApp.swift       # @main entry point, auto-connect on launch
@@ -119,7 +127,7 @@ scripts/
 └─ cleanup_transcripts.py     # Delete Claude transcripts with ≤2 messages
 
 docs/                          # Design docs and implementation plans
-└─ plans/                     # Date-stamped feature plans (27 directories)
+└─ plans/                     # Date-stamped feature plans (33 directories)
 
 tests/e2e_support/            # E2E test utilities
 └─ server_manager.py          # Server lifecycle for tests
@@ -308,7 +316,7 @@ resume_session       {"type": "resume_session", "folder_name": "...", "session_i
 close_session        {"type": "close_session"}
 stop_session         {"type": "stop_session", "session_id": "..."}
 view_session         {"type": "view_session", "session_id": "..."}
-add_project          {"type": "add_project", "name": "...", "path": "..."}
+add_project          {"type": "add_project", "name": "..."}
 list_directory       {"type": "list_directory", "path": "..."}
 read_file            {"type": "read_file", "path": "..."}
 usage_request        {"type": "usage_request"}
@@ -326,7 +334,7 @@ user_message         {"type": "user_message", "role": "user", "content": "...", 
 resync_response      {"type": "resync_response", "messages": [...]}
 activity_status      {"type": "activity_status", "state": "idle|thinking|tool_active|waiting_permission", "detail": "..."}
 delivery_status      {"type": "delivery_status", "status": "confirmed|failed", "text": "..."}
-projects_list        {"type": "projects_list", "projects": [...]}
+projects              {"type": "projects", "projects": [...]}
 sessions_list        {"type": "sessions_list", "sessions": [...], "active_session_ids": [...]}
 session_history      {"type": "session_history", "messages": [...]}
 session_created      {"type": "session_created", "session_id": "..."}
@@ -350,7 +358,7 @@ task_completed       {"type": "task_completed", "tool_use_id": "..."}
 - **Voice Interaction**: Speak commands, hear Claude's responses via Kokoro TTS
 - **Text + Image Input**: Type messages with photo attachments from iOS
 - **Multi-Session**: Run up to 5 concurrent Claude Code sessions, switch between them, stop individual sessions
-- **Session Browser**: Browse projects from `~/.claude/projects/`, view sessions (green dot = active), resume in tmux
+- **Session Browser**: Browse projects from `~/.claude/projects/` and `~/Desktop/code/`, view sessions (green dot = active), resume in tmux
 - **Conversation View**: See assistant text, tool use/results, terminal-typed user messages, and interrupts
 - **Tool Display**: Collapsible tool use blocks with input summaries and results
 - **Agent Groups**: Grouped status cards for multi-agent execution (running/completed)
