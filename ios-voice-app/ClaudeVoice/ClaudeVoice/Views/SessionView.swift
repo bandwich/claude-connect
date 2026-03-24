@@ -107,6 +107,7 @@ struct SessionView: View {
                         .padding()
                         .frame(maxWidth: scrollViewWidth > 0 ? scrollViewWidth : .infinity, alignment: .leading)
                     }
+                    .scrollDismissesKeyboard(.interactively)
                     .contentMargins(.bottom, 20, for: .scrollContent)
                     .onScrollGeometryChange(for: CGFloat.self) { geo in
                         geo.contentSize.height - geo.contentOffset.y - geo.containerSize.height
