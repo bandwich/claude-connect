@@ -53,7 +53,7 @@ class SessionMessage:
 HIDDEN_TOOLS = {'TaskCreate', 'TaskUpdate', 'TaskGet', 'TaskList', 'TaskStop', 'TaskOutput'}
 
 
-from voice_server.content_models import strip_agent_metadata as _strip_agent_metadata
+from voice_server.models.content_models import strip_agent_metadata as _strip_agent_metadata
 
 
 class SessionManager:

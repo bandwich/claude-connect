@@ -1,8 +1,8 @@
 import json
 import asyncio
 
-from voice_server.ios_server import VoiceServer
-from voice_server.content_models import AssistantResponse, TextBlock
+from voice_server.server import VoiceServer
+from voice_server.models.content_models import AssistantResponse, TextBlock
 import pytest
 
 

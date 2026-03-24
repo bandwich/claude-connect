@@ -1,0 +1,6 @@
+VOICE MODE
+
+MVP
+
+User speaks -> sent to Claude Code
+

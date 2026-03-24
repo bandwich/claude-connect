@@ -4,8 +4,8 @@
 import asyncio
 import json
 from aiohttp import web
-from voice_server.permission_handler import PermissionHandler
-from voice_server.tmux_controller import session_name_for
+from voice_server.services.permission_handler import PermissionHandler
+from voice_server.infra.tmux_controller import session_name_for
 
 HTTP_PORT = 8766
 

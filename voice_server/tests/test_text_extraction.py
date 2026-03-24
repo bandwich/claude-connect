@@ -1,5 +1,5 @@
-from voice_server.content_models import TextBlock, ThinkingBlock, ToolUseBlock
-from voice_server.ios_server import extract_text_for_tts, strip_markdown_for_speech
+from voice_server.models.content_models import TextBlock, ThinkingBlock, ToolUseBlock
+from voice_server.services.tts_manager import extract_text_for_tts, strip_markdown_for_speech
 
 
 def test_extract_text_from_text_blocks():

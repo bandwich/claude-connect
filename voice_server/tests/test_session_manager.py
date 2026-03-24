@@ -11,7 +11,7 @@ class TestSessionManager:
 
     def test_list_projects_returns_empty_for_empty_dir(self, tmp_path):
         """Should return empty list when no projects exist"""
-        from session_manager import SessionManager
+        from voice_server.services.session_manager import SessionManager
 
         manager = SessionManager(projects_dir=str(tmp_path))
         projects = manager.list_projects()
@@ -20,7 +20,7 @@ class TestSessionManager:
 
     def test_list_projects_returns_projects_with_sessions(self, tmp_path):
         """Should return projects with correct session counts"""
-        from session_manager import SessionManager
+        from voice_server.services.session_manager import SessionManager
 
         # Create mock project structure: -Users-test-project1
         project1_dir = tmp_path / "-Users-test-project1"
@@ -51,7 +51,7 @@ class TestSessionManager:
 
     def test_list_sessions_returns_sessions_sorted_by_time(self, tmp_path):
         """Should return sessions sorted by most recent first"""
-        from session_manager import SessionManager
+        from voice_server.services.session_manager import SessionManager
 
         project_dir = tmp_path / "-Users-test-myproject"
         project_dir.mkdir()
@@ -91,7 +91,7 @@ class TestSessionManager:
 
     def test_get_session_history_returns_messages(self, tmp_path):
         """Should return all messages from a session"""
-        from session_manager import SessionManager
+        from voice_server.services.session_manager import SessionManager
 
         project_dir = tmp_path / "-Users-test-myproject"
         project_dir.mkdir()
@@ -128,7 +128,7 @@ class TestSessionManager:
 
     def test_list_sessions_filters_warmup_sessions(self, tmp_path):
         """Sessions with titles starting with 'Warmup' should be filtered out"""
-        from session_manager import SessionManager
+        from voice_server.services.session_manager import SessionManager
 
         project_dir = tmp_path / "test-project"
         project_dir.mkdir()
@@ -153,7 +153,7 @@ class TestSessionManager:
 
     def test_list_sessions_filters_system_message_sessions(self, tmp_path):
         """Sessions where only system-injected messages exist should be filtered out"""
-        from session_manager import SessionManager
+        from voice_server.services.session_manager import SessionManager
 
         project_dir = tmp_path / "test-project"
         project_dir.mkdir()
@@ -178,7 +178,7 @@ class TestSessionManager:
 
     def test_title_skips_system_messages_to_find_real_user_input(self, tmp_path):
         """Title should come from first real user message, not system-injected ones"""
-        from session_manager import SessionManager
+        from voice_server.services.session_manager import SessionManager
 
         project_dir = tmp_path / "test-project"
         project_dir.mkdir()
@@ -199,7 +199,7 @@ class TestSessionManager:
 
     def test_list_sessions_filters_zero_message_sessions(self, tmp_path):
         """Sessions with 0 messages should be filtered out"""
-        from session_manager import SessionManager
+        from voice_server.services.session_manager import SessionManager
 
         project_dir = tmp_path / "test-project"
         project_dir.mkdir()
@@ -230,7 +230,7 @@ class TestSessionManager:
 
         Without cwd from sessions, we can't know which - was originally _ vs /
         """
-        from session_manager import SessionManager
+        from voice_server.services.session_manager import SessionManager
 
         # Claude encodes /Users/aaron/Desktop/max/voice_server as:
         # -Users-aaron-Desktop-max-voice-server (both / and _ become -)
@@ -257,7 +257,7 @@ class TestSessionManager:
 
     def test_get_session_history_includes_content_blocks(self, tmp_path):
         """get_session_history should return content_blocks for structured messages"""
-        from session_manager import SessionManager
+        from voice_server.services.session_manager import SessionManager
 
         folder = tmp_path / "-test-project"
         folder.mkdir(parents=True)
@@ -309,7 +309,7 @@ class TestSessionManager:
 
     def test_get_session_history_strips_text_newlines(self, tmp_path):
         """Text blocks with leading/trailing newlines should be stripped in history"""
-        from session_manager import SessionManager
+        from voice_server.services.session_manager import SessionManager
 
         project_dir = tmp_path / "-Users-test-project"
         project_dir.mkdir()
@@ -333,7 +333,7 @@ class TestSessionManager:
 
     def test_get_session_history_rewrites_image_source(self, tmp_path):
         """[Image: source: /path/file.png] should become [Image: file.png]"""
-        from session_manager import SessionManager
+        from voice_server.services.session_manager import SessionManager
 
         project_dir = tmp_path / "-Users-test-proj"
         project_dir.mkdir()
@@ -355,7 +355,7 @@ class TestSessionManager:
 
     def test_list_projects_sorted_by_latest_session_mtime(self, tmp_path):
         """Projects are returned sorted by most recent session file modification time"""
-        from session_manager import SessionManager
+        from voice_server.services.session_manager import SessionManager
 
         old_project = tmp_path / "-Users-test-old"
         old_project.mkdir()
@@ -382,7 +382,7 @@ class TestSessionManager:
 
     def test_list_projects_empty_project_sorts_last(self, tmp_path):
         """Projects with no sessions sort to the end"""
-        from session_manager import SessionManager
+        from voice_server.services.session_manager import SessionManager
 
         empty_project = tmp_path / "-Users-test-empty"
         empty_project.mkdir()
@@ -400,7 +400,7 @@ class TestSessionManager:
 
     def test_get_session_history_skips_image_blocks(self, tmp_path):
         """Image blocks with base64 data should be skipped entirely"""
-        from session_manager import SessionManager
+        from voice_server.services.session_manager import SessionManager
 
         project_dir = tmp_path / "-Users-test-proj"
         project_dir.mkdir()
@@ -421,7 +421,7 @@ class TestSessionManager:
 
     def test_get_session_history_skips_synthetic_messages(self, tmp_path):
         """Synthetic assistant messages (model='<synthetic>') like 'No response requested' should be filtered"""
-        from session_manager import SessionManager
+        from voice_server.services.session_manager import SessionManager
 
         project_dir = tmp_path / "-Users-test-proj"
         project_dir.mkdir()
@@ -453,7 +453,7 @@ class TestSessionManager:
 
     def test_list_session_ids_returns_all_ids(self, tmp_path):
         """list_session_ids returns set of all session IDs in a folder"""
-        from session_manager import SessionManager
+        from voice_server.services.session_manager import SessionManager
 
         project_dir = tmp_path / "-Users-test-project"
         project_dir.mkdir()
@@ -468,14 +468,14 @@ class TestSessionManager:
 
     def test_list_session_ids_empty_folder(self, tmp_path):
         """list_session_ids returns empty set for nonexistent folder"""
-        from session_manager import SessionManager
+        from voice_server.services.session_manager import SessionManager
         manager = SessionManager(projects_dir=str(tmp_path))
         ids = manager.list_session_ids("nonexistent")
         assert ids == set()
 
     def test_find_new_session_detects_new_file(self, tmp_path):
         """find_new_session returns a session ID not in the exclude set"""
-        from session_manager import SessionManager
+        from voice_server.services.session_manager import SessionManager
 
         project_dir = tmp_path / "-Users-test-project"
         project_dir.mkdir()
@@ -493,7 +493,7 @@ class TestSessionManager:
 
     def test_list_sessions_sorted_by_message_timestamp_not_mtime(self, tmp_path):
         """Sessions should be sorted by last message timestamp, not file mtime"""
-        from session_manager import SessionManager
+        from voice_server.services.session_manager import SessionManager
 
         project_dir = tmp_path / "-Users-test-myproject"
         project_dir.mkdir()
@@ -528,7 +528,7 @@ class TestSessionManager:
 
     def test_list_projects_excludes_deleted_paths(self, tmp_path):
         """Should not return projects whose decoded path no longer exists on disk"""
-        from session_manager import SessionManager
+        from voice_server.services.session_manager import SessionManager
 
         # Use a subdirectory as projects_dir to avoid picking up helper dirs
         projects_dir = tmp_path / "projects"
@@ -570,7 +570,7 @@ class TestSessionManager:
 
     def test_find_new_session_returns_none_when_no_new(self, tmp_path):
         """find_new_session returns None when all sessions are in exclude set"""
-        from session_manager import SessionManager
+        from voice_server.services.session_manager import SessionManager
 
         project_dir = tmp_path / "-Users-test-project"
         project_dir.mkdir()

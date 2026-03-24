@@ -8,8 +8,8 @@ from aiohttp.test_utils import AioHTTPTestCase, unittest_run_loop
 import sys
 import os
 
-from voice_server.http_server import create_http_app
-from voice_server.permission_handler import PermissionHandler
+from voice_server.infra.http_server import create_http_app
+from voice_server.services.permission_handler import PermissionHandler
 
 
 class TestHTTPServer(AioHTTPTestCase):

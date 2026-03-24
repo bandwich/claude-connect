@@ -1,6 +1,6 @@
 # voice_server/tests/test_usage_parser.py
 import pytest
-from voice_server.usage_parser import parse_api_response
+from voice_server.services.usage_parser import parse_api_response
 
 SAMPLE_API_RESPONSE = {
     "five_hour": {

@@ -379,12 +379,12 @@ class TestHTTPServerActualResponses:
 
     @pytest.fixture
     def permission_handler(self):
-        from permission_handler import PermissionHandler
+        from voice_server.services.permission_handler import PermissionHandler
         return PermissionHandler()
 
     @pytest.fixture
     def http_app(self, permission_handler):
-        from http_server import create_http_app
+        from voice_server.infra.http_server import create_http_app
         return create_http_app(permission_handler)
 
     @pytest.mark.asyncio

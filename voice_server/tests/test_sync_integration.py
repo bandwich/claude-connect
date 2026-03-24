@@ -11,8 +11,8 @@ import os
 import threading
 
 from watchdog.observers import Observer
-from voice_server.ios_server import TranscriptHandler
-from voice_server.content_models import AssistantResponse
+from voice_server.server import TranscriptHandler
+from voice_server.models.content_models import AssistantResponse
 
 
 class TestSyncReliability:
@@ -439,7 +439,7 @@ class TestDeliveryVerification:
     @pytest.mark.asyncio
     async def test_verify_delivery_finds_user_message(self, tmp_path):
         """verify_delivery returns True when user message appears in transcript"""
-        from voice_server.ios_server import VoiceServer
+        from voice_server.server import VoiceServer
         from unittest.mock import patch, Mock
 
         transcript_file = tmp_path / "session.jsonl"
@@ -474,7 +474,7 @@ class TestDeliveryVerification:
     @pytest.mark.asyncio
     async def test_verify_delivery_times_out(self, tmp_path):
         """verify_delivery returns False when message never appears"""
-        from voice_server.ios_server import VoiceServer
+        from voice_server.server import VoiceServer
         from unittest.mock import patch
 
         transcript_file = tmp_path / "session.jsonl"
@@ -502,7 +502,7 @@ class TestResyncHandler:
     @pytest.mark.asyncio
     async def test_resync_replays_from_sequence(self, tmp_path):
         """resync request replays all content from the given sequence number"""
-        from voice_server.ios_server import VoiceServer
+        from voice_server.server import VoiceServer
         from unittest.mock import AsyncMock, patch
 
         # Create transcript with 10 lines

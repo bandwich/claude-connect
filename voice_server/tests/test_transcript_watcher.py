@@ -11,7 +11,7 @@ import sys
 import threading
 
 from watchdog.observers import Observer
-from voice_server.ios_server import TranscriptHandler
+from voice_server.server import TranscriptHandler
 
 
 class TestTranscriptHandlerRealFiles:
@@ -380,7 +380,7 @@ class TestSessionFilePolling:
     @pytest.mark.asyncio
     async def test_poll_for_session_file_finds_existing(self, tmp_path):
         """poll_for_session_file returns immediately for existing file"""
-        from voice_server.ios_server import poll_for_session_file
+        from voice_server.server import poll_for_session_file
 
         transcript = tmp_path / "session.jsonl"
         transcript.write_text("")
@@ -395,7 +395,7 @@ class TestSessionFilePolling:
     @pytest.mark.asyncio
     async def test_poll_for_session_file_waits_for_creation(self, tmp_path):
         """poll_for_session_file waits until file appears"""
-        from voice_server.ios_server import poll_for_session_file
+        from voice_server.server import poll_for_session_file
 
         transcript = tmp_path / "session.jsonl"
         call_count = 0
@@ -419,7 +419,7 @@ class TestSessionFilePolling:
     @pytest.mark.asyncio
     async def test_poll_for_session_file_returns_none_on_timeout(self):
         """poll_for_session_file returns None if file never appears"""
-        from voice_server.ios_server import poll_for_session_file
+        from voice_server.server import poll_for_session_file
 
         result = await poll_for_session_file(
             find_fn=lambda: None,

@@ -10,420 +10,30 @@ sys.dont_write_bytecode = True
 import asyncio
 import websockets
 import json
-import re
-import sys
 import os
 import subprocess
 import time
 import glob
-import base64
-import threading
 from typing import Optional
 
 from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
-from voice_server.tts_utils import generate_tts_audio, samples_to_wav_bytes, warmup_tts
-from voice_server.content_models import TextBlock, ThinkingBlock, ToolUseBlock, ToolResultBlock, ContentBlock, AssistantResponse
-from voice_server.session_manager import SessionManager, HIDDEN_TOOLS
-from voice_server.context_tracker import ContextTracker
-from voice_server.usage_checker import UsageChecker
-from voice_server.tmux_controller import TmuxController, session_name_for
-from voice_server.session_context import SessionContext, MAX_ACTIVE_SESSIONS
-from voice_server.permission_handler import PermissionHandler
-from voice_server.http_server import start_http_server, set_tmux_controller, set_voice_server
+from voice_server.services.tts_manager import TTSManager, warmup_tts
+from voice_server.services.transcript_watcher import TranscriptHandler, poll_for_session_file
+from voice_server.handlers.file_handler import FileHandler
+from voice_server.handlers.input_handler import InputHandler
+from voice_server.models.content_models import AssistantResponse
+from voice_server.services.session_manager import SessionManager
+from voice_server.services.usage_checker import UsageChecker
+from voice_server.infra.tmux_controller import TmuxController, session_name_for
+from voice_server.models.session_context import SessionContext, MAX_ACTIVE_SESSIONS
+from voice_server.services.permission_handler import PermissionHandler
+from voice_server.infra.http_server import start_http_server, set_tmux_controller, set_voice_server
 
 # Configuration
 PORT = 8765
 TRANSCRIPT_DIR = os.path.expanduser("~/.claude/projects/")
 PROJECTS_BASE_PATH = os.path.expanduser("~/Desktop/code")
-IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.ico'}
-MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10MB
 
-
-def strip_markdown_for_speech(text: str) -> str:
-    """Strip markdown formatting so TTS doesn't speak asterisks, backticks, etc."""
-    import re
-    s = text
-    # Bold/italic: **text** or *text* or ***text***
-    s = re.sub(r'\*{1,3}(.+?)\*{1,3}', r'\1', s)
-    # Inline code: `text`
-    s = re.sub(r'`([^`]+)`', r'\1', s)
-    # Links: [text](url) → text
-    s = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', s)
-    # Heading prefixes: ### text → text
-    s = re.sub(r'^#{1,6}\s+', '', s, flags=re.MULTILINE)
-    return s
-
-
-def extract_text_for_tts(content_blocks: list[ContentBlock]) -> str:
-    """Extract only text blocks for TTS, with markdown stripped"""
-    text_parts = []
-    for block in content_blocks:
-        if isinstance(block, TextBlock):
-            text_parts.append(strip_markdown_for_speech(block.text))
-    return ' '.join(text_parts).strip()
-
-
-IMAGE_SOURCE_RE = re.compile(r'^\[Image: source: (.+)\]$')
-
-def rewrite_user_text(text: str) -> str:
-    """Clean up user text for display: rewrite image sources, strip suffixes."""
-    stripped = text.strip()
-    # [Image: source: /path/to/file.png] -> [Image: file.png]
-    m = IMAGE_SOURCE_RE.match(stripped)
-    if m:
-        filename = os.path.basename(m.group(1))
-        return f"[Image: {filename}]"
-    # Strip "for tool use" suffix from interrupt messages
-    if stripped.startswith('[Request interrupted by user'):
-        return "[Request interrupted by user]"
-    return stripped
-
-
-async def poll_for_session_file(find_fn, timeout=10.0, interval=0.2):
-    """Poll for a session transcript file to appear.
-
-    Args:
-        find_fn: Callable that returns file path/session ID or None
-        timeout: Max seconds to wait
-        interval: Seconds between polls
-
-    Returns:
-        Result from find_fn, or None if timeout
-    """
-    elapsed = 0.0
-    while elapsed < timeout:
-        result = find_fn()
-        if result:
-            return result
-        await asyncio.sleep(interval)
-        elapsed += interval
-    return None
-
-
-from voice_server.content_models import strip_agent_metadata as _strip_agent_metadata
-
-
-class TranscriptHandler(FileSystemEventHandler):
-    """Monitors transcript file for new assistant messages
-
-    Uses line-position tracking to stream ALL assistant content,
-    regardless of whether voice input initiated the interaction.
-
-    Only processes events from the expected session file, ignoring
-    sub-agent transcripts (agent-*.jsonl) and other sessions.
-    """
-
-    def __init__(self, content_callback, audio_callback, loop, server, user_callback=None):
-        self.content_callback = content_callback  # Sends AssistantResponse
-        self.audio_callback = audio_callback       # Sends text for TTS
-        self.user_callback = user_callback          # Sends user text messages
-        self.loop = loop
-        self.server = server
-        self.last_modified = 0
-        self.processed_line_count = 0
-        self.expected_session_file = None  # Only process events from this file
-        self.context_tracker = ContextTracker()
-        self.hidden_tool_ids = set()  # Track IDs of hidden tool_use blocks
-        self.agent_tool_ids = set()  # Track IDs of Agent tool_use blocks
-        self._lock = threading.Lock()  # Protects processed_line_count and expected_session_file
-
-    def on_modified(self, event):
-        if event.is_directory or not event.src_path.endswith('.jsonl'):
-            return
-
-        # Ignore sub-agent transcripts (they have their own sessions)
-        filename = os.path.basename(event.src_path)
-        if filename.startswith('agent-'):
-            return
-
-        with self._lock:
-            # Only process events from the expected session file
-            # Use realpath to normalize paths - watchdog may report resolved paths
-            # while expected_session_file uses unresolved paths (e.g., /tmp vs /private/tmp on macOS)
-            if self.expected_session_file:
-                if os.path.realpath(event.src_path) != os.path.realpath(self.expected_session_file):
-                    return
-
-            line_count_before = self.processed_line_count
-            try:
-                new_blocks, user_texts, task_completed_ids, start_line = self.extract_new_content_with_seq(event.src_path)
-            except Exception as e:
-                print(f"Error processing transcript: {e}")
-                import traceback
-                traceback.print_exc()
-                return
-
-            line_count_after = self.processed_line_count
-            if new_blocks or user_texts:
-                print(f"[SYNC] on_modified: lines {line_count_before}→{line_count_after}, "
-                      f"blocks={len(new_blocks)}, user_texts={len(user_texts)}")
-            elif line_count_after > line_count_before:
-                print(f"[SYNC] on_modified: lines {line_count_before}→{line_count_after} (no extractable content)")
-
-        # Send callbacks OUTSIDE the lock (they schedule async work)
-        try:
-            if new_blocks:
-                response = AssistantResponse(
-                    content_blocks=new_blocks,
-                    timestamp=time.time(),
-                    is_incremental=True
-                )
-
-                asyncio.run_coroutine_threadsafe(
-                    self.content_callback(response, start_line),
-                    self.loop
-                )
-
-                # Only generate TTS if the iOS app has this session open
-                # (active_session_id is set when the app opens/resumes a session)
-                # Skip TTS when server exists but no session is active in the app
-                if not self.server or self.server.active_session_id:
-                    text = extract_text_for_tts(new_blocks)
-                    if text:
-                        asyncio.run_coroutine_threadsafe(
-                            self.audio_callback(text),
-                            self.loop
-                        )
-                    else:
-                        # No TTS text (e.g., only thinking/tool_use blocks)
-                        # Send idle status to reset client's outputState
-                        asyncio.run_coroutine_threadsafe(
-                            self.server.send_idle_to_all_clients(),
-                            self.loop
-                        )
-
-            if new_blocks:
-                print(f"[SYNC] Scheduled content_callback (seq={start_line})")
-            if user_texts and self.user_callback:
-                for user_text, user_line_num in user_texts:
-                    asyncio.run_coroutine_threadsafe(
-                        self.user_callback(user_text, user_line_num),
-                        self.loop
-                    )
-                print(f"[SYNC] Scheduled {len(user_texts)} user_callbacks")
-
-            if task_completed_ids and self.server:
-                for tool_id in task_completed_ids:
-                    asyncio.run_coroutine_threadsafe(
-                        self.server.broadcast_task_completed(tool_id),
-                        self.loop
-                    )
-                print(f"[SYNC] Scheduled {len(task_completed_ids)} task_completed broadcasts")
-
-            # Broadcast context update after processing
-            if self.server and getattr(self.server, 'active_session_id', None):
-                self.broadcast_context_update(event.src_path, self.server.active_session_id)
-        except Exception as e:
-            print(f"Error processing transcript: {e}")
-            import traceback
-            traceback.print_exc()
-
-    def extract_new_content_with_seq(self, filepath) -> tuple:
-        """Like extract_new_content but also returns the starting line number.
-
-        Returns:
-            (content_blocks, user_texts_with_line, task_completed_ids, start_line_number)
-            user_texts_with_line is list of (text, line_number) tuples
-            task_completed_ids is list of tool_use_id strings
-        """
-        start_line = self.processed_line_count
-        blocks, user_texts_with_line, task_completed_ids = self.extract_new_content(filepath)
-        return blocks, user_texts_with_line, task_completed_ids, start_line
-
-    def extract_new_assistant_content(self, filepath) -> list[ContentBlock]:
-        """Legacy wrapper — returns only content blocks."""
-        blocks, _, _ = self.extract_new_content(filepath)
-        return blocks
-
-    def extract_new_content(self, filepath) -> tuple:
-        """Extract assistant content, tool results, and user texts from new lines.
-
-        Returns:
-            (content_blocks, user_texts_with_line, task_completed_ids) where
-            user_texts_with_line is a list of (text, line_number) tuples and
-            task_completed_ids is a list of tool_use_id strings from background task completions.
-        """
-        all_blocks = []
-        user_texts = []
-        task_completed_ids = []
-
-        with open(filepath, 'r') as f:
-            lines = f.readlines()
-
-        # Reset if file was truncated/overwritten (fewer lines than we've processed)
-        if len(lines) < self.processed_line_count:
-            self.processed_line_count = 0
-
-        new_lines = lines[self.processed_line_count:]
-
-        for line_offset, line in enumerate(new_lines):
-            line_num = self.processed_line_count + line_offset
-            try:
-                entry = json.loads(line.strip())
-                # Track git branch from transcript entries
-                branch = entry.get('gitBranch', '')
-                if branch:
-                    self.server.current_branch = branch
-                msg = entry.get('message', {})
-                role = msg.get('role') or entry.get('role')
-
-                if role == 'assistant':
-                    # Skip synthetic messages (Claude Code internal, e.g. "No response requested")
-                    if msg.get('model') == '<synthetic>':
-                        continue
-                    content = msg.get('content', entry.get('content', ''))
-
-                    if isinstance(content, str) and content.strip():
-                        all_blocks.append(TextBlock(type="text", text=content.strip()))
-                    elif isinstance(content, list):
-                        for block in content:
-                            if isinstance(block, dict):
-                                block_type = block.get('type')
-                                try:
-                                    if block_type == 'text':
-                                        text = block.get('text', '').strip()
-                                        if not text:
-                                            continue
-                                        all_blocks.append(TextBlock(type="text", text=text))
-                                    elif block_type == 'thinking':
-                                        all_blocks.append(ThinkingBlock(**block))
-                                    elif block_type == 'tool_use':
-                                        if block.get('name', '') in HIDDEN_TOOLS:
-                                            self.hidden_tool_ids.add(block.get('id', ''))
-                                            continue
-                                        if block.get('name', '') == 'Agent':
-                                            self.agent_tool_ids.add(block.get('id', ''))
-                                        all_blocks.append(ToolUseBlock(**block))
-                                except Exception:
-                                    continue
-
-                elif role == 'user':
-                    content = msg.get('content', entry.get('content', ''))
-                    if isinstance(content, list):
-                        has_tool_result = any(
-                            isinstance(b, dict) and b.get('type') == 'tool_result'
-                            for b in content
-                        )
-                        if has_tool_result:
-                            for block in content:
-                                if isinstance(block, dict) and block.get('type') == 'tool_result':
-                                    if block.get('tool_use_id', '') in self.hidden_tool_ids:
-                                        continue
-                                    try:
-                                        raw_content = block.get('content', '')
-                                        if isinstance(raw_content, str):
-                                            content_str = raw_content
-                                        elif isinstance(raw_content, list):
-                                            content_str = '\n'.join(
-                                                b.get('text', '') for b in raw_content
-                                                if isinstance(b, dict) and b.get('type') == 'text'
-                                            )
-                                        else:
-                                            content_str = str(raw_content)
-                                        tool_use_id = block.get('tool_use_id', '')
-                                        # Strip metadata from Agent tool results
-                                        if tool_use_id in self.agent_tool_ids:
-                                            content_str = _strip_agent_metadata(content_str)
-                                        all_blocks.append(ToolResultBlock(
-                                            type="tool_result",
-                                            tool_use_id=tool_use_id,
-                                            content=content_str,
-                                            is_error=block.get('is_error', False)
-                                        ))
-                                    except Exception:
-                                        continue
-                        else:
-                            # User text blocks (non-tool_result): interrupts, image refs, etc.
-                            for block in content:
-                                if isinstance(block, dict):
-                                    if block.get('type') == 'text':
-                                        text = block.get('text', '').strip()
-                                        if not text:
-                                            continue
-                                        if text.startswith('Base directory for this skill:'):
-                                            continue
-                                        if text.startswith('<task-notification'):
-                                            match = re.search(r'<tool-use-id>([^<]+)</tool-use-id>', text)
-                                            if match:
-                                                task_completed_ids.append(match.group(1))
-                                            continue
-                                        user_texts.append((rewrite_user_text(text), line_num))
-                                    # Skip image blocks (base64 data) silently
-                    elif isinstance(content, str) and content.strip():
-                        stripped = content.strip()
-                        if stripped.startswith('Base directory for this skill:'):
-                            pass
-                        elif stripped.startswith('<task-notification'):
-                            match = re.search(r'<tool-use-id>([^<]+)</tool-use-id>', stripped)
-                            if match:
-                                task_completed_ids.append(match.group(1))
-                        else:
-                            user_texts.append((rewrite_user_text(stripped), line_num))
-
-            except json.JSONDecodeError:
-                continue
-
-        self.processed_line_count = len(lines)
-
-        if all_blocks:
-            print(f"[DEBUG] Extracted {len(all_blocks)} blocks from {len(new_lines)} new lines")
-        if user_texts:
-            print(f"[DEBUG] Extracted {len(user_texts)} user texts from {len(new_lines)} new lines")
-        if task_completed_ids:
-            print(f"[DEBUG] Extracted {len(task_completed_ids)} task completions from {len(new_lines)} new lines")
-
-        return all_blocks, user_texts, task_completed_ids
-
-    def broadcast_context_update(self, filepath: str, session_id: str):
-        """Calculate and broadcast context usage for the session."""
-        context_data = self.context_tracker.calculate_context(filepath)
-        context_data["type"] = "context_update"
-        context_data["session_id"] = session_id
-
-        asyncio.run_coroutine_threadsafe(
-            self.server.broadcast_message(context_data),
-            self.loop
-        )
-
-    def set_session_file(self, file_path: Optional[str], from_beginning: bool = False):
-        """Set the expected session file and initialize line count.
-
-        When switching sessions, we initialize the line count to the current
-        number of lines in the file, so only NEW content triggers callbacks.
-        For new sessions, use from_beginning=True to process all content.
-        """
-        with self._lock:
-            self.expected_session_file = file_path
-            self.hidden_tool_ids = set()  # Reset on session switch
-            self.agent_tool_ids = set()
-            if from_beginning:
-                self.processed_line_count = 0
-                print(f"[INFO] Watching session file: {file_path} (from beginning)")
-            elif file_path and os.path.exists(file_path):
-                with open(file_path, 'r') as f:
-                    self.processed_line_count = sum(1 for _ in f)
-                print(f"[INFO] Watching session file: {file_path} (starting at line {self.processed_line_count})")
-            else:
-                self.processed_line_count = 0
-                print(f"[INFO] Watching session file: {file_path} (new file)")
-
-    def reconcile(self):
-        """Check for lines that watchdog missed and extract their content.
-
-        Returns:
-            (content_blocks, user_texts, task_completed_ids, start_line) — same as extract_new_content_with_seq
-        """
-        with self._lock:
-            if not self.expected_session_file or not os.path.exists(self.expected_session_file):
-                return [], [], [], 0
-            return self.extract_new_content_with_seq(self.expected_session_file)
-
-    def reset_tracking_state(self):
-        """Reset tracking state (legacy - prefer set_session_file)"""
-        with self._lock:
-            self.processed_line_count = 0
-            self.expected_session_file = None
 
 class VoiceServer:
     """WebSocket server for iOS voice mode"""
@@ -453,16 +63,41 @@ class VoiceServer:
         self.active_sessions: dict[str, SessionContext] = {}  # tmux_session_name -> SessionContext
         self.viewed_session_id: Optional[str] = None  # Which session the iOS app is viewing
         self.tts_enabled = True  # TTS on by default, toggled via set_preference
-        # TTS queue: serializes audio generation/streaming (created in start())
-        self.tts_queue = None
-        self.tts_cancel = None
-        self.tts_active = False
-        self._tts_worker_task = None
+        # Delegate objects
+        self.tts = TTSManager(self)
+        self.file_handler = FileHandler(self)
+        self.input_handler = InputHandler(self)
         # Pane polling for activity status
         self._pane_poll_task = None
         self._last_activity_state = None
         # Reconciliation loop for catching missed watchdog events
         self._reconciliation_task = None
+
+    # --- TTS properties (proxy to TTSManager for backward compat) ---
+
+    @property
+    def tts_queue(self):
+        return self.tts.queue
+
+    @tts_queue.setter
+    def tts_queue(self, value):
+        self.tts.queue = value
+
+    @property
+    def tts_cancel(self):
+        return self.tts.cancel
+
+    @tts_cancel.setter
+    def tts_cancel(self, value):
+        self.tts.cancel = value
+
+    @property
+    def tts_active(self):
+        return self.tts.active
+
+    @tts_active.setter
+    def tts_active(self, value):
+        self.tts.active = value
 
     # --- Multi-session helpers ---
 
@@ -731,10 +366,7 @@ class VoiceServer:
             print(f"[WARN] Deferred detection timed out for new session file")
 
     async def verify_delivery(self, text: str, timeout: float = 5.0) -> bool:
-        """Poll transcript file to verify a user message was written by Claude Code.
-
-        Returns True if a user-role line containing `text` appears within timeout.
-        """
+        """Poll transcript file to verify a user message was written by Claude Code."""
         if not self.transcript_handler or not self.transcript_handler.expected_session_file:
             return False
 
@@ -771,82 +403,12 @@ class VoiceServer:
         return False
 
     async def stream_audio(self, websocket, wav_bytes, cancel_event):
-        """Stream pre-generated WAV audio to client. Returns False if cancelled."""
-        try:
-            chunk_size = 8192
-            total_chunks = (len(wav_bytes) + chunk_size - 1) // chunk_size
-            print(f"Streaming {total_chunks} audio chunks...")
-
-            for i in range(0, len(wav_bytes), chunk_size):
-                if cancel_event.is_set():
-                    print(f"[TTS] Streaming cancelled at chunk {i // chunk_size}/{total_chunks}")
-                    return False
-
-                chunk = wav_bytes[i:i+chunk_size]
-                await websocket.send(json.dumps({
-                    "type": "audio_chunk",
-                    "format": "wav",
-                    "sample_rate": 24000,
-                    "chunk_index": i // chunk_size,
-                    "total_chunks": total_chunks,
-                    "data": base64.b64encode(chunk).decode('utf-8')
-                }))
-                await asyncio.sleep(0.01)
-
-            print(f"Finished streaming {total_chunks} chunks")
-            return True
-
-        except Exception as e:
-            print(f"Error streaming audio: {e}")
-            import traceback
-            traceback.print_exc()
-            return False
+        """Delegate to TTSManager."""
+        return await self.tts.stream_audio(websocket, wav_bytes, cancel_event)
 
     async def handle_voice_input(self, websocket, data):
-        """Handle voice input from iOS"""
-        text = data.get('text', '').strip()
-        print(f"[{time.strftime('%H:%M:%S')}] Voice input received: '{text}'")
-        if text:
-            # CRITICAL: Set state FIRST, before any async calls that might fail
-            # (e.g., test WebSocket may close immediately after sending)
-            # NOTE: Don't reset transcript tracking here - line-based tracking
-            # should persist across voice inputs. File-change detection handles
-            # resetting when switching to a different transcript file.
-            self.waiting_for_response = True
-            self.last_voice_input = text
-            # Also set on the viewed SessionContext
-            ctx = self._get_viewed_context()
-            if ctx:
-                ctx.waiting_for_response = True
-                ctx.last_voice_input = text
-
-            print(f"[{time.strftime('%H:%M:%S')}] Sending to terminal...")
-            for client in list(self.clients):
-                try:
-                    await self.send_status(client, "processing", "Sending to Claude...")
-                except Exception:
-                    pass
-
-            await self.send_to_terminal(text)
-            print(f"[{time.strftime('%H:%M:%S')}] Sent to terminal successfully")
-
-            # Verify delivery — check if message appears in transcript
-            delivered = await self.verify_delivery(text)
-            delivery_msg = {
-                "type": "delivery_status",
-                "status": "confirmed" if delivered else "failed",
-                "text": text
-            }
-            for client in list(self.clients):
-                try:
-                    await client.send(json.dumps(delivery_msg))
-                except Exception:
-                    pass
-
-            if not delivered:
-                print(f"[SYNC WARNING] Message delivery not confirmed: '{text[:50]}'")
-        else:
-            print("Empty text received, ignoring")
+        """Delegate to InputHandler."""
+        await self.input_handler.handle_voice_input(websocket, data)
 
     async def handle_content_response(self, response: AssistantResponse, seq: int = 0):
         """Send structured content to iOS clients"""
@@ -950,146 +512,24 @@ class VoiceServer:
             print(f"[Preference] TTS enabled: {self.tts_enabled}")
 
     async def handle_user_input(self, websocket, data):
-        """Handle text + optional image input from iOS"""
-        text = data.get('text', '').strip()
-        images = data.get('images', [])
-
-        if not text and not images:
-            print("Empty user_input received, ignoring")
-            return
-
-        # Save images to temp files and build prompt
-        image_paths = []
-        for img in images:
-            try:
-                import uuid
-                img_data = base64.b64decode(img['data'])
-                ext = os.path.splitext(img.get('filename', 'image.jpg'))[1] or '.jpg'
-                filename = f"claude_voice_img_{uuid.uuid4().hex[:12]}{ext}"
-                filepath = os.path.join('/tmp', filename)
-                with open(filepath, 'wb') as f:
-                    f.write(img_data)
-                image_paths.append(filepath)
-                print(f"[UserInput] Saved image: {filepath} ({len(img_data)} bytes)")
-            except Exception as e:
-                print(f"[UserInput] Failed to save image: {e}")
-
-        # Build prompt with image references
-        prompt = text
-        for path in image_paths:
-            prompt += f"\n[Image: {path}]"
-
-        print(f"[{time.strftime('%H:%M:%S')}] User input: '{prompt[:100]}'")
-
-        self.waiting_for_response = True
-        self.last_voice_input = text  # Track for echo dedup
-
-        for client in list(self.clients):
-            try:
-                await self.send_status(client, "processing", "Sending to Claude...")
-            except Exception:
-                pass
-
-        await self.send_to_terminal(prompt)
+        """Delegate to InputHandler."""
+        await self.input_handler.handle_user_input(websocket, data)
 
     async def handle_claude_response(self, text):
-        """Handle Claude's response - queue text for TTS.
-
-        If TTS is currently active (generating or streaming), cancel it
-        so the worker can pick up this new message promptly.
-        """
-        if not self.tts_enabled:
-            print(f"[{time.strftime('%H:%M:%S')}] TTS disabled, skipping audio for: '{text[:50]}...'")
-            for client in list(self.clients):
-                try:
-                    await self.send_status(client, "idle", "Ready")
-                except Exception:
-                    pass
-            return
-
-        print(f"[{time.strftime('%H:%M:%S')}] Claude response queued for TTS: '{text[:100]}...'")
-        if self.tts_active:
-            print(f"[TTS] Interrupting active TTS for new message")
-            self.tts_cancel.set()
-            await self._send_stop_audio()
-        await self.tts_queue.put(text)
+        """Delegate to TTSManager."""
+        await self.tts.handle_claude_response(text)
 
     async def _tts_worker(self):
-        """Background worker that processes TTS requests one at a time.
-
-        Drains the queue to keep only the latest message.
-        Cancels in-progress TTS when new messages arrive.
-        """
-        while True:
-            try:
-                # Wait for a TTS request
-                text = await self.tts_queue.get()
-
-                # Drain queue — keep only the latest
-                while not self.tts_queue.empty():
-                    try:
-                        text = self.tts_queue.get_nowait()
-                    except asyncio.QueueEmpty:
-                        break
-
-                # Reset cancel event and mark active
-                self.tts_cancel.clear()
-                self.tts_active = True
-
-                try:
-                    # Generate TTS in executor (blocking call)
-                    print(f"[TTS] Generating audio for: '{text[:50]}...'")
-                    loop = asyncio.get_running_loop()
-                    samples = await loop.run_in_executor(
-                        None, lambda: generate_tts_audio(text, voice="af_heart")
-                    )
-
-                    # Check for cancellation after generation
-                    if self.tts_cancel.is_set():
-                        print(f"[TTS] Cancelled after generation")
-                        continue
-
-                    wav_bytes = samples_to_wav_bytes(samples)
-
-                    # Stream to all clients
-                    for websocket in list(self.clients):
-                        await self.send_status(websocket, "speaking", "Playing response")
-                        completed = await self.stream_audio(websocket, wav_bytes, self.tts_cancel)
-                        if completed:
-                            await self.send_status(websocket, "idle", "Ready")
-
-                finally:
-                    self.tts_active = False
-
-            except asyncio.CancelledError:
-                self.tts_active = False
-                raise
-            except Exception as e:
-                self.tts_active = False
-                print(f"[TTS] Worker error: {e}")
-                import traceback
-                traceback.print_exc()
+        """Delegate to TTSManager._worker."""
+        await self.tts._worker()
 
     async def cancel_tts(self):
-        """Cancel any active or queued TTS and tell clients to stop audio."""
-        if self.tts_cancel:
-            self.tts_cancel.set()
-        if self.tts_queue:
-            while not self.tts_queue.empty():
-                try:
-                    self.tts_queue.get_nowait()
-                except asyncio.QueueEmpty:
-                    break
-        await self._send_stop_audio()
+        """Delegate to TTSManager."""
+        await self.tts.cancel_tts()
 
     async def _send_stop_audio(self):
-        """Send stop_audio message to all connected clients."""
-        message = json.dumps({"type": "stop_audio"})
-        for websocket in list(self.clients):
-            try:
-                await websocket.send(message)
-            except Exception:
-                pass
+        """Delegate to TTSManager."""
+        await self.tts._send_stop_audio()
 
     async def send_idle_to_all_clients(self):
         """Send idle status to all connected clients.
@@ -1124,7 +564,7 @@ class VoiceServer:
 
     async def _pane_poll_loop(self):
         """Poll tmux panes for all active sessions, broadcast on change."""
-        from voice_server.pane_parser import parse_pane_status
+        from voice_server.infra.pane_parser import parse_pane_status
         try:
             while True:
                 for tmux_name, ctx in list(self.active_sessions.items()):
@@ -1164,10 +604,8 @@ class VoiceServer:
             pass
 
     async def handle_interrupt(self):
-        """Handle interrupt request from iOS - send Escape to tmux"""
-        if self._active_tmux_session and self.tmux.session_exists(self._active_tmux_session):
-            self.tmux.send_escape(self._active_tmux_session)
-            print(f"[{time.strftime('%H:%M:%S')}] Sent interrupt (Escape) to {self._active_tmux_session}")
+        """Delegate to InputHandler."""
+        await self.input_handler.handle_interrupt()
 
     async def handle_list_projects(self, websocket):
         """Handle list_projects request"""
@@ -1333,7 +771,7 @@ class VoiceServer:
 
         Returns True if Claude becomes ready within timeout, False otherwise.
         """
-        from voice_server.pane_parser import is_claude_ready
+        from voice_server.infra.pane_parser import is_claude_ready
 
         tmux_name = tmux_name or self._active_tmux_session
         if not tmux_name:
@@ -1544,154 +982,16 @@ class VoiceServer:
             await self.broadcast_connection_status()
 
     async def handle_list_directory(self, websocket, data):
-        """Handle list_directory request - returns files and folders in a directory"""
-        path = data.get("path", "")
-
-        if not path or not os.path.isdir(path):
-            response = {
-                "type": "directory_listing",
-                "path": path,
-                "entries": [],
-                "error": "invalid_path"
-            }
-            await websocket.send(json.dumps(response))
-            return
-
-        try:
-            entries = []
-            for name in os.listdir(path):
-                full_path = os.path.join(path, name)
-                entry_type = "directory" if os.path.isdir(full_path) else "file"
-                entries.append({"name": name, "type": entry_type})
-
-            # Sort: directories first, then files, both alphabetical
-            entries.sort(key=lambda e: (0 if e["type"] == "directory" else 1, e["name"].lower()))
-
-            response = {
-                "type": "directory_listing",
-                "path": path,
-                "entries": entries
-            }
-        except PermissionError:
-            response = {
-                "type": "directory_listing",
-                "path": path,
-                "entries": [],
-                "error": "permission_denied"
-            }
-
-        await websocket.send(json.dumps(response))
+        """Delegate to FileHandler."""
+        await self.file_handler.handle_list_directory(websocket, data)
 
     async def handle_read_file(self, websocket, data):
-        """Handle read_file request - returns file contents as text, or base64 for images"""
-        path = data.get("path", "")
-
-        if not path or not os.path.isfile(path):
-            response = {
-                "type": "file_contents",
-                "path": path,
-                "error": "not_found"
-            }
-            await websocket.send(json.dumps(response))
-            return
-
-        ext = os.path.splitext(path)[1].lower()
-
-        # Image files: base64-encode (except SVG which is text)
-        if ext in IMAGE_EXTENSIONS:
-            file_size = os.path.getsize(path)
-            if file_size > MAX_IMAGE_SIZE:
-                response = {
-                    "type": "file_contents",
-                    "path": path,
-                    "error": "file_too_large",
-                    "file_size": file_size
-                }
-            else:
-                with open(path, 'rb') as f:
-                    image_bytes = f.read()
-                response = {
-                    "type": "file_contents",
-                    "path": path,
-                    "image_data": base64.b64encode(image_bytes).decode('utf-8'),
-                    "image_format": ext.lstrip('.'),
-                    "file_size": file_size
-                }
-            await websocket.send(json.dumps(response))
-            return
-
-        # Text files: read as UTF-8
-        try:
-            with open(path, 'r', encoding='utf-8') as f:
-                contents = f.read()
-
-            response = {
-                "type": "file_contents",
-                "path": path,
-                "contents": contents
-            }
-        except UnicodeDecodeError:
-            response = {
-                "type": "file_contents",
-                "path": path,
-                "error": "binary_file"
-            }
-        except PermissionError:
-            response = {
-                "type": "file_contents",
-                "path": path,
-                "error": "permission_denied"
-            }
-
-        await websocket.send(json.dumps(response))
+        """Delegate to FileHandler."""
+        await self.file_handler.handle_read_file(websocket, data)
 
     async def handle_add_project(self, websocket, data):
-        """Handle add_project request - creates directory and starts Claude"""
-        name = data.get("name", "").strip()
-        success = False
-        project_path = ""
-
-        if not name:
-            response = {
-                "type": "project_created",
-                "success": False,
-                "error": "Project name is required"
-            }
-            await websocket.send(json.dumps(response))
-            return
-
-        safe_name = "".join(c for c in name if c.isalnum() or c in "-_. ")
-        project_path = os.path.join(self.projects_base_path, safe_name)
-
-        try:
-            os.makedirs(project_path, exist_ok=True)
-            import uuid
-            temp_id = f"pending-{uuid.uuid4().hex[:8]}"
-            tmux_name = session_name_for(temp_id)
-            success = self.tmux.start_session(tmux_name, working_dir=project_path)
-
-            if success:
-                self._active_tmux_session = tmux_name
-                # Wait for Claude to initialize by polling for transcript
-                folder_name = self.session_manager.encode_path_to_folder(project_path)
-                await poll_for_session_file(
-                    find_fn=lambda: self.session_manager.find_newest_session(folder_name),
-                    timeout=10.0,
-                    interval=0.2
-                )
-                # Send Enter to accept any prompts
-                self.tmux.send_input(tmux_name, "")
-
-        except Exception as e:
-            print(f"Error creating project: {e}")
-
-        response = {
-            "type": "project_created",
-            "success": success,
-            "path": project_path,
-            "name": safe_name
-        }
-        await websocket.send(json.dumps(response))
+        """Delegate to FileHandler."""
+        await self.file_handler.handle_add_project(websocket, data)
 
     async def handle_permission_response(self, data):
         """Handle permission response from iOS"""
@@ -1881,12 +1181,9 @@ class VoiceServer:
             self.observer.schedule(self.transcript_handler, os.path.dirname(self.transcript_path))
             self.observer.start()
 
-        # Initialize TTS queue (requires running event loop)
-        self.tts_queue = asyncio.Queue()
-        self.tts_cancel = asyncio.Event()
-
-        # Start TTS worker
-        self._tts_worker_task = asyncio.create_task(self._tts_worker())
+        # Initialize TTS delegate (requires running event loop)
+        self.tts.init_async()
+        self.tts.start_worker()
 
         # Start pane polling loop
         self._pane_poll_task = asyncio.create_task(self._pane_poll_loop())
@@ -1894,7 +1191,7 @@ class VoiceServer:
         # Start HTTP server for permission hooks
         http_runner = await start_http_server(self.permission_handler)
 
-        from voice_server.qr_display import get_local_ip, print_startup_banner
+        from voice_server.infra.qr_display import get_local_ip, print_startup_banner
 
         local_ip = get_local_ip()
         if local_ip:
@@ -1906,8 +1203,8 @@ class VoiceServer:
             try:
                 await asyncio.Future()
             finally:
-                if self._tts_worker_task:
-                    self._tts_worker_task.cancel()
+                if self.tts._worker_task:
+                    self.tts._worker_task.cancel()
                 if self._pane_poll_task:
                     self._pane_poll_task.cancel()
                 # Kill all active tmux sessions on shutdown
@@ -1918,7 +1215,7 @@ class VoiceServer:
 
 def main():
     """Entry point for claude-connect command."""
-    from voice_server.setup_check import ensure_dependencies
+    from voice_server.infra.setup_check import ensure_dependencies
     ensure_dependencies()
     print("[TTS] Warming up Kokoro pipeline...")
     warmup_tts()

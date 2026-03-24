@@ -1,0 +1,7 @@
+projects.tsx
+sessions.tsx
+session.tsx
+
+navigation
+state
+UI

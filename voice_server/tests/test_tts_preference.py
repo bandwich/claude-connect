@@ -4,15 +4,15 @@ import json
 import asyncio
 from unittest.mock import AsyncMock, Mock, patch
 
-from voice_server.ios_server import VoiceServer
+from voice_server.server import VoiceServer
 
 
 @pytest.fixture
 async def server():
     """Create a VoiceServer with mocked dependencies."""
-    with patch('voice_server.ios_server.TmuxController'), \
-         patch('voice_server.ios_server.set_tmux_controller'), \
-         patch('voice_server.ios_server.set_voice_server'):
+    with patch('voice_server.server.TmuxController'), \
+         patch('voice_server.server.set_tmux_controller'), \
+         patch('voice_server.server.set_voice_server'):
         s = VoiceServer()
         s.loop = asyncio.get_event_loop()
         s.tts_queue = asyncio.Queue()

@@ -14,7 +14,7 @@ from unittest.mock import Mock, patch, MagicMock, AsyncMock, call
 import sys
 import numpy as np
 
-from voice_server.ios_server import VoiceServer, TranscriptHandler
+from voice_server.server import VoiceServer, TranscriptHandler
 
 
 class TestTranscriptHandler:
@@ -164,7 +164,7 @@ class TestVoiceServer:
         server = VoiceServer()
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch('voice_server.ios_server.TRANSCRIPT_DIR', tmpdir):
+            with patch('voice_server.server.TRANSCRIPT_DIR', tmpdir):
                 result = server.find_transcript_path()
                 assert result is None
 
@@ -183,7 +183,7 @@ class TestVoiceServer:
             with open(file2, 'w') as f:
                 f.write("{}\n")
 
-            with patch('voice_server.ios_server.TRANSCRIPT_DIR', tmpdir):
+            with patch('voice_server.server.TRANSCRIPT_DIR', tmpdir):
                 result = server.find_transcript_path()
                 assert result == file2  # Most recent
 
@@ -204,7 +204,7 @@ class TestVoiceServer:
             with open(file2, 'w') as f:
                 f.write("{}\n")
 
-            with patch('voice_server.ios_server.TRANSCRIPT_DIR', tmpdir):
+            with patch('voice_server.server.TRANSCRIPT_DIR', tmpdir):
                 result = server.find_transcript_path()
                 assert result == file2
 
@@ -496,7 +496,7 @@ class TestTranscriptHandlerGlobalTracking:
     @pytest.mark.asyncio
     async def test_processes_content_without_voice_input(self, tmp_path):
         """Transcript changes should be processed even without last_voice_input"""
-        from ios_server import TranscriptHandler, VoiceServer
+        from voice_server.server import TranscriptHandler, VoiceServer
 
         server = VoiceServer()
         server.last_voice_input = None  # The bug condition
@@ -533,7 +533,7 @@ class TestTranscriptHandlerGlobalTracking:
     @pytest.mark.asyncio
     async def test_tracks_line_position_across_calls(self, tmp_path):
         """Handler should track processed lines and only send new content"""
-        from ios_server import TranscriptHandler, VoiceServer
+        from voice_server.server import TranscriptHandler, VoiceServer
 
         server = VoiceServer()
         server.last_voice_input = None
@@ -582,7 +582,7 @@ class TestTranscriptHandlerGlobalTracking:
     @pytest.mark.asyncio
     async def test_ignores_events_from_wrong_session_file(self, tmp_path):
         """Handler should only process events from expected_session_file"""
-        from ios_server import TranscriptHandler, VoiceServer
+        from voice_server.server import TranscriptHandler, VoiceServer
 
         server = VoiceServer()
         server.last_voice_input = None

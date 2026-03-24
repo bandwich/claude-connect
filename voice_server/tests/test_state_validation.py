@@ -14,7 +14,7 @@ class TestMessageValidation:
     @pytest.mark.asyncio
     async def test_rejects_permission_response_without_pending(self):
         """permission_response without pending request should error"""
-        from ios_server import VoiceServer
+        from voice_server.server import VoiceServer
 
         server = VoiceServer()
         websocket = AsyncMock()
@@ -34,7 +34,7 @@ class TestMessageValidation:
     @pytest.mark.asyncio
     async def test_allows_voice_input_while_permission_pending(self):
         """voice_input while permission pending should proceed normally"""
-        from ios_server import VoiceServer
+        from voice_server.server import VoiceServer
 
         server = VoiceServer()
         server.tmux = MagicMock()

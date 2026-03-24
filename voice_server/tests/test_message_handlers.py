@@ -13,8 +13,8 @@ class TestMessageHandlers:
     @pytest.mark.asyncio
     async def test_handle_list_projects_returns_projects(self):
         """Should return projects list via WebSocket"""
-        from ios_server import VoiceServer
-        from session_manager import Project
+        from voice_server.server import VoiceServer
+        from voice_server.services.session_manager import Project
 
         server = VoiceServer()
 
@@ -49,7 +49,7 @@ class TestVoiceInputWithTmux:
     @pytest.mark.asyncio
     async def test_voice_input_uses_tmux_controller(self):
         """Voice input should send text via TmuxController"""
-        from ios_server import VoiceServer
+        from voice_server.server import VoiceServer
 
         server = VoiceServer()
 
@@ -74,7 +74,7 @@ class TestNewSession:
     @pytest.mark.asyncio
     async def test_new_session_starts_tmux_session(self):
         """new_session should start a new tmux session"""
-        from ios_server import VoiceServer
+        from voice_server.server import VoiceServer
 
         server = VoiceServer()
 
@@ -96,7 +96,7 @@ class TestNewSession:
     @pytest.mark.asyncio
     async def test_new_session_returns_success_status(self):
         """new_session should send success status"""
-        from ios_server import VoiceServer
+        from voice_server.server import VoiceServer
 
         server = VoiceServer()
         server.tmux = Mock()
@@ -122,7 +122,7 @@ class TestResumeSession:
     @pytest.mark.asyncio
     async def test_resume_session_starts_with_resume_id(self):
         """resume_session should start tmux session with resume_id"""
-        from ios_server import VoiceServer
+        from voice_server.server import VoiceServer
 
         server = VoiceServer()
 
@@ -144,7 +144,7 @@ class TestResumeSession:
     @pytest.mark.asyncio
     async def test_resume_session_returns_success(self):
         """resume_session should return success status"""
-        from ios_server import VoiceServer
+        from voice_server.server import VoiceServer
 
         server = VoiceServer()
         server.tmux = Mock()
@@ -171,7 +171,7 @@ class TestAddProject:
     @pytest.mark.asyncio
     async def test_add_project_creates_directory(self):
         """add_project should create project directory"""
-        from ios_server import VoiceServer
+        from voice_server.server import VoiceServer
 
         server = VoiceServer()
 
@@ -193,7 +193,7 @@ class TestAddProject:
     @pytest.mark.asyncio
     async def test_add_project_starts_tmux_session(self):
         """add_project should start tmux session in new project directory"""
-        from ios_server import VoiceServer
+        from voice_server.server import VoiceServer
 
         server = VoiceServer()
 
@@ -217,7 +217,7 @@ class TestAddProject:
     @pytest.mark.asyncio
     async def test_add_project_preserves_spaces_in_name(self):
         """add_project should preserve spaces in the project name"""
-        from ios_server import VoiceServer
+        from voice_server.server import VoiceServer
 
         server = VoiceServer()
 
@@ -247,7 +247,7 @@ class TestActiveSessionTracking:
     @pytest.mark.asyncio
     async def test_resume_session_sets_active_session_id(self):
         """resume_session should set active_session_id"""
-        from ios_server import VoiceServer
+        from voice_server.server import VoiceServer
 
         server = VoiceServer()
         server.tmux = Mock()
@@ -265,8 +265,8 @@ class TestActiveSessionTracking:
     @pytest.mark.asyncio
     async def test_stop_session_clears_active_session_id(self):
         """stop_session should clear active_session_id when stopping the active session"""
-        from ios_server import VoiceServer
-        from session_context import SessionContext
+        from voice_server.server import VoiceServer
+        from voice_server.models.session_context import SessionContext
 
         server = VoiceServer()
         server.active_session_id = "abc123"
@@ -291,7 +291,7 @@ class TestActiveSessionTracking:
     @pytest.mark.asyncio
     async def test_new_session_clears_active_session_id(self):
         """new_session should clear active_session_id (new session has no ID yet)"""
-        from ios_server import VoiceServer
+        from voice_server.server import VoiceServer
 
         server = VoiceServer()
         server.active_session_id = "old-session"
@@ -314,7 +314,7 @@ class TestTTSCancelOnSessionLeave:
     @pytest.mark.asyncio
     async def test_stop_audio_message_cancels_tts(self):
         """Inbound stop_audio message should cancel any active TTS"""
-        from ios_server import VoiceServer
+        from voice_server.server import VoiceServer
 
         server = VoiceServer()
         server.tts_queue = asyncio.Queue()
@@ -333,8 +333,8 @@ class TestTTSCancelOnSessionLeave:
     @pytest.mark.asyncio
     async def test_stop_session_cancels_tts(self):
         """stop_session should cancel TTS when stopping the viewed session"""
-        from ios_server import VoiceServer
-        from session_context import SessionContext
+        from voice_server.server import VoiceServer
+        from voice_server.models.session_context import SessionContext
 
         server = VoiceServer()
         server.tts_queue = asyncio.Queue()
@@ -359,8 +359,8 @@ class TestTTSCancelOnSessionLeave:
     @pytest.mark.asyncio
     async def test_stop_session_does_not_cancel_tts_for_other_session(self):
         """stop_session should NOT cancel TTS when stopping a non-viewed session"""
-        from ios_server import VoiceServer
-        from session_context import SessionContext
+        from voice_server.server import VoiceServer
+        from voice_server.models.session_context import SessionContext
 
         server = VoiceServer()
         server.tts_queue = asyncio.Queue()
@@ -385,8 +385,8 @@ class TestTTSCancelOnSessionLeave:
     @pytest.mark.asyncio
     async def test_view_session_cancels_tts(self):
         """view_session should cancel TTS from the previous session"""
-        from ios_server import VoiceServer
-        from session_context import SessionContext
+        from voice_server.server import VoiceServer
+        from voice_server.models.session_context import SessionContext
 
         server = VoiceServer()
         server.tts_queue = asyncio.Queue()
@@ -416,7 +416,7 @@ class TestConnectionStatusBranch:
     @pytest.mark.asyncio
     async def test_connection_status_includes_branch(self):
         """connection_status should include branch field"""
-        from ios_server import VoiceServer
+        from voice_server.server import VoiceServer
 
         server = VoiceServer()
         mock_ws = AsyncMock()
@@ -437,7 +437,7 @@ class TestConnectionStatusBroadcast:
     @pytest.mark.asyncio
     async def test_broadcast_includes_connected_status(self):
         """broadcast_connection_status should include connected"""
-        from ios_server import VoiceServer
+        from voice_server.server import VoiceServer
 
         server = VoiceServer()
         server.tmux = Mock()
@@ -461,7 +461,7 @@ class TestConnectionStatusBroadcast:
     @pytest.mark.asyncio
     async def test_broadcast_on_client_connect(self):
         """Should broadcast status when client connects"""
-        from ios_server import VoiceServer
+        from voice_server.server import VoiceServer
 
         server = VoiceServer()
         server.tmux = Mock()
@@ -491,7 +491,7 @@ class TestListDirectory:
     @pytest.mark.asyncio
     async def test_list_directory_returns_entries(self):
         """list_directory should return files and directories"""
-        from ios_server import VoiceServer
+        from voice_server.server import VoiceServer
 
         server = VoiceServer()
 
@@ -523,7 +523,7 @@ class TestListDirectory:
     @pytest.mark.asyncio
     async def test_list_directory_sorts_directories_first(self):
         """list_directory should sort directories before files, alphabetically"""
-        from ios_server import VoiceServer
+        from voice_server.server import VoiceServer
 
         server = VoiceServer()
 
@@ -557,7 +557,7 @@ class TestListDirectory:
     @pytest.mark.asyncio
     async def test_list_directory_invalid_path_returns_error(self):
         """list_directory should return error for invalid path"""
-        from ios_server import VoiceServer
+        from voice_server.server import VoiceServer
 
         server = VoiceServer()
 
@@ -575,7 +575,7 @@ class TestListDirectory:
     @pytest.mark.asyncio
     async def test_list_directory_message_routing(self):
         """list_directory message type should route to handler"""
-        from ios_server import VoiceServer
+        from voice_server.server import VoiceServer
 
         server = VoiceServer()
 
@@ -599,7 +599,7 @@ class TestReadFile:
     @pytest.mark.asyncio
     async def test_read_file_returns_contents(self):
         """read_file should return file contents"""
-        from ios_server import VoiceServer
+        from voice_server.server import VoiceServer
 
         server = VoiceServer()
 
@@ -622,7 +622,7 @@ class TestReadFile:
     @pytest.mark.asyncio
     async def test_read_file_not_found_returns_error(self):
         """read_file should return error for nonexistent file"""
-        from ios_server import VoiceServer
+        from voice_server.server import VoiceServer
 
         server = VoiceServer()
 
@@ -639,7 +639,7 @@ class TestReadFile:
     @pytest.mark.asyncio
     async def test_read_file_binary_returns_error(self):
         """read_file should return error for binary files"""
-        from ios_server import VoiceServer
+        from voice_server.server import VoiceServer
 
         server = VoiceServer()
 
@@ -661,7 +661,7 @@ class TestReadFile:
     @pytest.mark.asyncio
     async def test_read_file_returns_image_data_for_png(self):
         """read_file should return base64-encoded image data for PNG files"""
-        from ios_server import VoiceServer
+        from voice_server.server import VoiceServer
 
         server = VoiceServer()
 
@@ -694,7 +694,7 @@ class TestReadFile:
     @pytest.mark.asyncio
     async def test_read_file_returns_image_data_for_jpg(self):
         """read_file should return base64-encoded image data for JPG files"""
-        from ios_server import VoiceServer
+        from voice_server.server import VoiceServer
 
         server = VoiceServer()
 
@@ -717,7 +717,7 @@ class TestReadFile:
     @pytest.mark.asyncio
     async def test_read_file_rejects_oversized_image(self):
         """read_file should return error for images over 10MB"""
-        from ios_server import VoiceServer
+        from voice_server.server import VoiceServer
 
         server = VoiceServer()
 
@@ -740,7 +740,7 @@ class TestReadFile:
     @pytest.mark.asyncio
     async def test_read_file_svg_returns_text(self):
         """read_file should return SVG as text content (not image_data)"""
-        from ios_server import VoiceServer
+        from voice_server.server import VoiceServer
 
         server = VoiceServer()
 
@@ -763,7 +763,7 @@ class TestReadFile:
     @pytest.mark.asyncio
     async def test_read_file_non_image_binary_still_returns_error(self):
         """read_file should still return binary_file error for non-image binary files"""
-        from ios_server import VoiceServer
+        from voice_server.server import VoiceServer
 
         server = VoiceServer()
 
@@ -784,7 +784,7 @@ class TestReadFile:
     @pytest.mark.asyncio
     async def test_read_file_message_routing(self):
         """read_file message type should route to handler"""
-        from ios_server import VoiceServer
+        from voice_server.server import VoiceServer
 
         server = VoiceServer()
 
@@ -813,7 +813,7 @@ class TestInterruptHandler:
     @pytest.mark.asyncio
     async def test_interrupt_sends_escape_to_tmux(self):
         """interrupt message should send Escape to tmux"""
-        from ios_server import VoiceServer
+        from voice_server.server import VoiceServer
 
         server = VoiceServer()
         server._active_tmux_session = "claude-connect_test"
@@ -835,7 +835,7 @@ class TestInterruptHandler:
     @pytest.mark.asyncio
     async def test_interrupt_does_nothing_when_no_session(self):
         """interrupt should not crash when no tmux session exists"""
-        from ios_server import VoiceServer
+        from voice_server.server import VoiceServer
 
         server = VoiceServer()
         server.tmux = Mock()
@@ -850,7 +850,7 @@ class TestInterruptHandler:
 @pytest.mark.asyncio
 async def test_handle_user_message_sends_to_clients():
     """handle_user_message should send user_message JSON to all clients"""
-    from voice_server.ios_server import VoiceServer
+    from voice_server.server import VoiceServer
 
     server = VoiceServer()
     server.active_session_id = "sess-123"
@@ -879,7 +879,7 @@ class TestResetSessionState:
 
     def test_reset_session_state_clears_all_state(self):
         """_reset_session_state should clear all session-related state."""
-        from ios_server import VoiceServer
+        from voice_server.server import VoiceServer
 
         server = VoiceServer()
         # Set up dirty state
@@ -900,7 +900,7 @@ class TestResetSessionState:
     @pytest.mark.asyncio
     async def test_reset_session_state_preserves_cross_session_permissions(self):
         """_reset_session_state should NOT clear permissions from other sessions."""
-        from ios_server import VoiceServer
+        from voice_server.server import VoiceServer
 
         server = VoiceServer()
         # Simulate a pending permission for session A
@@ -925,7 +925,7 @@ class TestPollClaudeReady:
     @pytest.mark.asyncio
     async def test_poll_claude_ready_success(self):
         """poll_claude_ready returns True when Claude becomes ready."""
-        from ios_server import VoiceServer
+        from voice_server.server import VoiceServer
 
         server = VoiceServer()
         call_count = 0
@@ -944,7 +944,7 @@ class TestPollClaudeReady:
     @pytest.mark.asyncio
     async def test_poll_claude_ready_timeout(self):
         """poll_claude_ready returns False on timeout."""
-        from ios_server import VoiceServer
+        from voice_server.server import VoiceServer
 
         server = VoiceServer()
         server.tmux = Mock()
@@ -959,7 +959,7 @@ class TestResumeSessionLifecycle:
     @pytest.mark.asyncio
     async def test_resume_session_resets_state_before_starting(self):
         """handle_resume_session must reset all state before starting."""
-        from ios_server import VoiceServer
+        from voice_server.server import VoiceServer
 
         server = VoiceServer()
         server.active_session_id = "stale-session"
@@ -983,7 +983,7 @@ class TestResumeSessionLifecycle:
     @pytest.mark.asyncio
     async def test_resume_session_fails_when_claude_not_ready(self):
         """handle_resume_session sends failure when Claude doesn't become ready."""
-        from ios_server import VoiceServer
+        from voice_server.server import VoiceServer
 
         server = VoiceServer()
         server.tmux = Mock()
@@ -1009,7 +1009,7 @@ class TestNewSessionLifecycle:
     @pytest.mark.asyncio
     async def test_new_session_resets_state_before_starting(self):
         """handle_new_session must reset all state before starting."""
-        from ios_server import VoiceServer
+        from voice_server.server import VoiceServer
 
         server = VoiceServer()
         # Set up stale state
@@ -1034,7 +1034,7 @@ class TestNewSessionLifecycle:
     @pytest.mark.asyncio
     async def test_new_session_fails_when_claude_not_ready(self):
         """handle_new_session sends failure when Claude doesn't become ready."""
-        from ios_server import VoiceServer
+        from voice_server.server import VoiceServer
 
         server = VoiceServer()
         server.tmux = Mock()
@@ -1060,7 +1060,7 @@ class TestUserInput:
     @pytest.mark.asyncio
     async def test_user_input_text_only(self):
         """user_input with text only should send text to terminal."""
-        from ios_server import VoiceServer
+        from voice_server.server import VoiceServer
 
         server = VoiceServer()
         server.tmux = Mock()
@@ -1079,7 +1079,7 @@ class TestUserInput:
     @pytest.mark.asyncio
     async def test_user_input_with_images_saves_files(self):
         """user_input with images should save them and include paths in prompt."""
-        from ios_server import VoiceServer
+        from voice_server.server import VoiceServer
         import base64
 
         server = VoiceServer()

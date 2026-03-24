@@ -3,7 +3,7 @@
 
 import os
 import pytest
-from voice_server.pane_parser import parse_pane_status, ActivityState, is_claude_ready
+from voice_server.infra.pane_parser import parse_pane_status, ActivityState, is_claude_ready
 
 FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures", "pane_captures")
 

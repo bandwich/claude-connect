@@ -6,7 +6,7 @@ import asyncio
 import json
 from unittest.mock import Mock, AsyncMock
 
-from voice_server.permission_handler import PermissionHandler
+from voice_server.services.permission_handler import PermissionHandler
 
 
 class TestPermissionHandler:

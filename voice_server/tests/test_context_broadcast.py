@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 # Test that TranscriptHandler broadcasts context_update on file change
 def test_context_update_broadcast():
     """TranscriptHandler broadcasts context_update when transcript changes."""
-    from ios_server import TranscriptHandler
-    from context_tracker import ContextTracker
+    from voice_server.server import TranscriptHandler
+    from voice_server.services.context_tracker import ContextTracker
 
     # Create mock server with broadcast_message method
     mock_server = MagicMock()

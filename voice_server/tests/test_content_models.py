@@ -1,7 +1,7 @@
 import pytest
 import time
 
-from voice_server.content_models import TextBlock, ThinkingBlock, ToolUseBlock, ToolResultBlock, AssistantResponse
+from voice_server.models.content_models import TextBlock, ThinkingBlock, ToolUseBlock, ToolResultBlock, AssistantResponse
 
 
 def test_text_block_valid():

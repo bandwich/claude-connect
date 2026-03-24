@@ -22,7 +22,7 @@ dependencies = [
 ]
 
 [project.scripts]
-claude-connect = "voice_server.ios_server:main"
+claude-connect = "voice_server.server:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

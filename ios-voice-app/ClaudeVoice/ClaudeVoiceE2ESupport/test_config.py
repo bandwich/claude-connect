@@ -7,7 +7,7 @@ TEST_SERVER_PORT = 8765
 
 # Paths
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
-SERVER_SCRIPT = os.path.join(PROJECT_ROOT, "voice_server/ios_server.py")
+SERVER_SCRIPT = os.path.join(PROJECT_ROOT, "voice_server/server.py")
 PYTHON_VENV = os.path.join(PROJECT_ROOT, ".venv/bin/python3")
 
 # Transcript configuration - use server's actual watched directory

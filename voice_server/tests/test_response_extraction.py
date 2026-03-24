@@ -3,8 +3,8 @@ import os
 import re
 import tempfile
 
-from voice_server.ios_server import TranscriptHandler
-from voice_server.content_models import TextBlock, ThinkingBlock, ToolUseBlock, ToolResultBlock
+from voice_server.server import TranscriptHandler
+from voice_server.models.content_models import TextBlock, ThinkingBlock, ToolUseBlock, ToolResultBlock
 
 
 def test_extract_incremental_blocks():

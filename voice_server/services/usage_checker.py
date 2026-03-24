@@ -6,7 +6,7 @@ import json
 import subprocess
 import time
 from typing import Optional
-from voice_server.usage_parser import parse_api_response
+from voice_server.services.usage_parser import parse_api_response
 
 USAGE_API_URL = "https://api.anthropic.com/api/oauth/usage"
 KEYCHAIN_SERVICE = "Claude Code-credentials"

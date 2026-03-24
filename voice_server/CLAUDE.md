@@ -2,7 +2,7 @@
 
 ## How It Works
 
-VoiceServer (ios_server.py) is the central orchestrator. It owns:
+VoiceServer (server.py) is the central orchestrator. It owns:
 - WebSocket server (port 8765) for iOS communication
 - TranscriptHandler + watchdog Observer for streaming Claude's output
 - TTS queue (Kokoro, serialized — one message in-flight, drains stale entries)
@@ -103,21 +103,31 @@ Only broadcasts on state change to reduce WebSocket traffic.
 ## Module Relationships
 
 ```
-ios_server.py (VoiceServer)
-├── session_context.py     — per-session state container (SessionContext dataclass)
-├── tmux_controller.py     — subprocess wrapper for tmux commands (parameterized by session name)
-├── session_manager.py     — disk-based project/session inventory (~/.claude/projects/)
-├── permission_handler.py  — request registration, Event-based waiting, timeout tracking
-├── http_server.py         — aiohttp server for hook endpoints (/permission, /question, /permission_resolved)
-├── content_models.py      — Pydantic models for content blocks
-├── context_tracker.py     — token usage from transcript's last usage field
-├── tts_utils.py           — Kokoro TTS pipeline (24kHz, voice "af_heart")
-├── pane_parser.py         — regex-based tmux pane state detection
-├── usage_checker.py       — OAuth token from Keychain → Anthropic API for quotas
-├── usage_parser.py        — maps API response to session/weekly percentages
-├── setup_check.py         — interactive dependency checking at startup
-└── qr_display.py          — QR code generation + get_local_ip + startup banner
+server.py (VoiceServer — thin coordinator)
+├── handlers/
+│   ├── file_handler.py    — file browsing, reading, project creation
+│   └── input_handler.py   — voice/text input, delivery verification
+├── services/
+│   ├── transcript_watcher.py — TranscriptHandler (watchdog) + poll_for_session_file
+│   ├── tts_manager.py     — TTS queue, generation, audio streaming (Kokoro, 24kHz, "af_heart")
+│   ├── session_manager.py — disk-based project/session inventory (~/.claude/projects/)
+│   ├── permission_handler.py — request registration, Event-based waiting, timeout tracking
+│   ├── context_tracker.py — token usage from transcript's last usage field
+│   ├── usage_checker.py   — OAuth token from Keychain → Anthropic API for quotas
+│   └── usage_parser.py    — maps API response to session/weekly percentages
+├── infra/
+│   ├── tmux_controller.py — subprocess wrapper for tmux commands (parameterized by session name)
+│   ├── pane_parser.py     — regex-based tmux pane state detection
+│   ├── http_server.py     — aiohttp server for hook endpoints (/permission, /question, /permission_resolved)
+│   ├── setup_check.py     — interactive dependency checking at startup
+│   └── qr_display.py      — QR code generation + get_local_ip + startup banner
+├── models/
+│   ├── content_models.py  — Pydantic models for content blocks
+│   └── session_context.py — per-session state container (SessionContext dataclass)
+└── tts_utils.py           — legacy re-export (tests still import from here)
 ```
+
+Delegates (handlers/, services/) receive a `VoiceServer` reference at construction and access shared state via `self.server.*`. Type hints use `TYPE_CHECKING` guards to avoid circular imports.
 
 ## Conventions
 

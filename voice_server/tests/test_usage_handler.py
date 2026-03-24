@@ -4,7 +4,7 @@ import json
 import asyncio
 import time
 from unittest.mock import AsyncMock, patch, MagicMock
-from voice_server.usage_checker import UsageChecker
+from voice_server.services.usage_checker import UsageChecker
 
 
 def test_get_cached_returns_none_initially():
@@ -54,8 +54,8 @@ async def test_check_usage_calls_api():
     mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
     mock_resp.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("voice_server.usage_checker.subprocess.run") as mock_run, \
-         patch("voice_server.usage_checker.aiohttp.ClientSession", return_value=mock_session):
+    with patch("voice_server.services.usage_checker.subprocess.run") as mock_run, \
+         patch("voice_server.services.usage_checker.aiohttp.ClientSession", return_value=mock_session):
         mock_run.return_value = MagicMock(stdout=mock_token_data, returncode=0)
         result = await checker.check_usage()
 
@@ -78,7 +78,7 @@ async def test_check_usage_handles_expired_token():
         }
     })
 
-    with patch("voice_server.usage_checker.subprocess.run") as mock_run:
+    with patch("voice_server.services.usage_checker.subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(stdout=mock_token_data, returncode=0)
         result = await checker.check_usage()
 
@@ -92,7 +92,7 @@ async def test_check_usage_handles_keychain_failure():
     """check_usage returns error when keychain access fails."""
     checker = UsageChecker()
 
-    with patch("voice_server.usage_checker.subprocess.run") as mock_run:
+    with patch("voice_server.services.usage_checker.subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(stdout="", returncode=44)
         result = await checker.check_usage()
 
@@ -129,8 +129,8 @@ async def test_check_usage_caches_result():
     mock_session.__aexit__ = AsyncMock(return_value=False)
     mock_session.get = MagicMock(return_value=mock_resp)
 
-    with patch("voice_server.usage_checker.subprocess.run") as mock_run, \
-         patch("voice_server.usage_checker.aiohttp.ClientSession", return_value=mock_session):
+    with patch("voice_server.services.usage_checker.subprocess.run") as mock_run, \
+         patch("voice_server.services.usage_checker.aiohttp.ClientSession", return_value=mock_session):
         mock_run.return_value = MagicMock(stdout=mock_token_data, returncode=0)
         await checker.check_usage()
 
@@ -141,7 +141,7 @@ async def test_check_usage_caches_result():
 
 def test_handle_usage_request_sends_cached_then_fresh():
     """ios_server.handle_usage_request sends cached first, then fresh data."""
-    from ios_server import VoiceServer
+    from voice_server.server import VoiceServer
 
     server = VoiceServer()
 

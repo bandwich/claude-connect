@@ -4,15 +4,15 @@ import asyncio
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from voice_server.ios_server import VoiceServer
+from voice_server.server import VoiceServer
 
 
 @pytest.fixture
 async def server():
     """Create a VoiceServer with mocked dependencies."""
-    with patch('voice_server.ios_server.TmuxController'), \
-         patch('voice_server.ios_server.set_tmux_controller'), \
-         patch('voice_server.ios_server.set_voice_server'):
+    with patch('voice_server.server.TmuxController'), \
+         patch('voice_server.server.set_tmux_controller'), \
+         patch('voice_server.server.set_voice_server'):
         s = VoiceServer()
         s.loop = asyncio.get_event_loop()
         s.tts_queue = asyncio.Queue()
@@ -32,8 +32,8 @@ async def test_tts_queue_drains_to_latest(server):
 
     server.clients = set()
 
-    with patch('voice_server.ios_server.generate_tts_audio', side_effect=fake_generate), \
-         patch('voice_server.ios_server.samples_to_wav_bytes', return_value=b"fake_wav"):
+    with patch('voice_server.services.tts_manager.generate_tts_audio', side_effect=fake_generate), \
+         patch('voice_server.services.tts_manager.samples_to_wav_bytes', return_value=b"fake_wav"):
         # Start worker
         worker_task = asyncio.create_task(server._tts_worker())
 

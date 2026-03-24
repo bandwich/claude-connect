@@ -11,7 +11,7 @@ import time
 import os
 import sys
 
-from voice_server.tmux_controller import TmuxController, session_name_for, SESSION_PREFIX
+from voice_server.infra.tmux_controller import TmuxController, session_name_for, SESSION_PREFIX
 
 
 TEST_SESSION = "claude-connect_test-session-1"

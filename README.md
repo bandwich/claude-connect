@@ -2,6 +2,8 @@
 
 Control Claude Code hands-free from your iPhone. Voice commands with TTS responses, session management, tool output viewing, file browsing, and remote permission approval — all over WebSocket to a Mac server.
 
+For Claude, written entirely by Claude, with oversight.
+
 ## Install
 
 ### Server (Mac)
