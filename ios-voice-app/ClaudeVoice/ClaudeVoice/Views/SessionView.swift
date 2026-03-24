@@ -146,6 +146,10 @@ struct SessionView: View {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                             scrollTrackingEnabled = true
                         }
+                    } else if isNearBottom {
+                        withAnimation {
+                            proxy.scrollTo("bottom-anchor", anchor: .bottom)
+                        }
                     }
                 }
                 .onChange(of: isTextFieldFocused) { _, focused in

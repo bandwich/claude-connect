@@ -96,7 +96,7 @@ Largest component (~800+ lines). Manages:
 - Conversation rendering (ScrollView of ConversationItems)
 - Real-time callback chain: onAssistantResponse → seq dedup → parse blocks → append items
 - Echo suppression: `lastVoiceInputText` filters server echo of locally-shown voice input
-- Scroll: scrolls to bottom on initial load and keyboard appear only. No auto-scroll on new messages. Scroll-to-bottom button (chevron) appears in bottom-right when user scrolls up, detected via `onScrollGeometryChange` (dist threshold 400). Tracking is delayed 1s after initial load to avoid false triggers.
+- Scroll: auto-scrolls to bottom on initial load, keyboard appear, and when new messages arrive (if user is near bottom). Scroll-to-bottom button (chevron) appears in bottom-right when user scrolls up, detected via `onScrollGeometryChange` (dist threshold 400). Tracking is delayed 1s after initial load to avoid false triggers.
 - Activity indicator with interrupt button
 - Permission resolution cards (`permissionResolutions` dictionary)
 - Image attachments for messages
