@@ -98,7 +98,7 @@ pane_parser.py reads tmux pane output (last ~15 lines) every 1s:
 - "Esc to cancel · Tab to amend" → `waiting_permission`
 - Otherwise → `idle`
 
-Only broadcasts on state change to reduce WebSocket traffic.
+Only broadcasts on state change to reduce WebSocket traffic. Also re-checks immediately after sending an assistant_response (event-driven) so activity updates aren't delayed by up to 1s.
 
 ## Module Relationships
 

@@ -432,6 +432,9 @@ class VoiceServer:
             except Exception as e:
                 print(f"Error sending content: {e}")
 
+        # Immediately re-check pane state so activity update arrives
+        # right after the content, not up to 1s later on next poll
+        await self._check_activity_state()
 
     async def handle_user_message(self, text: str, seq: int = 0):
         """Send user text message to iOS clients (for terminal-typed input)"""
@@ -566,43 +569,47 @@ class VoiceServer:
             except Exception:
                 pass
 
+    async def _check_activity_state(self):
+        """Check pane state for all active sessions and broadcast changes."""
+        from voice_server.infra.pane_parser import parse_pane_status
+
+        for tmux_name, ctx in list(self.active_sessions.items()):
+            if not self.tmux.session_exists(tmux_name):
+                continue
+            pane_text = self.tmux.capture_pane(tmux_name, include_history=False)
+            state = parse_pane_status(pane_text)
+
+            if ctx.last_activity_state is None or \
+               state.state != ctx.last_activity_state.state or \
+               state.detail != ctx.last_activity_state.detail:
+                ctx.last_activity_state = state
+                # Only broadcast activity for the viewed session
+                if ctx.session_id == self.viewed_session_id:
+                    await self.broadcast_message({
+                        "type": "activity_status",
+                        "state": state.state,
+                        "detail": state.detail
+                    })
+
+        # Fallback: also poll the single active session if no multi-session contexts
+        if not self.active_sessions and self._active_tmux_session and self.tmux.session_exists(self._active_tmux_session):
+            pane_text = self.tmux.capture_pane(self._active_tmux_session, include_history=False)
+            state = parse_pane_status(pane_text)
+            if self._last_activity_state is None or \
+               state.state != self._last_activity_state.state or \
+               state.detail != self._last_activity_state.detail:
+                self._last_activity_state = state
+                await self.broadcast_message({
+                    "type": "activity_status",
+                    "state": state.state,
+                    "detail": state.detail
+                })
+
     async def _pane_poll_loop(self):
         """Poll tmux panes for all active sessions, broadcast on change."""
-        from voice_server.infra.pane_parser import parse_pane_status
         try:
             while True:
-                for tmux_name, ctx in list(self.active_sessions.items()):
-                    if not self.tmux.session_exists(tmux_name):
-                        continue
-                    pane_text = self.tmux.capture_pane(tmux_name, include_history=False)
-                    state = parse_pane_status(pane_text)
-
-                    if ctx.last_activity_state is None or \
-                       state.state != ctx.last_activity_state.state or \
-                       state.detail != ctx.last_activity_state.detail:
-                        ctx.last_activity_state = state
-                        # Only broadcast activity for the viewed session
-                        if ctx.session_id == self.viewed_session_id:
-                            await self.broadcast_message({
-                                "type": "activity_status",
-                                "state": state.state,
-                                "detail": state.detail
-                            })
-
-                # Fallback: also poll the single active session if no multi-session contexts
-                if not self.active_sessions and self._active_tmux_session and self.tmux.session_exists(self._active_tmux_session):
-                    pane_text = self.tmux.capture_pane(self._active_tmux_session, include_history=False)
-                    state = parse_pane_status(pane_text)
-                    if self._last_activity_state is None or \
-                       state.state != self._last_activity_state.state or \
-                       state.detail != self._last_activity_state.detail:
-                        self._last_activity_state = state
-                        await self.broadcast_message({
-                            "type": "activity_status",
-                            "state": state.state,
-                            "detail": state.detail
-                        })
-
+                await self._check_activity_state()
                 await asyncio.sleep(1.0)
         except asyncio.CancelledError:
             pass

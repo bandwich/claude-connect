@@ -388,11 +388,13 @@ The core data flow for streaming Claude's output to the iOS app:
 6. Each message gets a sequence number (`seq`) for gap detection
 
 ### Activity State Detection
-The pane poll loop iterates all active sessions, but only broadcasts activity for the viewed session. `pane_parser.py` captures the tmux pane and parses the last ~15 lines:
+The pane poll loop (1s interval) iterates all active sessions, but only broadcasts activity for the viewed session. `pane_parser.py` captures the tmux pane and parses the last ~15 lines:
 - Spinner chars (✢✻✽✳·✶) → `thinking`
 - ⏺ + present tense verb → `tool_active` (with tool name as detail)
 - "Esc to cancel · Tab to amend" → `waiting_permission`
 - Otherwise → `idle`
+
+Activity state is also re-checked immediately after sending an assistant_response (event-driven), so the iOS app gets the updated state right alongside the message content.
 
 ### Permission Flow
 1. Claude Code triggers `PermissionRequest` hook → `permission_hook.sh` POSTs to HTTP server (port 8766) with `X-Session-Id` header

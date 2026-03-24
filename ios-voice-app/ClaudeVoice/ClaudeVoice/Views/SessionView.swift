@@ -152,6 +152,13 @@ struct SessionView: View {
                         }
                     }
                 }
+                .onChange(of: webSocketManager.activityState?.state) { _, newState in
+                    if let state = newState, state != "idle", isNearBottom {
+                        withAnimation {
+                            proxy.scrollTo("bottom-anchor", anchor: .bottom)
+                        }
+                    }
+                }
                 .onChange(of: isTextFieldFocused) { _, focused in
                     if focused {
                         // Keyboard appearing — scroll to bottom after layout adjusts
