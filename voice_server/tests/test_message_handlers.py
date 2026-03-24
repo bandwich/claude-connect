@@ -17,6 +17,7 @@ class TestMessageHandlers:
         from voice_server.services.session_manager import Project
 
         server = VoiceServer()
+        server.projects_base_path = "/nonexistent"
 
         # Mock SessionManager
         mock_session_manager = Mock()
@@ -191,28 +192,20 @@ class TestAddProject:
             assert os.path.isdir(project_path)
 
     @pytest.mark.asyncio
-    async def test_add_project_starts_tmux_session(self):
-        """add_project should start tmux session in new project directory"""
+    async def test_add_project_does_not_start_tmux(self):
+        """add_project should only create directory, not start tmux"""
         from voice_server.server import VoiceServer
 
         server = VoiceServer()
 
         with tempfile.TemporaryDirectory() as tmpdir:
             server.projects_base_path = tmpdir
-
             server.tmux = Mock()
-            server.tmux.start_session = Mock(return_value=True)
-            server.tmux.send_input = Mock(return_value=True)
-
             mock_ws = AsyncMock()
 
             await server.handle_add_project(mock_ws, {"name": "my-project"})
 
-            expected_path = f"{tmpdir}/my-project"
-            server.tmux.start_session.assert_called_once()
-            call_args = server.tmux.start_session.call_args
-            assert call_args[0][0].startswith("claude-connect_pending-")
-            assert call_args[1]["working_dir"] == expected_path
+            server.tmux.start_session.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_add_project_preserves_spaces_in_name(self):
@@ -223,22 +216,13 @@ class TestAddProject:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             server.projects_base_path = tmpdir
-
-            server.tmux = Mock()
-            server.tmux.start_session = Mock(return_value=True)
-            server.tmux.send_input = Mock(return_value=True)
-
             mock_ws = AsyncMock()
 
             await server.handle_add_project(mock_ws, {"name": "Test project"})
 
-            # The project directory should preserve the space
             expected_path = os.path.join(tmpdir, "Test project")
             assert os.path.exists(expected_path)
             assert os.path.isdir(expected_path)
-            server.tmux.start_session.assert_called_once()
-            call_args = server.tmux.start_session.call_args
-            assert call_args[1]["working_dir"] == expected_path
 
 
 class TestActiveSessionTracking:

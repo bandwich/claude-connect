@@ -7,7 +7,7 @@ import json
 import os
 from typing import TYPE_CHECKING
 
-from voice_server.infra.tmux_controller import session_name_for
+
 
 if TYPE_CHECKING:
     from voice_server.server import VoiceServer
@@ -122,12 +122,8 @@ class FileHandler:
         await websocket.send(json.dumps(response))
 
     async def handle_add_project(self, websocket, data):
-        """Handle add_project request - creates directory and starts Claude"""
-        from voice_server.services.transcript_watcher import poll_for_session_file
-
+        """Handle add_project request - creates project directory"""
         name = data.get("name", "").strip()
-        success = False
-        project_path = ""
 
         if not name:
             response = {
@@ -143,23 +139,10 @@ class FileHandler:
 
         try:
             os.makedirs(project_path, exist_ok=True)
-            import uuid
-            temp_id = f"pending-{uuid.uuid4().hex[:8]}"
-            tmux_name = session_name_for(temp_id)
-            success = self.server.tmux.start_session(tmux_name, working_dir=project_path)
-
-            if success:
-                self.server._active_tmux_session = tmux_name
-                folder_name = self.server.session_manager.encode_path_to_folder(project_path)
-                await poll_for_session_file(
-                    find_fn=lambda: self.server.session_manager.find_newest_session(folder_name),
-                    timeout=10.0,
-                    interval=0.2
-                )
-                self.server.tmux.send_input(tmux_name, "")
-
+            success = True
         except Exception as e:
             print(f"Error creating project: {e}")
+            success = False
 
         response = {
             "type": "project_created",
@@ -167,4 +150,10 @@ class FileHandler:
             "path": project_path,
             "name": safe_name
         }
-        await websocket.send(json.dumps(response))
+        try:
+            await websocket.send(json.dumps(response))
+        except Exception:
+            pass  # Client may have reconnected
+
+        if success:
+            await self.server.broadcast_projects_list()

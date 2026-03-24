@@ -8,6 +8,7 @@ import sys
 sys.dont_write_bytecode = True
 
 import asyncio
+import logging
 import websockets
 import json
 import os
@@ -15,6 +16,9 @@ import subprocess
 import time
 import glob
 from typing import Optional
+
+# Suppress noisy websockets handshake errors from iOS TCP pre-check probes
+logging.getLogger("websockets.server").setLevel(logging.CRITICAL)
 
 from watchdog.observers import Observer
 from voice_server.services.tts_manager import TTSManager, warmup_tts
@@ -607,22 +611,42 @@ class VoiceServer:
         """Delegate to InputHandler."""
         await self.input_handler.handle_interrupt()
 
+    def _projects_response(self):
+        """Build projects list response dict, merging session-based and base-path projects."""
+        projects = self.session_manager.list_projects()
+        project_list = [
+            {
+                "path": p.path,
+                "name": p.name,
+                "session_count": p.session_count,
+                "folder_name": p.folder_name
+            }
+            for p in projects
+        ]
+
+        # Also include directories from projects_base_path that have no sessions yet
+        known_paths = {p["path"] for p in project_list}
+        if os.path.isdir(self.projects_base_path):
+            for entry in os.listdir(self.projects_base_path):
+                full_path = os.path.join(self.projects_base_path, entry)
+                if os.path.isdir(full_path) and full_path not in known_paths:
+                    folder_name = self.session_manager.encode_path_to_folder(full_path)
+                    project_list.append({
+                        "path": full_path,
+                        "name": entry,
+                        "session_count": 0,
+                        "folder_name": folder_name
+                    })
+
+        return {"type": "projects", "projects": project_list}
+
     async def handle_list_projects(self, websocket):
         """Handle list_projects request"""
-        projects = self.session_manager.list_projects()
-        response = {
-            "type": "projects",
-            "projects": [
-                {
-                    "path": p.path,
-                    "name": p.name,
-                    "session_count": p.session_count,
-                    "folder_name": p.folder_name  # For direct lookup without re-encoding
-                }
-                for p in projects
-            ]
-        }
-        await websocket.send(json.dumps(response))
+        await websocket.send(json.dumps(self._projects_response()))
+
+    async def broadcast_projects_list(self):
+        """Broadcast updated projects list to all connected clients."""
+        await self.broadcast_message(self._projects_response())
 
     async def handle_list_sessions(self, websocket, data):
         """Handle list_sessions request"""
