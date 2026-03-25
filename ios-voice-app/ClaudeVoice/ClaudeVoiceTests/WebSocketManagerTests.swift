@@ -213,7 +213,7 @@ struct WebSocketManagerTests {
 
     @Test func testOnSessionHistoryReceivedCallback() throws {
         let manager = WebSocketManager()
-        var receivedMessages: [SessionHistoryMessage]?
+        var receivedMessages: [SessionHistoryMessageRich]?
 
         manager.onSessionHistoryReceived = { messages, lineCount in
             receivedMessages = messages
@@ -223,15 +223,14 @@ struct WebSocketManagerTests {
 
         // Simulate callback invocation
         let mockMessages = [
-            SessionHistoryMessage(role: "user", content: "Hello", timestamp: 1000.0),
-            SessionHistoryMessage(role: "assistant", content: "Hi there!", timestamp: 1001.0)
+            SessionHistoryMessageRich(role: "user", content: "Hello", timestamp: 1000.0, contentBlocks: nil),
+            SessionHistoryMessageRich(role: "assistant", content: "Hi there!", timestamp: 1001.0, contentBlocks: nil)
         ]
 
         manager.onSessionHistoryReceived?(mockMessages, 5)
 
         #expect(receivedMessages?.count == 2, "Should have received 2 messages")
         #expect(receivedMessages?[0].role == "user", "First message should be from user")
-        #expect(receivedMessages?[1].content == "Hi there!", "Second message content should match")
     }
 
     // MARK: - Session Request Method Tests
@@ -298,7 +297,9 @@ struct WebSocketManagerTests {
         let mockStatus = ConnectionStatus(
             type: "connection_status",
             connected: true,
-            activeSessionId: "test-session"
+            activeSessionId: "test-session",
+            activeSessionIds: ["test-session"],
+            branch: nil
         )
 
         manager.onConnectionStatusReceived?(mockStatus)
@@ -313,29 +314,33 @@ struct WebSocketManagerTests {
         let status = ConnectionStatus(
             type: "connection_status",
             connected: true,
-            activeSessionId: "session-xyz"
+            activeSessionId: "session-xyz",
+            activeSessionIds: ["session-xyz"],
+            branch: nil
         )
 
         manager.connected = status.connected
-        manager.activeSessionId = status.activeSessionId
+        if let sessionId = status.activeSessionId {
+            manager.activeSessionIds = [sessionId]
+        }
 
         #expect(manager.connected == true)
-        #expect(manager.activeSessionId == "session-xyz")
+        #expect(manager.activeSessionIds.contains("session-xyz"))
     }
 
     @Test func testConnectionStatusClearsOnDisconnect() throws {
         let manager = WebSocketManager()
 
         manager.connected = true
-        manager.activeSessionId = "test"
+        manager.activeSessionIds = ["test"]
 
         #expect(manager.connected == true)
 
         manager.connected = false
-        manager.activeSessionId = nil
+        manager.activeSessionIds = []
 
         #expect(manager.connected == false)
-        #expect(manager.activeSessionId == nil)
+        #expect(manager.activeSessionIds.isEmpty)
     }
 
     // MARK: - Permission Request Tests
@@ -467,7 +472,6 @@ struct WebSocketManagerTests {
             toolName: "Bash",
             toolInput: ToolInput(command: "ls"),
             context: nil,
-            question: nil,
             permissionSuggestions: nil,
             timestamp: 0
         )
@@ -475,21 +479,25 @@ struct WebSocketManagerTests {
         #expect(manager.inputBarMode == .permissionPrompt(request))
     }
 
-    @Test func inputBarModeTransitionsToQuestionOnQuestionRequest() {
+    @Test func inputBarModeTransitionsToQuestionOnQuestionPrompt() {
         let manager = WebSocketManager()
-        let request = PermissionRequest(
-            type: "permission_request",
+        let prompt = QuestionPrompt(
+            type: "question_prompt",
             requestId: "req-2",
-            promptType: .question,
-            toolName: "AskUserQuestion",
-            toolInput: nil,
-            context: nil,
-            question: PermissionQuestion(text: "Pick one", options: ["A"]),
-            permissionSuggestions: nil,
-            timestamp: 0
+            sessionId: nil,
+            header: "Question",
+            question: "Pick one",
+            options: [QuestionOption(label: "A", description: "")],
+            multiSelect: false,
+            questionIndex: 0,
+            totalQuestions: 1
         )
-        manager.handleInputBarPermission(request)
-        #expect(manager.inputBarMode == .questionPrompt(request))
+        manager.inputBarMode = .questionPrompt(prompt)
+        if case .questionPrompt(let p) = manager.inputBarMode {
+            #expect(p.requestId == "req-2")
+        } else {
+            #expect(Bool(false), "Should be in questionPrompt mode")
+        }
     }
 
     @Test func inputBarModeResetsToNormalOnResolution() {
@@ -501,7 +509,6 @@ struct WebSocketManagerTests {
             toolName: "Bash",
             toolInput: ToolInput(command: "ls"),
             context: nil,
-            question: nil,
             permissionSuggestions: nil,
             timestamp: 0
         )

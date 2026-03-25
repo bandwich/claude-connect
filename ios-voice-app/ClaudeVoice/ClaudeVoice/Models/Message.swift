@@ -46,6 +46,18 @@ struct SetPreferenceMessage: Codable {
     }
 }
 
+struct CommandResponseMessage: Codable {
+    let type: String
+    let command: String
+    let output: String
+    let sessionId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case type, command, output
+        case sessionId = "session_id"
+    }
+}
+
 struct StatusMessage: Codable {
     let type: String
     let state: String

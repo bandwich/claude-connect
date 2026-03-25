@@ -52,27 +52,30 @@ final class PermissionRequestTests: XCTestCase {
         XCTAssertEqual(request.context?.newContent, "const foo = 2;")
     }
 
-    func testDecodeQuestionPermission() throws {
+    func testDecodeQuestionPrompt() throws {
         let json = """
         {
-            "type": "permission_request",
+            "type": "question_prompt",
             "request_id": "uuid-789",
-            "prompt_type": "question",
-            "tool_name": "AskUserQuestion",
-            "tool_input": {},
-            "question": {
-                "text": "Which database?",
-                "options": ["PostgreSQL", "SQLite", "MongoDB"]
-            },
-            "timestamp": 1234567890
+            "session_id": null,
+            "header": "Question",
+            "question": "Which database?",
+            "options": [
+                {"label": "PostgreSQL", "description": ""},
+                {"label": "SQLite", "description": ""},
+                {"label": "MongoDB", "description": ""}
+            ],
+            "multi_select": false,
+            "question_index": 0,
+            "total_questions": 1
         }
         """.data(using: .utf8)!
 
-        let request = try JSONDecoder().decode(PermissionRequest.self, from: json)
+        let prompt = try JSONDecoder().decode(QuestionPrompt.self, from: json)
 
-        XCTAssertEqual(request.promptType, .question)
-        XCTAssertEqual(request.question?.text, "Which database?")
-        XCTAssertEqual(request.question?.options, ["PostgreSQL", "SQLite", "MongoDB"])
+        XCTAssertEqual(prompt.question, "Which database?")
+        XCTAssertEqual(prompt.options.count, 3)
+        XCTAssertEqual(prompt.options[0].label, "PostgreSQL")
     }
 
     func testEncodePermissionResponse() throws {
@@ -100,7 +103,6 @@ final class PermissionRequestTests: XCTestCase {
             "tool_name": "Bash",
             "tool_input": {"command": "npm install"},
             "context": null,
-            "question": null,
             "timestamp": 1704500000.0,
             "permission_suggestions": [
                 {
@@ -116,9 +118,9 @@ final class PermissionRequestTests: XCTestCase {
         let request = try JSONDecoder().decode(PermissionRequest.self, from: json)
         XCTAssertEqual(request.permissionSuggestions?.count, 1)
         XCTAssertEqual(request.permissionSuggestions?[0].type, "addRules")
-        XCTAssertEqual(request.permissionSuggestions?[0].rules.count, 1)
-        XCTAssertEqual(request.permissionSuggestions?[0].rules[0].toolName, "Bash")
-        XCTAssertEqual(request.permissionSuggestions?[0].rules[0].ruleContent, "npm install:*")
+        XCTAssertEqual(request.permissionSuggestions?[0].rules?.count, 1)
+        XCTAssertEqual(request.permissionSuggestions?[0].rules?[0].toolName, "Bash")
+        XCTAssertEqual(request.permissionSuggestions?[0].rules?[0].ruleContent, "npm install:*")
         XCTAssertEqual(request.permissionSuggestions?[0].behavior, "allow")
         XCTAssertEqual(request.permissionSuggestions?[0].destination, "localSettings")
     }
@@ -215,7 +217,6 @@ final class PermissionRequestTests: XCTestCase {
                 "new_string": "let x = 2"
             },
             "context": null,
-            "question": null,
             "timestamp": 1704500000.0,
             "permission_suggestions": [
                 {

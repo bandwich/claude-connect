@@ -50,6 +50,7 @@ class WebSocketManager: NSObject, ObservableObject {
     var onActivityStatus: ((ActivityStatusMessage) -> Void)?
     var onDeliveryStatus: ((DeliveryStatusMessage) -> Void)?
     var onTaskCompleted: ((String) -> Void)?  // tool_use_id
+    var onCommandResponse: ((String, String) -> Void)?  // (command, output)
     @Published var pendingPermission: PermissionRequest? = nil {
         didSet {
             print("🔄 pendingPermission didSet: \(oldValue?.requestId ?? "nil") -> \(pendingPermission?.requestId ?? "nil")")
@@ -58,6 +59,7 @@ class WebSocketManager: NSObject, ObservableObject {
     @Published var contextStats: ContextStats? = nil
     @Published var usageStats: UsageStats? = nil
     @Published var inputBarMode: InputBarMode = .normal
+    @Published var availableCommands: [SlashCommand] = []
     @Published var activityState: ActivityStatusMessage? = nil
     @Published var isLoadingUsage: Bool = false
     @Published var lastReceivedSeq: Int = 0
@@ -636,6 +638,18 @@ class WebSocketManager: NSObject, ObservableObject {
                        current.requestId == questionResolved.requestId {
                         self.inputBarMode = .normal
                     }
+                }
+            } else if let commandsList = try? JSONDecoder().decode(CommandsListResponse.self, from: data),
+                      commandsList.type == "commands_list" {
+                logToFile("✅ Decoded as CommandsListResponse: \(commandsList.commands.count) commands")
+                DispatchQueue.main.async {
+                    self.availableCommands = commandsList.commands
+                }
+            } else if let commandResponse = try? JSONDecoder().decode(CommandResponseMessage.self, from: data),
+                      commandResponse.type == "command_response" {
+                logToFile("✅ Decoded as CommandResponse: \(commandResponse.command)")
+                DispatchQueue.main.async {
+                    self.onCommandResponse?(commandResponse.command, commandResponse.output)
                 }
             } else if let permissionRequest = try? JSONDecoder().decode(PermissionRequest.self, from: data) {
                 logToFile("✅ Decoded as PermissionRequest: \(permissionRequest.requestId)")

@@ -704,7 +704,7 @@ struct SessionViewIntegrationTests {
 
     @Test func testSessionHistoryCallbackIntegration() async throws {
         let websocketManager = WebSocketManager()
-        var receivedMessages: [SessionHistoryMessage]?
+        var receivedMessages: [SessionHistoryMessageRich]?
 
         // Wire up callback as SessionView would
         websocketManager.onSessionHistoryReceived = { messages, lineCount in
@@ -713,8 +713,8 @@ struct SessionViewIntegrationTests {
 
         // Simulate receiving messages
         let mockMessages = [
-            SessionHistoryMessage(role: "user", content: "Hello", timestamp: 1000.0),
-            SessionHistoryMessage(role: "assistant", content: "Hi there!", timestamp: 1001.0)
+            SessionHistoryMessageRich(role: "user", content: "Hello", timestamp: 1000.0, contentBlocks: nil),
+            SessionHistoryMessageRich(role: "assistant", content: "Hi there!", timestamp: 1001.0, contentBlocks: nil)
         ]
 
         websocketManager.onSessionHistoryReceived?(mockMessages, 10)

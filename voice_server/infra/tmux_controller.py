@@ -80,11 +80,13 @@ class TmuxController:
             exports = " ".join(f"{k}={v}" for k, v in env.items())
             cmd = f"export {exports} && {cmd}"
 
-        # Build tmux command
+        # Build tmux command — use wide pane so TUI overlays render correctly
         tmux_cmd = [
             "tmux", "new-session",
             "-d",  # Detached
             "-s", session_name,
+            "-x", "200",
+            "-y", "50",
         ]
 
         if working_dir:

@@ -1093,3 +1093,41 @@ class TestUserInput:
         assert "what is this" in text_arg
         assert "/tmp/claude_voice_img_" in text_arg
         assert ".png" in text_arg
+
+
+class TestCommandsList:
+    """Tests for commands_list message handling"""
+
+    @pytest.mark.asyncio
+    async def test_commands_list_sent_on_connect(self):
+        """Server should send commands_list during handle_client setup"""
+        from voice_server.server import VoiceServer
+
+        server = VoiceServer()
+        # Verify server has commands_provider
+        assert hasattr(server, 'commands_provider')
+        commands = server.commands_provider.get_all_commands()
+        assert len(commands) > 50  # builtins + user skills
+
+    @pytest.mark.asyncio
+    async def test_handle_list_commands_returns_commands(self):
+        """Should return commands_list when list_commands is received"""
+        from voice_server.server import VoiceServer
+
+        server = VoiceServer()
+        mock_ws = AsyncMock()
+        sent_messages = []
+        mock_ws.send = AsyncMock(side_effect=lambda msg: sent_messages.append(msg))
+
+        await server.handle_message(mock_ws, json.dumps({"type": "list_commands"}))
+
+        assert len(sent_messages) == 1
+        response = json.loads(sent_messages[0])
+        assert response["type"] == "commands_list"
+        assert isinstance(response["commands"], list)
+        assert len(response["commands"]) > 50
+        # Verify structure
+        first = response["commands"][0]
+        assert "name" in first
+        assert "description" in first
+        assert "source" in first

@@ -9,8 +9,20 @@ import os
 import time
 from typing import TYPE_CHECKING
 
+from voice_server.handlers.command_handler import CommandHandler
+
 if TYPE_CHECKING:
     from voice_server.server import VoiceServer
+
+# Commands that trigger Claude responses — must go through normal input path
+_PASSTHROUGH_COMMANDS = frozenset({'plan'})
+
+
+def _is_ui_command(text: str) -> bool:
+    """Check if a slash command should be handled by CommandHandler (UI/config)
+    vs passed through to Claude (generates a response)."""
+    cmd = text.lstrip('/').split()[0].lower() if text.startswith('/') else ''
+    return cmd != '' and cmd not in _PASSTHROUGH_COMMANDS
 
 
 class InputHandler:
@@ -18,12 +30,24 @@ class InputHandler:
 
     def __init__(self, server: "VoiceServer"):
         self.server = server
+        self.command_handler = CommandHandler(server)
 
     async def handle_voice_input(self, websocket, data):
         """Handle voice input from iOS"""
         text = data.get('text', '').strip()
         print(f"[{time.strftime('%H:%M:%S')}] Voice input received: '{text}'")
         if text:
+            # UI/config slash commands get routed to CommandHandler
+            if text.startswith('/') and _is_ui_command(text):
+                print(f"[{time.strftime('%H:%M:%S')}] Slash command detected, routing to CommandHandler")
+                for client in list(self.server.clients):
+                    try:
+                        await self.server.send_status(client, "processing", "Sending to Claude...")
+                    except Exception:
+                        pass
+                await self.command_handler.execute(text)
+                return
+
             self.server.waiting_for_response = True
             self.server.last_voice_input = text
             ctx = self.server._get_viewed_context()
@@ -87,6 +111,16 @@ class InputHandler:
             prompt += f"\n[Image: {path}]"
 
         print(f"[{time.strftime('%H:%M:%S')}] User input: '{prompt[:100]}'")
+
+        # UI/config slash commands (without images) get routed to CommandHandler
+        if text.startswith('/') and not image_paths and _is_ui_command(text):
+            for client in list(self.server.clients):
+                try:
+                    await self.server.send_status(client, "processing", "Sending to Claude...")
+                except Exception:
+                    pass
+            await self.command_handler.execute(text)
+            return
 
         self.server.waiting_for_response = True
         self.server.last_voice_input = text

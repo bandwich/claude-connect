@@ -112,6 +112,7 @@ enum ConversationItem: Identifiable {
     case toolUse(toolId: String, tool: ToolUseBlock, result: ToolResultBlock?)
     case agentGroup(agents: [AgentInfo])
     case permissionPrompt(requestId: String, request: PermissionRequest)
+    case commandResponse(command: String, output: String, timestamp: Double = Date().timeIntervalSince1970)
 
     var id: String {
         switch self {
@@ -123,6 +124,8 @@ enum ConversationItem: Identifiable {
             return "agent-group-\(agents.first?.tool.id ?? "unknown")"
         case .permissionPrompt(let requestId, _):
             return "perm-\(requestId)"
+        case .commandResponse(let command, _, let timestamp):
+            return "cmd-\(command)-\(timestamp)"
         }
     }
 }

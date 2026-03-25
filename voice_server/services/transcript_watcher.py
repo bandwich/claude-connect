@@ -83,6 +83,13 @@ class TranscriptHandler(FileSystemEventHandler):
         self.agent_tool_ids = set()
         self._lock = threading.Lock()
 
+    @staticmethod
+    def _is_command_noise(text: str) -> bool:
+        """Check if user message text is slash command XML noise."""
+        return ('<local-command-caveat>' in text or
+                '<command-name>' in text or
+                '<local-command-stdout>' in text)
+
     def on_modified(self, event):
         if event.is_directory or not event.src_path.endswith('.jsonl'):
             return
@@ -275,7 +282,8 @@ class TranscriptHandler(FileSystemEventHandler):
                                             if match:
                                                 task_completed_ids.append(match.group(1))
                                             continue
-                                        user_texts.append((rewrite_user_text(text), line_num))
+                                        if not self._is_command_noise(text):
+                                            user_texts.append((rewrite_user_text(text), line_num))
                     elif isinstance(content, str) and content.strip():
                         stripped = content.strip()
                         if stripped.startswith('Base directory for this skill:'):
@@ -284,6 +292,8 @@ class TranscriptHandler(FileSystemEventHandler):
                             match = re.search(r'<tool-use-id>([^<]+)</tool-use-id>', stripped)
                             if match:
                                 task_completed_ids.append(match.group(1))
+                        elif self._is_command_noise(stripped):
+                            pass
                         else:
                             user_texts.append((rewrite_user_text(stripped), line_num))
 

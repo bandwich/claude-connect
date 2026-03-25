@@ -31,6 +31,7 @@ from voice_server.services.usage_checker import UsageChecker
 from voice_server.infra.tmux_controller import TmuxController, session_name_for
 from voice_server.models.session_context import SessionContext, MAX_ACTIVE_SESSIONS
 from voice_server.services.permission_handler import PermissionHandler
+from voice_server.services.commands_provider import CommandsProvider
 from voice_server.infra.http_server import start_http_server, set_tmux_controller, set_voice_server
 
 # Configuration
@@ -57,6 +58,7 @@ class VoiceServer:
         set_voice_server(self)  # Enable HTTP endpoints to access server state
         self.permission_handler = PermissionHandler()
         self.usage_checker = UsageChecker()
+        self.commands_provider = CommandsProvider()
         self.projects_base_path = PROJECTS_BASE_PATH
         self.active_session_id = None  # Track which session is active in tmux
         self.active_folder_name = None  # Track which project folder is active
@@ -1095,6 +1097,14 @@ class VoiceServer:
         fresh = await self.usage_checker.check_usage()
         await websocket.send(json.dumps(fresh))
 
+    async def handle_list_commands(self, websocket):
+        """Send available slash commands to client"""
+        commands = self.commands_provider.get_all_commands()
+        await websocket.send(json.dumps({
+            "type": "commands_list",
+            "commands": commands
+        }))
+
     async def handle_message(self, websocket, message):
         """Handle incoming message with state validation"""
         try:
@@ -1155,6 +1165,8 @@ class VoiceServer:
                 await self.handle_set_preference(data)
             elif msg_type == 'resync':
                 await self.handle_resync(websocket, data)
+            elif msg_type == 'list_commands':
+                await self.handle_list_commands(websocket)
             elif msg_type == 'debug_log':
                 print(f"[iOS DEBUG] {data.get('message', '')}")
         except Exception as e:
@@ -1175,6 +1187,7 @@ class VoiceServer:
             await self.send_status(websocket, "idle", "Connected")
             await self.send_connection_status(websocket)
             await self.permission_handler.send_pending_to_client(websocket)
+            await self.handle_list_commands(websocket)
             async for message in websocket:
                 print(f"Received message: {message[:100]}...")
                 await self.handle_message(websocket, message)

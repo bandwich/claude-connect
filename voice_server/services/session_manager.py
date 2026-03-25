@@ -268,6 +268,8 @@ class SessionManager:
             stripped.startswith('<local-command-caveat>')
             or stripped.startswith('<task-notification')
             or stripped.startswith('Base directory for this skill:')
+            or '<command-name>' in stripped
+            or '<local-command-stdout>' in stripped
         )
 
     def _parse_session_file(self, filepath: str) -> tuple[str, int, float]:
@@ -437,8 +439,8 @@ class SessionManager:
                         if not flat_content.strip() and not has_tool_use:
                             continue  # Skip thinking-only or whitespace-only messages
 
-                        # Skip skill expansions
-                        if role == 'user' and flat_content.strip().startswith('Base directory for this skill:'):
+                        # Skip skill expansions and command noise
+                        if role == 'user' and self._is_system_injected(flat_content):
                             continue
 
                         messages.append(SessionMessage(

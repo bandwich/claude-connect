@@ -19,7 +19,6 @@ struct InputBarModeTests {
             toolName: "Bash",
             toolInput: ToolInput(command: "ls"),
             context: nil,
-            question: nil,
             permissionSuggestions: nil,
             timestamp: 0
         )
@@ -30,18 +29,18 @@ struct InputBarModeTests {
     }
 
     @Test func questionPromptBlocksInput() {
-        let request = PermissionRequest(
-            type: "permission_request",
+        let prompt = QuestionPrompt(
+            type: "question_prompt",
             requestId: "test-2",
-            promptType: .question,
-            toolName: "AskUserQuestion",
-            toolInput: nil,
-            context: nil,
-            question: PermissionQuestion(text: "Which option?", options: ["A", "B"]),
-            permissionSuggestions: nil,
-            timestamp: 0
+            sessionId: nil,
+            header: "Question",
+            question: "Which option?",
+            options: [QuestionOption(label: "A", description: "Option A"), QuestionOption(label: "B", description: "Option B")],
+            multiSelect: false,
+            questionIndex: 0,
+            totalQuestions: 1
         )
-        let mode = InputBarMode.questionPrompt(request)
+        let mode = InputBarMode.questionPrompt(prompt)
         #expect(mode.allowsTextInput == false)
         #expect(mode.allowsMicInput == false)
         #expect(mode.showsPrompt == true)

@@ -33,7 +33,9 @@ struct SessionView: View {
     @State private var scrollTrackingEnabled: Bool = false
     @State private var scrollViewWidth: CGFloat = 0
     @AppStorage("ttsEnabled") private var ttsEnabled = true
-    @FocusState private var isTextFieldFocused: Bool
+    @State private var isTextFieldFocused: Bool = false
+    @State private var selectedCommandPrefix: String? = nil
+    @State private var showCommandDropdown: Bool = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -82,6 +84,22 @@ struct SessionView: View {
                                         .cornerRadius(8)
                                         .accessibilityIdentifier("permissionResolved")
                                     }
+                                case .commandResponse(let command, let output, _):
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        Text(command)
+                                            .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                                            .foregroundColor(.secondary)
+                                        Text(output)
+                                            .font(.system(size: 14, design: .monospaced))
+                                            .foregroundColor(.primary)
+                                            .textSelection(.enabled)
+                                    }
+                                    .padding(12)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(Color(.systemGray6))
+                                    .cornerRadius(12)
+                                    .padding(.horizontal, 12)
+                                    .id(item.id)
                                 }
                             }
 
@@ -228,6 +246,20 @@ struct SessionView: View {
                         .padding(.vertical, 8)
 
                     case .normal:
+                        // Slash command dropdown
+                        if showCommandDropdown {
+                            let slashFilter = String(messageText.dropFirst())
+                            CommandDropdownView(
+                                commands: webSocketManager.availableCommands,
+                                filter: slashFilter
+                            ) { command in
+                                messageText = "/\(command.name) "
+                                selectedCommandPrefix = "/\(command.name)"
+                                showCommandDropdown = false
+                            }
+                            .padding(.horizontal, 12)
+                            .transition(.opacity)
+                        }
                         normalInputBar
                     }
                 }
@@ -395,16 +427,26 @@ struct SessionView: View {
                 .accessibilityIdentifier("imagePickerButton")
 
                 // Text field
-                TextField("Message Claude...", text: $messageText, axis: .vertical)
-                    .lineLimit(1...5)
-                    .textFieldStyle(.plain)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(Color(.systemGray6))
-                    .cornerRadius(20)
-                    .disabled(speechRecognizer.isRecording)
-                    .focused($isTextFieldFocused)
-                    .accessibilityIdentifier("messageTextField")
+                CommandTextField(
+                    text: $messageText,
+                    isFocused: $isTextFieldFocused,
+                    commandPrefix: selectedCommandPrefix,
+                    isDisabled: speechRecognizer.isRecording
+                ) { newText in
+                    if newText.hasPrefix("/") && selectedCommandPrefix == nil {
+                        showCommandDropdown = true
+                    } else if !newText.hasPrefix("/") {
+                        showCommandDropdown = false
+                        selectedCommandPrefix = nil
+                    } else if selectedCommandPrefix != nil && !newText.hasPrefix(selectedCommandPrefix!) {
+                        selectedCommandPrefix = nil
+                        showCommandDropdown = true
+                    }
+                }
+                .frame(minHeight: 36)
+                .background(Color(.systemGray6))
+                .cornerRadius(20)
+                .accessibilityIdentifier("messageTextField")
 
                 // Mic button
                 Button(action: toggleRecording) {
@@ -893,6 +935,10 @@ struct SessionView: View {
             }
         }
 
+        webSocketManager.onCommandResponse = { command, output in
+            items.append(.commandResponse(command: command, output: output))
+        }
+
         // Handle permission resolved from terminal (only if not already resolved from app)
         webSocketManager.onPermissionResolved = { resolved in
             DispatchQueue.main.async {
@@ -985,6 +1031,15 @@ struct SessionView: View {
         let text = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || !attachedImages.isEmpty else { return }
 
+        // Slash commands: don't add user message bubble — command_response card handles display
+        if text.hasPrefix("/") && attachedImages.isEmpty {
+            webSocketManager.sendUserInput(text: text, images: [])
+            messageText = ""
+            selectedCommandPrefix = nil
+            showCommandDropdown = false
+            return
+        }
+
         // Build display text for conversation (include image count)
         var displayText = text
         if !attachedImages.isEmpty {
@@ -1033,6 +1088,8 @@ struct SessionView: View {
         messageText = ""
         attachedImages = []
         preRecordingText = ""
+        selectedCommandPrefix = nil
+        showCommandDropdown = false
     }
 
     private func contextColor(_ percentage: Double) -> Color {
