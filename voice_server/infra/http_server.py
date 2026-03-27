@@ -43,6 +43,34 @@ def resolve_session_id(raw_id: str) -> str:
     return ""
 
 
+def is_viewed_session(raw_session_id: str) -> bool:
+    """Check if the hook's session matches the currently viewed session.
+
+    Returns True (allow broadcast) when:
+    - No voice server ref (can't check, backward compat)
+    - No viewed session (nothing to conflict with)
+    - Session matches by tmux name or resolved session ID
+    """
+    if not _voice_server:
+        return True
+    if not _voice_server.viewed_session_id:
+        return True
+    if not raw_session_id:
+        return False
+
+    # Check by tmux session name (works for pending-* sessions too)
+    tmux_name = session_name_for(raw_session_id)
+    if _voice_server._active_tmux_session == tmux_name:
+        return True
+
+    # Check by resolved session ID
+    resolved = resolve_session_id(raw_session_id)
+    if resolved and resolved == _voice_server.viewed_session_id:
+        return True
+
+    return False
+
+
 def create_http_app(permission_handler: PermissionHandler) -> web.Application:
     """Create the aiohttp application with permission endpoints"""
 
@@ -52,6 +80,12 @@ def create_http_app(permission_handler: PermissionHandler) -> web.Application:
             payload = await request.json()
         except json.JSONDecodeError:
             return web.json_response({"error": "Invalid JSON"}, status=400)
+
+        raw_session_id = request.headers.get("X-Session-Id", "")
+
+        if not is_viewed_session(raw_session_id):
+            print(f"[PERM HTTP] Not viewed session ({raw_session_id!r}) — falling back to terminal")
+            return web.json_response({"behavior": "ask"})
 
         timeout = float(request.query.get("timeout", "180"))
 
@@ -67,7 +101,7 @@ def create_http_app(permission_handler: PermissionHandler) -> web.Application:
         }
         prompt_type = prompt_type_map.get(tool_name, "bash")
 
-        session_id = resolve_session_id(request.headers.get("X-Session-Id", ""))
+        session_id = resolve_session_id(raw_session_id)
 
         ios_message = {
             "type": "permission_request",
@@ -137,9 +171,15 @@ def create_http_app(permission_handler: PermissionHandler) -> web.Application:
         except json.JSONDecodeError:
             return web.json_response({"error": "Invalid JSON"}, status=400)
 
+        raw_session_id = request.headers.get("X-Session-Id", "")
+
+        if not is_viewed_session(raw_session_id):
+            print(f"[QUESTION] Not viewed session ({raw_session_id!r}) — falling back to terminal")
+            return web.json_response({"fallback": True})
+
         timeout = float(request.query.get("timeout", "180"))
 
-        session_id = resolve_session_id(request.headers.get("X-Session-Id", ""))
+        session_id = resolve_session_id(raw_session_id)
 
         tool_input = payload.get("tool_input", {})
         questions = tool_input.get("questions", [])

@@ -8,7 +8,7 @@ from aiohttp.test_utils import AioHTTPTestCase, unittest_run_loop
 import sys
 import os
 
-from voice_server.infra.http_server import create_http_app
+from voice_server.infra.http_server import create_http_app, set_voice_server, _voice_server
 from voice_server.services.permission_handler import PermissionHandler
 
 
@@ -136,3 +136,70 @@ class TestHTTPServer(AioHTTPTestCase):
         assert resp.status == 200
         data = await resp.json()
         assert data["status"] == "ok"
+
+
+class TestSessionFiltering:
+    """Tests for is_viewed_session() which gates permission/question broadcasts."""
+
+    def _make_mock_server(self, viewed_session_id):
+        from unittest.mock import MagicMock
+        mock = MagicMock()
+        mock.viewed_session_id = viewed_session_id
+        mock._active_tmux_session = f"claude-connect_{viewed_session_id}"
+        mock.active_sessions = {}
+        return mock
+
+    def test_empty_session_id_rejected(self):
+        """Empty session ID (non-claude-connect session) is not viewed."""
+        from voice_server.infra.http_server import is_viewed_session
+        set_voice_server(self._make_mock_server("viewed-session-123"))
+        try:
+            assert is_viewed_session("") == False
+        finally:
+            set_voice_server(None)
+
+    def test_wrong_session_id_rejected(self):
+        """Different session ID is not viewed."""
+        from voice_server.infra.http_server import is_viewed_session
+        set_voice_server(self._make_mock_server("viewed-session-123"))
+        try:
+            assert is_viewed_session("other-session-456") == False
+        finally:
+            set_voice_server(None)
+
+    def test_viewed_session_id_accepted(self):
+        """Matching session ID passes through."""
+        from voice_server.infra.http_server import is_viewed_session
+        set_voice_server(self._make_mock_server("viewed-session-123"))
+        try:
+            assert is_viewed_session("viewed-session-123") == True
+        finally:
+            set_voice_server(None)
+
+    def test_pending_session_matches_by_tmux_name(self):
+        """Pending session ID matches by tmux session name."""
+        from voice_server.infra.http_server import is_viewed_session
+        mock = self._make_mock_server("real-session-id")
+        mock._active_tmux_session = "claude-connect_pending-abc123"
+        set_voice_server(mock)
+        try:
+            assert is_viewed_session("pending-abc123") == True
+        finally:
+            set_voice_server(None)
+
+    def test_no_voice_server_allows_through(self):
+        """When voice server isn't set, allow through for backward compat."""
+        from voice_server.infra.http_server import is_viewed_session
+        set_voice_server(None)
+        assert is_viewed_session("any-session") == True
+
+    def test_no_viewed_session_allows_through(self):
+        """When no session is being viewed, allow through."""
+        from voice_server.infra.http_server import is_viewed_session
+        mock = self._make_mock_server("")
+        mock.viewed_session_id = None
+        set_voice_server(mock)
+        try:
+            assert is_viewed_session("any-session") == True
+        finally:
+            set_voice_server(None)
