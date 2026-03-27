@@ -22,6 +22,7 @@ class SessionContext:
     observer: Optional["Observer"] = None
     reconciliation_task: Optional[asyncio.Task] = None
     last_activity_state: object = None  # ActivityState from pane_parser
+    idle_since: Optional[float] = None  # Timestamp when idle first detected (for debounce)
     current_branch: str = ""
     # For deferred new-session detection
     pending_session_snapshot: Optional[tuple] = None

@@ -92,13 +92,15 @@ When iOS sends voice/text input, server saves it in `last_voice_input`. When the
 
 ## Activity State Detection
 
-pane_parser.py reads tmux pane output (last ~15 lines) every 1s:
-- Spinner chars (✢✻✽✳·✶) → `thinking`
-- ⏺ + "-ing" verb → `tool_active` (full action phrase extracted as detail, e.g. "Searching for 1 pattern...")
-- "Esc to cancel · Tab to amend" → `waiting_permission`
-- Otherwise → `idle`
+pane_parser.py reads tmux pane output (last ~15 lines) every 1s. Priority order:
+1. "Esc to cancel · Tab to amend" → `waiting_permission`
+2. `-ing` verb + `…` (with or without `⏺` prefix) → `tool_active` (detail extracted, e.g. "Reading 1 file…")
+3. Spinner chars (✢✻✽✳·✶) → `thinking`
+4. Otherwise → `idle`
 
-Only broadcasts on state change to reduce WebSocket traffic. Also re-checks immediately after sending an assistant_response (event-driven) so activity updates aren't delayed by up to 1s.
+Tool detection is checked before thinking because both are often visible simultaneously (tool line + spinner below), and the tool description is more informative.
+
+**Idle debounce**: Idle is not broadcast until the pane has been continuously idle for 3 seconds. This prevents the indicator from disappearing during brief transitions between tool calls. The event-driven check after `handle_content_response` uses `suppress_idle=True` since the pane is likely in a transitional state at that moment.
 
 ## Module Relationships
 

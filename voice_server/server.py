@@ -36,6 +36,7 @@ from voice_server.infra.http_server import start_http_server, set_tmux_controlle
 
 # Configuration
 PORT = 8765
+IDLE_DEBOUNCE_SECS = 3.0  # Seconds before broadcasting idle activity state
 TRANSCRIPT_DIR = os.path.expanduser("~/.claude/projects/")
 PROJECTS_BASE_PATH = os.path.expanduser("~/Desktop/code")
 
@@ -76,6 +77,7 @@ class VoiceServer:
         # Pane polling for activity status
         self._pane_poll_task = None
         self._last_activity_state = None
+        self._idle_since = None  # For fallback single-session idle debounce
         # Reconciliation loop for catching missed watchdog events
         self._reconciliation_task = None
 
@@ -249,9 +251,6 @@ class VoiceServer:
                         is_incremental=True
                     )
                     await self.handle_content_response(response, seq=start_line)
-
-                    if not self.tts_enabled:
-                        await self.send_idle_to_all_clients()
 
                 if user_texts:
                     print(f"[RECONCILE] Found {len(user_texts)} missed user messages")
@@ -435,8 +434,10 @@ class VoiceServer:
                 print(f"Error sending content: {e}")
 
         # Immediately re-check pane state so activity update arrives
-        # right after the content, not up to 1s later on next poll
-        await self._check_activity_state()
+        # right after the content, not up to 1s later on next poll.
+        # suppress_idle=True because the pane likely shows the just-written
+        # output (not a spinner), so idle here is a transitional artifact.
+        await self._check_activity_state(suppress_idle=True)
 
     async def handle_user_message(self, text: str, seq: int = 0):
         """Send user text message to iOS clients (for terminal-typed input)"""
@@ -540,19 +541,6 @@ class VoiceServer:
         """Delegate to TTSManager."""
         await self.tts._send_stop_audio()
 
-    async def send_idle_to_all_clients(self):
-        """Send idle status to all connected clients.
-
-        Called when content is sent but there's no TTS audio (e.g., only thinking blocks).
-        This ensures the client's outputState is reset even without audio playback.
-        """
-        for websocket in list(self.clients):
-            try:
-                print(f"[{time.strftime('%H:%M:%S')}] Sending idle status (no TTS)")
-                await self.send_status(websocket, "idle", "Ready")
-            except Exception:
-                pass  # Client may have disconnected, that's OK
-
     async def broadcast_task_completed(self, tool_use_id: str):
         """Notify iOS that a background task has completed."""
         message = {
@@ -571,8 +559,41 @@ class VoiceServer:
             except Exception:
                 pass
 
-    async def _check_activity_state(self):
-        """Check pane state for all active sessions and broadcast changes."""
+    def _debounce_activity(self, state, last_state, idle_since, suppress_idle):
+        """Decide whether to broadcast an activity state change.
+
+        Returns (should_broadcast, new_last_state, new_idle_since).
+        """
+        if state.state == "idle":
+            if suppress_idle:
+                return False, last_state, idle_since
+
+            if last_state and last_state.state != "idle":
+                # Transition from non-idle to idle — start or continue debounce
+                if idle_since is None:
+                    idle_since = time.time()
+                if time.time() - idle_since < IDLE_DEBOUNCE_SECS:
+                    return False, last_state, idle_since
+                # Debounce complete
+                return True, state, None
+            # Already idle, no change
+            return False, last_state, idle_since
+        else:
+            # Non-idle: reset debounce, broadcast if state changed
+            if last_state is None or \
+               state.state != last_state.state or \
+               state.detail != last_state.detail:
+                return True, state, None
+            return False, last_state, None
+
+    async def _check_activity_state(self, suppress_idle: bool = False):
+        """Check pane state for all active sessions and broadcast changes.
+
+        Args:
+            suppress_idle: If True, don't broadcast idle states (used for
+                event-driven checks right after content delivery, when the
+                pane is likely in a transitional state).
+        """
         from voice_server.infra.pane_parser import parse_pane_status
 
         for tmux_name, ctx in list(self.active_sessions.items()):
@@ -581,26 +602,25 @@ class VoiceServer:
             pane_text = self.tmux.capture_pane(tmux_name, include_history=False)
             state = parse_pane_status(pane_text)
 
-            if ctx.last_activity_state is None or \
-               state.state != ctx.last_activity_state.state or \
-               state.detail != ctx.last_activity_state.detail:
-                ctx.last_activity_state = state
-                # Only broadcast activity for the viewed session
-                if ctx.session_id == self.viewed_session_id:
-                    await self.broadcast_message({
-                        "type": "activity_status",
-                        "state": state.state,
-                        "detail": state.detail
-                    })
+            should_broadcast, ctx.last_activity_state, ctx.idle_since = \
+                self._debounce_activity(state, ctx.last_activity_state, ctx.idle_since, suppress_idle)
 
-        # Fallback: also poll the single active session if no multi-session contexts
+            if should_broadcast and ctx.session_id == self.viewed_session_id:
+                await self.broadcast_message({
+                    "type": "activity_status",
+                    "state": state.state,
+                    "detail": state.detail
+                })
+
+        # Fallback: single active session without multi-session context
         if not self.active_sessions and self._active_tmux_session and self.tmux.session_exists(self._active_tmux_session):
             pane_text = self.tmux.capture_pane(self._active_tmux_session, include_history=False)
             state = parse_pane_status(pane_text)
-            if self._last_activity_state is None or \
-               state.state != self._last_activity_state.state or \
-               state.detail != self._last_activity_state.detail:
-                self._last_activity_state = state
+
+            should_broadcast, self._last_activity_state, self._idle_since = \
+                self._debounce_activity(state, self._last_activity_state, self._idle_since, suppress_idle)
+
+            if should_broadcast:
                 await self.broadcast_message({
                     "type": "activity_status",
                     "state": state.state,

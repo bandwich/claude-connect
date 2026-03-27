@@ -17,9 +17,11 @@ SPINNER_CHARS = set("✢✻✽✳·✶")
 # Pattern: spinner char followed by text like "Manifesting…" or "Billowing…"
 THINKING_RE = re.compile(r'^[✢✻✽✳·✶]\s+\S+…')
 
-# Pattern: in-progress tool use — ⏺ followed by present-tense action with …
-# e.g. "⏺ Searching for 1 pattern…" or "⏺ Reading 3 files…"
-TOOL_ACTIVE_RE = re.compile(r'^⏺\s+\w+ing\b.*…')
+# Pattern: in-progress tool use — optional ⏺ followed by present-tense action with …
+# e.g. "⏺ Searching for 1 pattern…", "Reading 3 files…",
+# or compound "Searching for 1 pattern, reading 9 files…"
+# The ⏺ prefix flickers on/off in the pane, so it's optional.
+TOOL_ACTIVE_RE = re.compile(r'^(?:⏺\s+)?\w+ing\b.*…')
 
 # Pattern: permission prompt — match the footer that's always near the bottom
 PERMISSION_RE = re.compile(r'Esc to cancel · Tab to amend')
@@ -71,20 +73,21 @@ def parse_pane_status(pane_text: Optional[str]) -> ActivityState:
         if PERMISSION_RE.search(line):
             return ActivityState(state="waiting_permission", detail="")
 
+    # Check for in-progress tool activity BEFORE thinking — when both are
+    # present (tool line + spinner), the tool description is more informative.
+    # Scan from bottom up to find the most recent tool line
+    for line in reversed(tail):
+        stripped = line.strip()
+        if TOOL_ACTIVE_RE.match(stripped):
+            # Extract the detail text (remove optional ⏺ prefix and (ctrl+o...) suffix)
+            detail = stripped.lstrip('⏺').strip()
+            detail = re.sub(r'\s*\(ctrl\+o.*\)$', '', detail)
+            return ActivityState(state="tool_active", detail=detail)
+
     # Check for thinking indicator (spinner + text)
     for line in tail:
         stripped = line.strip()
         if THINKING_RE.match(stripped):
             return ActivityState(state="thinking", detail="")
-
-    # Check for in-progress tool activity
-    # Scan from bottom up to find the most recent tool line
-    for line in reversed(tail):
-        stripped = line.strip()
-        if TOOL_ACTIVE_RE.match(stripped):
-            # Extract the detail text (remove ⏺ prefix and (ctrl+o...) suffix)
-            detail = stripped.lstrip('⏺').strip()
-            detail = re.sub(r'\s*\(ctrl\+o.*\)$', '', detail)
-            return ActivityState(state="tool_active", detail=detail)
 
     return ActivityState(state="idle", detail="")

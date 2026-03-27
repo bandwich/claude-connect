@@ -139,11 +139,6 @@ class TranscriptHandler(FileSystemEventHandler):
                             self.audio_callback(text),
                             self.loop
                         )
-                    else:
-                        asyncio.run_coroutine_threadsafe(
-                            self.server.send_idle_to_all_clients(),
-                            self.loop
-                        )
 
             if new_blocks:
                 print(f"[SYNC] Scheduled content_callback (seq={start_line})")

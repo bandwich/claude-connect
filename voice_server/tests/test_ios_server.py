@@ -106,15 +106,16 @@ class TestTranscriptHandler:
         finally:
             os.unlink(filepath)
 
-    def test_on_modified_sends_idle_when_no_tts_text(self):
-        """Test sends idle status when content has no TTS text (e.g., only thinking blocks)"""
+    def test_on_modified_no_idle_sent_for_thinking_only_content(self):
+        """When content has only thinking blocks (no TTS text), no idle is sent.
+        The pane poll is the source of truth for activity state."""
         import asyncio as asyncio_module
 
         content_callback = AsyncMock()
         audio_callback = AsyncMock()
         loop = Mock()
         server = Mock()
-        server.clients = {Mock()}  # One connected client
+        server.clients = {Mock()}
         server.send_idle_to_all_clients = AsyncMock()
         server.broadcast_message = AsyncMock()
         server.active_session_id = "test-session"
@@ -134,16 +135,15 @@ class TestTranscriptHandler:
             event.is_directory = False
             event.src_path = filepath
 
-            # Patch at the module level where asyncio is bound
             with patch.object(asyncio_module, 'run_coroutine_threadsafe') as mock_run:
                 handler.on_modified(event)
 
-                # Should have been called 2 times: content_callback and broadcast_message (context)
-                # audio_callback is NOT called because there's no TTS text (only thinking block)
-                assert mock_run.call_count == 3, f"Expected 2 calls, got {mock_run.call_count}"
-
-                # Verify coroutines were scheduled
-                assert mock_run.called, "Should schedule coroutines via run_coroutine_threadsafe"
+                # Close coroutines to avoid warnings
+                for call in mock_run.call_args_list:
+                    call[0][0].close()
+                # 2 calls expected: content_callback + context broadcast (no idle)
+                assert mock_run.call_count == 2, \
+                    f"Expected 2 calls (content + context), got {mock_run.call_count}"
         finally:
             os.unlink(filepath)
 

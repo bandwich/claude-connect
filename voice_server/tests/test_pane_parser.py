@@ -31,12 +31,13 @@ class TestParsePaneStatus:
         assert result.state == "thinking"
 
     def test_detects_tool_with_thinking(self):
-        """When both tool and thinking lines are present, thinking takes priority
-        since it's the current activity (tool result is already showing above)."""
+        """When both in-progress tool and thinking lines are present, tool_active
+        wins because the tool description is more informative than 'Thinking...'."""
         pane_text = load_fixture("tool_searching.txt")
         result = parse_pane_status(pane_text)
-        # Fixture has both tool line and thinking line - thinking is current state
-        assert result.state == "thinking"
+        # Fixture has both in-progress tool line and thinking line
+        assert result.state == "tool_active"
+        assert "Searching" in result.detail
 
     def test_detects_tool_active_alone(self):
         """Tool active without thinking indicator below it."""
@@ -83,6 +84,26 @@ class TestParsePaneStatus:
         pane_text = "✢ Manifesting…\n\nesc to interrupt\n"
         result = parse_pane_status(pane_text)
         assert result.state == "thinking"
+
+    def test_tool_active_without_dot_prefix(self):
+        """Tool lines without ⏺ prefix should still be detected (⏺ flickers)."""
+        pane_text = "  Reading 1 file… (ctrl+o to expand)\n  ⎿  voice_server/server.py\n\nesc to interrupt\n"
+        result = parse_pane_status(pane_text)
+        assert result.state == "tool_active"
+        assert "Reading 1 file" in result.detail
+
+    def test_tool_active_compound_action(self):
+        """Compound tool actions like 'Searching for 1 pattern, reading 9 files…'."""
+        pane_text = "⏺ Searching for 1 pattern, reading 9 files… (ctrl+o to expand)\n  ⎿  voice_server/**/*.py\n\nesc to interrupt\n"
+        result = parse_pane_status(pane_text)
+        assert result.state == "tool_active"
+        assert "Searching" in result.detail
+
+    def test_completed_tool_without_dot_not_active(self):
+        """Completed tool lines without ⏺ and without … should be idle."""
+        pane_text = "  Searched for 1 pattern, read 9 files (ctrl+o to expand)\n\n❯ \n"
+        result = parse_pane_status(pane_text)
+        assert result.state == "idle"
 
 
 class TestIsClaudeReady:
