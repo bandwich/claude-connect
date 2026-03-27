@@ -22,6 +22,7 @@ struct SessionView: View {
     @State private var lastVoiceInputText: String = ""
     @State private var lastVoiceInputTime: Date = .distantPast
     @State private var messageText = ""
+    @State private var textFieldHeight: CGFloat = 36
     @State private var preRecordingText = ""
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var attachedImages: [AttachedImage] = []
@@ -430,6 +431,7 @@ struct SessionView: View {
                 CommandTextField(
                     text: $messageText,
                     isFocused: $isTextFieldFocused,
+                    dynamicHeight: $textFieldHeight,
                     commandPrefix: selectedCommandPrefix,
                     isDisabled: speechRecognizer.isRecording
                 ) { newText in
@@ -443,9 +445,9 @@ struct SessionView: View {
                         showCommandDropdown = true
                     }
                 }
-                .frame(minHeight: 36)
+                .frame(height: textFieldHeight)
                 .background(Color(.systemGray6))
-                .cornerRadius(20)
+                .cornerRadius(min(20, textFieldHeight / 2))
                 .accessibilityIdentifier("messageTextField")
 
                 // Mic button

@@ -5,10 +5,14 @@ import UIKit
 struct CommandTextField: UIViewRepresentable {
     @Binding var text: String
     @Binding var isFocused: Bool
+    @Binding var dynamicHeight: CGFloat
     var commandPrefix: String?
     var placeholder: String = "Message Claude..."
     var isDisabled: Bool = false
     var onTextChange: ((String) -> Void)?
+
+    private static let maxHeight: CGFloat = 120
+    private static let defaultHeight: CGFloat = 36
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -37,6 +41,11 @@ struct CommandTextField: UIViewRepresentable {
             placeholderLabel.leadingAnchor.constraint(equalTo: textView.leadingAnchor, constant: 13),
             placeholderLabel.topAnchor.constraint(equalTo: textView.topAnchor, constant: 8),
         ])
+
+        // Report initial height
+        DispatchQueue.main.async {
+            self.recalculateHeight(textView)
+        }
 
         return textView
     }
@@ -69,15 +78,16 @@ struct CommandTextField: UIViewRepresentable {
             DispatchQueue.main.async { textView.resignFirstResponder() }
         }
 
-        // Max height constraint (5 lines)
-        let maxHeight: CGFloat = 120
-        textView.isScrollEnabled = textView.contentSize.height > maxHeight
-        if textView.isScrollEnabled {
-            let currentFrame = textView.frame
-            if currentFrame.height != maxHeight {
-                textView.frame = CGRect(origin: currentFrame.origin, size: CGSize(width: currentFrame.width, height: maxHeight))
-                textView.invalidateIntrinsicContentSize()
-            }
+        // Recalculate height when text changes externally (e.g., cleared after send)
+        recalculateHeight(textView)
+    }
+
+    private func recalculateHeight(_ textView: UITextView) {
+        let size = textView.sizeThatFits(CGSize(width: textView.frame.width, height: .infinity))
+        let newHeight = min(max(size.height, Self.defaultHeight), Self.maxHeight)
+        textView.isScrollEnabled = size.height > Self.maxHeight
+        if dynamicHeight != newHeight {
+            dynamicHeight = newHeight
         }
     }
 
@@ -130,8 +140,8 @@ struct CommandTextField: UIViewRepresentable {
                 placeholderLabel.isHidden = !newText.isEmpty
             }
 
-            // Invalidate intrinsic content size for auto-height
-            textView.invalidateIntrinsicContentSize()
+            // Recalculate height for SwiftUI layout
+            parent.recalculateHeight(textView)
         }
 
         func textViewDidBeginEditing(_ textView: UITextView) {
