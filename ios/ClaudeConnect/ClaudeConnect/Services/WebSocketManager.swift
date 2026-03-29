@@ -50,6 +50,7 @@ class WebSocketManager: NSObject, ObservableObject {
     var onActivityStatus: ((ActivityStatusMessage) -> Void)?
     var onDeliveryStatus: ((DeliveryStatusMessage) -> Void)?
     var onTaskCompleted: ((String) -> Void)?  // tool_use_id
+    var onSessionCleared: ((String) -> Void)?  // new session ID
     var onCommandResponse: ((String, String) -> Void)?  // (command, output)
     @Published var pendingPermission: PermissionRequest? = nil {
         didSet {
@@ -608,6 +609,12 @@ class WebSocketManager: NSObject, ObservableObject {
                 DispatchQueue.main.async {
                     self.onSessionActionResult?(actionResponse)
                 }
+            } else if let cleared = try? JSONDecoder().decode(SessionClearedMessage.self, from: data),
+                      cleared.type == "session_cleared" {
+                logToFile("✅ Decoded as SessionClearedMessage: \(cleared.sessionId)")
+                DispatchQueue.main.async {
+                    self.onSessionCleared?(cleared.sessionId)
+                }
             } else if let connectionStatus = try? JSONDecoder().decode(ConnectionStatus.self, from: data) {
                 logToFile("Decoded as ConnectionStatus: connected=\(connectionStatus.connected), session=\(connectionStatus.activeSessionId ?? "none")")
                 DispatchQueue.main.async {
@@ -777,6 +784,11 @@ class WebSocketManager: NSObject, ObservableObject {
             } else if let actionResponse = try? JSONDecoder().decode(SessionActionResponse.self, from: data) {
                 DispatchQueue.main.async {
                     self.onSessionActionResult?(actionResponse)
+                }
+            } else if let cleared = try? JSONDecoder().decode(SessionClearedMessage.self, from: data),
+                      cleared.type == "session_cleared" {
+                DispatchQueue.main.async {
+                    self.onSessionCleared?(cleared.sessionId)
                 }
             } else if let connectionStatus = try? JSONDecoder().decode(ConnectionStatus.self, from: data) {
                 DispatchQueue.main.async {

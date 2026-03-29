@@ -182,6 +182,16 @@ struct SessionActionResponse: Codable {
     }
 }
 
+struct SessionClearedMessage: Codable {
+    let type: String
+    let sessionId: String
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case sessionId = "session_id"
+    }
+}
+
 struct ConnectionStatus: Codable {
     let type: String
     let connected: Bool

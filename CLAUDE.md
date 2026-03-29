@@ -339,6 +339,7 @@ sessions_list        {"type": "sessions_list", "sessions": [...], "active_sessio
 session_history      {"type": "session_history", "messages": [...]}
 session_created      {"type": "session_created", "session_id": "..."}
 session_resumed      {"type": "session_resumed", "session_id": "..."}
+session_cleared      {"type": "session_cleared", "session_id": "..."}
 session_closed       {"type": "session_closed"}
 session_stopped      {"type": "session_stopped", "session_id": "...", "success": true|false}
 connection_status    {"type": "connection_status", "connected": true|false, "active_session_ids": [...]}

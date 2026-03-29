@@ -935,6 +935,24 @@ struct SessionView: View {
             }
         }
 
+        // Handle /clear: reset conversation when server detects new transcript file
+        webSocketManager.onSessionCleared = { [weak webSocketManager] newSessionId in
+            guard let webSocketManager = webSocketManager else { return }
+            print("[SessionView] Session cleared, new session: \(newSessionId)")
+
+            // Clear conversation
+            items.removeAll()
+            permissionResolutions.removeAll()
+            completedBackgroundToolIds.removeAll()
+
+            // Reset sequence tracking
+            lastProcessedSeq = -1
+            webSocketManager.lastReceivedSeq = 0
+
+            // Adopt new session ID
+            effectiveSessionId = newSessionId
+        }
+
         webSocketManager.onCommandResponse = { command, output in
             items.append(.commandResponse(command: command, output: output))
         }

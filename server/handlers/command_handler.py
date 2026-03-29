@@ -15,6 +15,8 @@ ANSI_RE = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]')
 
 # Commands where Claude generates a response (shown in pane, not transcript)
 _RESPONSE_COMMANDS = frozenset({'btw'})
+# Commands that create a new transcript file (need special detection)
+_CLEAR_COMMANDS = frozenset({'clear'})
 STDOUT_RE = re.compile(r'<local-command-stdout>(.*?)</local-command-stdout>', re.DOTALL)
 
 
@@ -67,10 +69,22 @@ class CommandHandler:
         session_name = self.server._active_tmux_session
         cmd_name = self._command_name(command_text)
 
-        if cmd_name in _RESPONSE_COMMANDS:
+        if cmd_name in _CLEAR_COMMANDS:
+            await self._execute_clear_command(command_text, session_name)
+        elif cmd_name in _RESPONSE_COMMANDS:
             await self._execute_response_command(command_text, session_name)
         else:
             await self._execute_ui_command(command_text, session_name)
+
+    async def _execute_clear_command(self, command_text: str, session_name: str) -> None:
+        """Handle /clear — send to tmux, then detect new transcript file."""
+        await self.server.send_to_terminal(command_text)
+
+        ctx = self.server._get_viewed_context()
+        if ctx:
+            await self.server._handle_clear_command(ctx)
+        else:
+            print("[CLEAR] No viewed session context, cannot detect new file")
 
     async def _execute_ui_command(self, command_text: str, session_name: str) -> None:
         """Handle UI/config commands — transcript stdout or pane capture."""

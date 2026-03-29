@@ -370,6 +370,46 @@ class ConnectServer:
         else:
             print(f"[WARN] Deferred detection timed out for new session file")
 
+    async def _handle_clear_command(self, ctx: SessionContext):
+        """Handle /clear: detect new transcript file and switch watcher to it."""
+        folder_name = ctx.folder_name
+        if not folder_name:
+            print("[CLEAR] No folder_name on session context, cannot detect new file")
+            return
+
+        # Snapshot current session IDs
+        existing_ids = self.session_manager.list_session_ids(folder_name)
+        print(f"[CLEAR] Snapshot: {len(existing_ids)} existing sessions in {folder_name}")
+
+        # Poll for new session file (up to 5s)
+        new_session_id = await poll_for_session_file(
+            find_fn=lambda: self.session_manager.find_new_session(folder_name, existing_ids),
+            timeout=5.0,
+            interval=0.3
+        )
+
+        if not new_session_id:
+            print("[CLEAR] Timeout: no new session file detected after /clear")
+            return
+
+        print(f"[CLEAR] Detected new session: {new_session_id}")
+
+        # Update server state
+        self.active_session_id = new_session_id
+        self.viewed_session_id = new_session_id
+
+        # Update SessionContext in-place (tmux session stays alive)
+        ctx.session_id = new_session_id
+
+        # Switch file watcher to new transcript
+        self.switch_watched_session(folder_name, new_session_id, from_beginning=True)
+
+        # Broadcast to iOS
+        await self.broadcast_message(
+            {"type": "session_cleared", "session_id": new_session_id}
+        )
+        await self.broadcast_connection_status()
+
     async def verify_delivery(self, text: str, timeout: float = 5.0) -> bool:
         """Poll transcript file to verify a user message was written by Claude Code."""
         if not self.transcript_handler or not self.transcript_handler.expected_session_file:
