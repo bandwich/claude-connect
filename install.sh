@@ -1,6 +1,6 @@
 #!/bin/bash
-# Claude Connect - Development Setup
-# Installs system dependencies and sets up claude-connect CLI from local source
+# Claude Connect - Setup
+# Installs all dependencies and sets up the claude-connect CLI
 
 set -e
 
@@ -23,8 +23,8 @@ error() { echo -e "${RED}==>${NC} $1"; }
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo ""
-echo "Claude Connect - Development Setup"
-echo "==================================="
+echo "Claude Connect"
+echo "=============="
 echo ""
 
 # Check for macOS
@@ -33,16 +33,19 @@ if [[ "$OSTYPE" != "darwin"* ]]; then
     exit 1
 fi
 
-# Check for Homebrew
+# Install Homebrew if missing
 if ! command -v brew &> /dev/null; then
-    error "Homebrew is required but not installed."
-    echo "Install it from: https://brew.sh"
-    exit 1
+    info "Installing Homebrew..."
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    # Add brew to PATH for this session (Apple Silicon vs Intel)
+    if [[ -f /opt/homebrew/bin/brew ]]; then
+        eval "$(/opt/homebrew/bin/brew shellenv)"
+    elif [[ -f /usr/local/bin/brew ]]; then
+        eval "$(/usr/local/bin/brew shellenv)"
+    fi
 fi
 
-# Install system dependencies
-info "Checking system dependencies..."
-
+# Install tmux
 if ! brew list tmux &> /dev/null; then
     info "Installing tmux..."
     brew install tmux
@@ -50,19 +53,7 @@ else
     info "tmux already installed"
 fi
 
-# Check for Python 3.9+
-info "Checking Python version..."
-PYTHON_VERSION=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
-PYTHON_MAJOR=$(echo "$PYTHON_VERSION" | cut -d. -f1)
-PYTHON_MINOR=$(echo "$PYTHON_VERSION" | cut -d. -f2)
-
-if [ "$PYTHON_MAJOR" -lt 3 ] || ([ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -lt 9 ]); then
-    error "Python 3.9+ required, found $PYTHON_VERSION"
-    exit 1
-fi
-info "Python $PYTHON_VERSION found"
-
-# Check for pipx
+# Install pipx
 if ! command -v pipx &> /dev/null; then
     info "Installing pipx..."
     brew install pipx
@@ -70,7 +61,7 @@ if ! command -v pipx &> /dev/null; then
     warn "You may need to restart your terminal for pipx to be in PATH"
 fi
 
-# Find system Python 3.9-3.12 (kokoro deps need wheels)
+# Find a compatible Python (3.9-3.12, needed for kokoro wheels)
 PYTHON_BIN=""
 for v in 3.12 3.11 3.10 3.9; do
     if command -v "python$v" &> /dev/null; then
@@ -79,20 +70,21 @@ for v in 3.12 3.11 3.10 3.9; do
     fi
 done
 
+# Install Python 3.11 if no compatible version found
 if [ -z "$PYTHON_BIN" ]; then
-    error "Python 3.9-3.12 required (kokoro doesn't support 3.14 yet)"
-    echo "Install with: brew install python@3.11"
-    exit 1
+    info "Installing Python 3.11 (required for TTS dependencies)..."
+    brew install python@3.11
+    PYTHON_BIN="python3.11"
 fi
 
 info "Using $PYTHON_BIN for installation"
 
 # Install from local directory
-info "Installing claude-connect from local source..."
+info "Installing claude-connect..."
 pipx install "$SCRIPT_DIR" --python "$PYTHON_BIN" $FORCE
 
 echo ""
-echo -e "${GREEN}Development setup complete!${NC}"
+echo -e "${GREEN}Setup complete!${NC}"
 echo ""
 echo "Usage:"
 echo "  claude-connect        # Start the server"
