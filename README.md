@@ -4,22 +4,34 @@ Control Claude Code hands-free from your iPhone. Voice commands with TTS respons
 
 For Claude, written entirely by Claude, with oversight.
 
+## Prerequisites
+
+- **macOS** (Apple Silicon or Intel)
+- **[Claude Code](https://claude.ai/code)** installed and working
+- **Python 3.9–3.12** (kokoro TTS doesn't have wheels for newer versions yet)
+- **tmux** (the installer will offer to install it, or `brew install tmux`)
+
 ## Install
 
-### Server (Mac)
-
 ```bash
-pipx install claude-connect
-claude-connect
+git clone https://github.com/bandwich/claude-connect.git
+cd claude-connect
+./install.sh
 ```
 
-The server will display a QR code. Scan it from the iOS app to connect.
+This installs system dependencies (tmux, pipx) and sets up the `claude-connect` CLI via pipx.
 
-If tmux is not installed, `claude-connect` will offer to install it for you.
+First launch downloads the Kokoro TTS model (~1 GB), so startup will be slow the first time.
 
 ### iOS App
 
-Available on the App Store. *(coming soon)*
+Build from source with Xcode, or install via TestFlight. *(TestFlight link coming soon)*
+
+```bash
+cd ios/ClaudeConnect
+xcodebuild build -scheme ClaudeConnect \
+  -destination 'platform=iOS Simulator,name=iPhone 16'
+```
 
 ## Usage
 
@@ -27,15 +39,65 @@ Available on the App Store. *(coming soon)*
 claude-connect
 ```
 
-Scan the QR code from the iOS app to connect.
+The server displays a QR code. Scan it from the iOS app to connect. Both devices must be on the same WiFi network.
+
+## Permission Hooks
+
+To approve Claude Code permission prompts and answer questions from the iOS app, add hooks to your Claude Code settings.
+
+**Location:** `~/.claude/settings.json`
+
+Replace `/path/to/claude-connect` with your actual clone path:
+
+```json
+{
+  "hooks": {
+    "PermissionRequest": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/path/to/claude-connect/server/hooks/permission_hook.sh",
+            "timeout": 185
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/path/to/claude-connect/server/hooks/question_hook.sh",
+            "timeout": 185
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/path/to/claude-connect/server/hooks/post_tool_hook.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Without hooks, the app still works for voice/text input, session browsing, and file viewing — you just won't get remote permission prompts.
 
 ## Development
 
 ```bash
-# Clone and install locally
-git clone https://github.com/bandwich/claude-connect.git
-cd claude-connect
-./install.sh
+# Reinstall after changing server code
+pipx install --force /path/to/claude-connect
 
 # Run server tests
 cd server/tests && ./run_tests.sh
@@ -51,3 +113,7 @@ cd ios/ClaudeConnect && ./run_e2e_tests.sh
 ```
 
 See [tests/TESTS.md](tests/TESTS.md) for test details. See [CLAUDE.md](CLAUDE.md) for architecture and dev docs.
+
+## License
+
+[MIT](LICENSE)
