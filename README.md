@@ -25,7 +25,7 @@ First launch downloads the Kokoro TTS model (~1 GB), so startup will be slow the
 
 ### iOS App
 
-Build from source with Xcode, or install via TestFlight. *(TestFlight link coming soon)*
+Build from source with Xcode:
 
 ```bash
 cd ios/ClaudeConnect
