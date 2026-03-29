@@ -22,8 +22,8 @@ dependencies = [
 ]
 
 [project.scripts]
-claude-connect = "voice_server.server:main"
+claude-connect = "server.main:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["voice_server*"]
+include = ["server*"]

@@ -38,16 +38,16 @@ cd claude-connect
 ./install.sh
 
 # Run server tests
-cd voice_server/tests && ./run_tests.sh
+cd server/tests && ./run_tests.sh
 
 # iOS unit tests
-cd ios-voice-app/ClaudeVoice
-xcodebuild test -scheme ClaudeVoice \
+cd ios/ClaudeConnect
+xcodebuild test -scheme ClaudeConnect \
   -destination 'platform=iOS Simulator,name=iPhone 16' \
-  -only-testing:ClaudeVoiceTests
+  -only-testing:ClaudeConnectTests
 
 # E2E tests
-cd ios-voice-app/ClaudeVoice && ./run_e2e_tests.sh
+cd ios/ClaudeConnect && ./run_e2e_tests.sh
 ```
 
 See [tests/TESTS.md](tests/TESTS.md) for test details. See [CLAUDE.md](CLAUDE.md) for architecture and dev docs.

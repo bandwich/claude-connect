@@ -50,8 +50,8 @@ iPhone App                         Mac Server
 ## Project Structure
 
 ```
-voice_server/                  # Python server
-├─ server.py                  # Main WebSocket server (VoiceServer coordinator)
+server/                  # Python server
+├─ server.py                  # Main WebSocket server (ConnectServer coordinator)
 ├─ tts_utils.py               # Legacy re-export (tests import from here)
 ├─ models/
 │   ├─ content_models.py      # Pydantic models for content blocks
@@ -84,8 +84,8 @@ voice_server/                  # Python server
 │   └─ generate_test_audio.py # Pre-generate test WAV files
 └─ tests/                     # pytest test suite (~315 tests)
 
-ios-voice-app/ClaudeVoice/     # iOS app (Swift/SwiftUI)
-├─ ClaudeVoiceApp.swift       # @main entry point, auto-connect on launch
+ios/ClaudeConnect/     # iOS app (Swift/SwiftUI)
+├─ ClaudeConnectApp.swift       # @main entry point, auto-connect on launch
 ├─ Models/
 │   ├─ AssistantContent.swift # Content block types (text, tool_use, etc.)
 │   ├─ ConnectionState.swift  # WebSocket connection states
@@ -155,42 +155,42 @@ See [`tests/TESTS.md`](tests/TESTS.md) for full test documentation.
 
 ```bash
 # 1. Server tests (Python)
-cd voice_server/tests && ./run_tests.sh
+cd server/tests && ./run_tests.sh
 
 # 2. iOS unit tests
-cd ios-voice-app/ClaudeVoice
-xcodebuild test -scheme ClaudeVoice \
+cd ios/ClaudeConnect
+xcodebuild test -scheme ClaudeConnect \
   -destination 'platform=iOS Simulator,name=iPhone 16' \
-  -only-testing:ClaudeVoiceTests
+  -only-testing:ClaudeConnectTests
 
 # 3. iOS E2E tests (may timeout, needs simulator)
-cd ios-voice-app/ClaudeVoice && ./run_e2e_tests.sh
+cd ios/ClaudeConnect && ./run_e2e_tests.sh
 ```
 
 **Run specific E2E test suite:**
 ```bash
-cd ios-voice-app/ClaudeVoice && ./run_e2e_tests.sh E2EPermissionTests
+cd ios/ClaudeConnect && ./run_e2e_tests.sh E2EPermissionTests
 ```
 
 ### Building iOS
 
 ```bash
 # Clean build (only required after adding new files)
-cd ios-voice-app/ClaudeVoice
-xcodebuild clean -target ClaudeVoice
+cd ios/ClaudeConnect
+xcodebuild clean -target ClaudeConnect
 
 # Build for simulator
-xcodebuild build -scheme ClaudeVoice \
+xcodebuild build -scheme ClaudeConnect \
   -destination 'platform=iOS Simulator,name=iPhone 16'
 
 # Build and install on device (use -target, not -scheme, for device builds)
 # Step 1: Build
-xcodebuild -target ClaudeVoice -sdk iphoneos build
+xcodebuild -target ClaudeConnect -sdk iphoneos build
 # Step 2: List devices, read the device ID from output
 xcrun devicectl list devices
 # Step 3: Install using the device ID from step 2
 xcrun devicectl device install app --device "<DEVICE_ID>" \
-  ios-voice-app/ClaudeVoice/build/Release-iphoneos/ClaudeVoice.app
+  ios/ClaudeConnect/build/Release-iphoneos/ClaudeConnect.app
 ```
 
 ### Utilities
@@ -223,7 +223,7 @@ xcrun simctl list
 grep -A10 "XCTAssert\|failed\|Failed" /tmp/e2e_test.log
 
 # List test result bundles
-ls -la ~/Library/Developer/Xcode/DerivedData/ClaudeVoice-*/Logs/Test/
+ls -la ~/Library/Developer/Xcode/DerivedData/ClaudeConnect-*/Logs/Test/
 
 # Extract test summary from xcresult
 xcrun xcresulttool get --path <path-to.xcresult> --format json | python3 -m json.tool | head -100
@@ -244,7 +244,7 @@ To enable remote permission control from the iOS app, add hooks to your Claude C
         "hooks": [
           {
             "type": "command",
-            "command": "/path/to/max/voice_server/hooks/permission_hook.sh",
+            "command": "/path/to/max/server/hooks/permission_hook.sh",
             "timeout": 185
           }
         ]
@@ -256,7 +256,7 @@ To enable remote permission control from the iOS app, add hooks to your Claude C
         "hooks": [
           {
             "type": "command",
-            "command": "/path/to/max/voice_server/hooks/question_hook.sh",
+            "command": "/path/to/max/server/hooks/question_hook.sh",
             "timeout": 185
           }
         ]
@@ -268,7 +268,7 @@ To enable remote permission control from the iOS app, add hooks to your Claude C
         "hooks": [
           {
             "type": "command",
-            "command": "/path/to/max/voice_server/hooks/post_tool_hook.sh"
+            "command": "/path/to/max/server/hooks/post_tool_hook.sh"
           }
         ]
       }
@@ -287,7 +287,7 @@ To enable remote permission control from the iOS app, add hooks to your Claude C
 
 **How It Works (Permissions):**
 1. Claude Code triggers PermissionRequest hook before showing a prompt
-2. Hook POSTs to voice server, which forwards to iOS app via WebSocket
+2. Hook POSTs to server, which forwards to iOS app via WebSocket
 3. User approves/denies on iOS, response flows back to hook
 4. Hook outputs decision JSON, Claude Code proceeds accordingly
 5. If timeout (3 min), falls back to terminal prompt with late-response injection
@@ -376,7 +376,7 @@ task_completed       {"type": "task_completed", "tool_use_id": "..."}
 ## Server Design Details
 
 ### Multi-Session Architecture
-`SessionContext` (`session_context.py`) bundles per-session state: session ID, folder name, tmux session name, transcript path, observer, activity state, and voice input dedup. `VoiceServer` holds `active_sessions: dict[str, SessionContext]` (keyed by tmux session name) and `viewed_session_id` (which session the iOS app is viewing). Each tmux session is named `claude-connect_<session_id>` via `session_name_for()`. Max 5 concurrent sessions (`MAX_ACTIVE_SESSIONS`). Hook scripts pass `CLAUDE_CONNECT_SESSION_ID` via `X-Session-Id` header so the server routes permissions/questions to the correct session. Server shutdown kills all `claude-connect_*` tmux sessions.
+`SessionContext` (`session_context.py`) bundles per-session state: session ID, folder name, tmux session name, transcript path, observer, activity state, and voice input dedup. `ConnectServer` holds `active_sessions: dict[str, SessionContext]` (keyed by tmux session name) and `viewed_session_id` (which session the iOS app is viewing). Each tmux session is named `claude-connect_<session_id>` via `session_name_for()`. Max 5 concurrent sessions (`MAX_ACTIVE_SESSIONS`). Hook scripts pass `CLAUDE_CONNECT_SESSION_ID` via `X-Session-Id` header so the server routes permissions/questions to the correct session. Server shutdown kills all `claude-connect_*` tmux sessions.
 
 ### Transcript Watching Pipeline
 The core data flow for streaming Claude's output to the iOS app:

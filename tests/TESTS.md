@@ -4,43 +4,43 @@
 
 ```bash
 # Server tests (Python)
-cd voice_server/tests && ./run_tests.sh
+cd server/tests && ./run_tests.sh
 
 # iOS unit tests
-cd ios-voice-app/ClaudeVoice
-xcodebuild test -scheme ClaudeVoice \
+cd ios/ClaudeConnect
+xcodebuild test -scheme ClaudeConnect \
   -destination 'platform=iOS Simulator,name=iPhone 16' \
-  -only-testing:ClaudeVoiceTests
+  -only-testing:ClaudeConnectTests
 
 # E2E tests (full integration with real server)
-cd ios-voice-app/ClaudeVoice && ./run_e2e_tests.sh
+cd ios/ClaudeConnect && ./run_e2e_tests.sh
 ```
 
 ## Test Suites Overview
 
 | Suite | Count | Type | Location |
 |-------|-------|------|----------|
-| Server Tests | ~287 (25 files) | pytest | `voice_server/tests/` |
-| iOS Unit Tests | ~69 | XCTest | `ios-voice-app/ClaudeVoice/ClaudeVoiceTests/` |
-| E2E Tests | 18 | XCUITest | `ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/E2E*.swift` |
-| Integration Tests | ~34 | XCUITest | `ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/*Tests.swift` |
+| Server Tests | ~287 (25 files) | pytest | `server/tests/` |
+| iOS Unit Tests | ~69 | XCTest | `ios/ClaudeConnect/ClaudeConnectTests/` |
+| E2E Tests | 18 | XCUITest | `ios/ClaudeConnect/ClaudeConnectUITests/E2E*.swift` |
+| Integration Tests | ~34 | XCUITest | `ios/ClaudeConnect/ClaudeConnectUITests/*Tests.swift` |
 
 ---
 
 ## Server Tests (pytest)
 
-**Location:** `voice_server/tests/`
+**Location:** `server/tests/`
 
 ```bash
-cd voice_server/tests
+cd server/tests
 ./run_tests.sh              # all tests
 ./run_tests.sh coverage     # with coverage
 pytest -v                   # direct pytest
-pytest test_ios_server.py::TestVoiceServer::test_send_status -v  # specific test
+pytest test_main.py::TestConnectServer::test_send_status -v  # specific test
 ```
 
 **What's tested:**
-- WebSocket server initialization and message handling (`test_ios_server.py`, `test_message_handlers.py`, `test_message_formats.py`)
+- WebSocket server initialization and message handling (`test_main.py`, `test_message_handlers.py`, `test_message_formats.py`)
 - Transcript file monitoring and response extraction (`test_response_extraction.py`, `test_text_extraction.py`, `test_transcript_watcher.py`)
 - TTS utilities, audio streaming, queue, and preferences (`test_tts_utils.py`, `test_tts_queue.py`, `test_tts_preference.py`)
 - Session management (projects, sessions, history) (`test_session_manager.py`)
@@ -58,18 +58,18 @@ pytest test_ios_server.py::TestVoiceServer::test_send_status -v  # specific test
 
 ## iOS Unit Tests (XCTest)
 
-**Location:** `ios-voice-app/ClaudeVoice/ClaudeVoiceTests/`
+**Location:** `ios/ClaudeConnect/ClaudeConnectTests/`
 
 ```bash
-cd ios-voice-app/ClaudeVoice
-xcodebuild test -scheme ClaudeVoice \
+cd ios/ClaudeConnect
+xcodebuild test -scheme ClaudeConnect \
   -destination 'platform=iOS Simulator,name=iPhone 16' \
-  -only-testing:ClaudeVoiceTests
+  -only-testing:ClaudeConnectTests
 
 # Specific test class
-xcodebuild test -scheme ClaudeVoice \
+xcodebuild test -scheme ClaudeConnect \
   -destination 'platform=iOS Simulator,name=iPhone 16' \
-  -only-testing:ClaudeVoiceTests/AudioPlayerTests
+  -only-testing:ClaudeConnectTests/AudioPlayerTests
 ```
 
 **What's tested:**
@@ -80,20 +80,20 @@ xcodebuild test -scheme ClaudeVoice \
 - ClaudeOutputState: state transitions (`ClaudeOutputStateTests.swift`)
 - InputBarMode: input bar state machine (`InputBarModeTests.swift`)
 - DiffView: diff parsing and display (`DiffViewTests.swift`)
-- General models and integration flows (`ClaudeVoiceTests.swift`)
+- General models and integration flows (`ClaudeConnectTests.swift`)
 
 ---
 
 ## E2E Tests (XCUITest + Real Server)
 
-**Location:** `ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/E2E*.swift`
+**Location:** `ios/ClaudeConnect/ClaudeConnectUITests/E2E*.swift`
 
 ```bash
 # Run all E2E tests
-cd ios-voice-app/ClaudeVoice && ./run_e2e_tests.sh
+cd ios/ClaudeConnect && ./run_e2e_tests.sh
 
 # Run specific E2E test suite
-cd ios-voice-app/ClaudeVoice && ./run_e2e_tests.sh E2EPermissionTests
+cd ios/ClaudeConnect && ./run_e2e_tests.sh E2EPermissionTests
 ```
 
 ### How E2E Tests Work
@@ -102,7 +102,7 @@ The E2E runner (`run_e2e_tests.sh`) performs these steps:
 
 1. **Create test session** - Runs `claude --print "Reply with only: ok"` in `/tmp/e2e_test_project` to create a real Claude session
 2. **Extract session ID** - Finds the session file in `~/.claude/projects/-tmp-e2e_test_project/` and extracts the UUID
-3. **Start server** - Launches `ios_server.py`
+3. **Start server** - Launches `main.py`
 4. **Pass session info** - Exports environment variables to tests:
    - `E2E_TEST_SESSION_ID` - UUID of the created session
    - `E2E_TEST_PROJECT_NAME` - "e2e_test_project"
@@ -139,18 +139,18 @@ Tests that mock core functionality (subprocess calls, file operations) can pass 
 
 ## Integration Tests (XCUITest + Test Server)
 
-**Location:** `ios-voice-app/ClaudeVoice/ClaudeVoiceUITests/*Tests.swift` (non-E2E)
+**Location:** `ios/ClaudeConnect/ClaudeConnectUITests/*Tests.swift` (non-E2E)
 
 These tests use `IntegrationTestBase` and require a running test server:
 
 ```bash
 # Start server first
-python3 voice_server/ios_server.py
+python3 server/main.py
 
 # Run integration tests
-xcodebuild test -scheme ClaudeVoice \
+xcodebuild test -scheme ClaudeConnect \
   -destination 'platform=iOS Simulator,name=iPhone 16' \
-  -only-testing:ClaudeVoiceUITests/StateManagementTests
+  -only-testing:ClaudeConnectUITests/StateManagementTests
 ```
 
 **Test suites (~34 tests):**
@@ -167,18 +167,18 @@ xcodebuild test -scheme ClaudeVoice \
 
 ```bash
 # Server - specific test
-pytest voice_server/tests/test_ios_server.py::TestSessionManager -v
+pytest server/tests/test_main.py::TestSessionManager -v
 
 # iOS unit - specific class
-xcodebuild test -scheme ClaudeVoice \
+xcodebuild test -scheme ClaudeConnect \
   -destination 'platform=iOS Simulator,name=iPhone 16' \
-  -only-testing:ClaudeVoiceTests/WebSocketManagerTests
+  -only-testing:ClaudeConnectTests/WebSocketManagerTests
 
 # E2E - run manually (start server first)
-python3 voice_server/ios_server.py  # terminal 1
-xcodebuild test -scheme ClaudeVoice \
+python3 server/main.py  # terminal 1
+xcodebuild test -scheme ClaudeConnect \
   -destination 'platform=iOS Simulator,name=iPhone 16' \
-  -only-testing:ClaudeVoiceUITests/E2EHappyPathTests  # terminal 2
+  -only-testing:ClaudeConnectUITests/E2EHappyPathTests  # terminal 2
 ```
 
 ---
@@ -187,8 +187,8 @@ xcodebuild test -scheme ClaudeVoice \
 
 **Tests hang or timeout:**
 ```bash
-ps aux | grep ClaudeVoice           # check for stuck processes
-pkill -f ClaudeVoice                # kill lingering instances
+ps aux | grep ClaudeConnect           # check for stuck processes
+pkill -f ClaudeConnect                # kill lingering instances
 xcrun simctl shutdown all           # reset simulator
 ```
 
@@ -201,7 +201,7 @@ tail -f /tmp/e2e_server.log         # check server logs
 **Server tests fail:**
 ```bash
 source .venv/bin/activate           # ensure venv active
-pip install -r voice_server/tests/requirements-test.txt
+pip install -r server/tests/requirements-test.txt
 rm -rf .pytest_cache                # clear cache
 ```
 
@@ -233,13 +233,13 @@ Test results are saved to xcresult bundles. Path is printed at end of test run:
 
 ```bash
 # List available test result bundles
-ls -la ~/Library/Developer/Xcode/DerivedData/ClaudeVoice-*/Logs/Test/
+ls -la ~/Library/Developer/Xcode/DerivedData/ClaudeConnect-*/Logs/Test/
 
 # Extract test summary from xcresult (JSON format)
 xcrun xcresulttool get --path <path-to.xcresult> --format json | python3 -m json.tool | head -100
 
 # Example: extract from most recent result
-RESULT=$(ls -t ~/Library/Developer/Xcode/DerivedData/ClaudeVoice-*/Logs/Test/*.xcresult | head -1)
+RESULT=$(ls -t ~/Library/Developer/Xcode/DerivedData/ClaudeConnect-*/Logs/Test/*.xcresult | head -1)
 xcrun xcresulttool get --path "$RESULT" --format json 2>/dev/null | python3 -m json.tool | head -50
 ```
 

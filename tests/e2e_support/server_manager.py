@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Manage ios_server.py lifecycle for E2E tests"""
+"""Manage server.py lifecycle for E2E tests"""
 import subprocess
 import sys
 import os
@@ -16,7 +16,7 @@ from test_config import (
 
 def start_server(transcript_path):
     """
-    Start real ios_server.py for testing
+    Start real server.py for testing
 
     Args:
         transcript_path: Path to transcript file for server to watch
@@ -31,7 +31,7 @@ def start_server(transcript_path):
             pass  # Create empty file
 
     # Start server process
-    # Note: May need to modify ios_server.py to accept --transcript-path arg
+    # Note: May need to modify server.py to accept --transcript-path arg
     env = os.environ.copy()
     env["TEST_MODE"] = "1"
     env["TEST_TRANSCRIPT_PATH"] = transcript_path
@@ -105,7 +105,7 @@ def main():
     """CLI interface for server management"""
     import argparse
 
-    parser = argparse.ArgumentParser(description="Manage ios_server for E2E tests")
+    parser = argparse.ArgumentParser(description="Manage server for E2E tests")
     subparsers = parser.add_subparsers(dest="command")
 
     # Start command

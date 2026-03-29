@@ -55,19 +55,19 @@ print_header "iOS Unit Tests"
 echo "📝 Log file: $UNIT_LOG"
 echo ""
 
-cd "$ROOT_DIR/ios-voice-app/ClaudeVoice"
+cd "$ROOT_DIR/ios/ClaudeConnect"
 
 echo "🧹 Cleaning build..."
-xcodebuild clean -scheme ClaudeVoice -quiet 2>/dev/null || true
+xcodebuild clean -scheme ClaudeConnect -quiet 2>/dev/null || true
 
 echo ""
 echo "🧪 Running iOS unit tests..."
 echo "================================"
 
 set +e
-xcodebuild test -scheme ClaudeVoice \
+xcodebuild test -scheme ClaudeConnect \
     -destination 'platform=iOS Simulator,name=iPhone 16' \
-    -only-testing:ClaudeVoiceTests \
+    -only-testing:ClaudeConnectTests \
     2>&1 | tee "$UNIT_LOG"
 UNIT_EXIT_CODE=${PIPESTATUS[0]}
 set -e
@@ -87,7 +87,7 @@ print_header "Server Tests"
 echo "📝 Log file: $SERVER_LOG"
 echo ""
 
-cd "$ROOT_DIR/voice_server/tests"
+cd "$ROOT_DIR/server/tests"
 
 echo "🧪 Running server tests..."
 echo "================================"
@@ -112,7 +112,7 @@ print_header "E2E Tests"
 echo "📝 Log file: $E2E_LOG"
 echo ""
 
-cd "$ROOT_DIR/ios-voice-app/ClaudeVoice"
+cd "$ROOT_DIR/ios/ClaudeConnect"
 
 echo "🧪 Running E2E tests..."
 echo "================================"

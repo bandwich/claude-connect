@@ -4,12 +4,11 @@ import os
 # Server configuration
 TEST_SERVER_HOST = "127.0.0.1"
 TEST_SERVER_PORT = 8765
-SERVER_STARTUP_TIMEOUT = 10  # seconds
 
 # Paths
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
 SERVER_SCRIPT = os.path.join(PROJECT_ROOT, "server/main.py")
 PYTHON_VENV = os.path.join(PROJECT_ROOT, ".venv/bin/python3")
 
-# Transcript configuration
-TEMP_TRANSCRIPT_DIR = "/tmp/claude_voice_e2e_tests"
+# Transcript configuration - use server's actual watched directory
+TRANSCRIPT_DIR = os.path.expanduser("~/.claude/projects/e2e_test_project")
