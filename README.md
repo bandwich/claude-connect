@@ -1,15 +1,11 @@
 # Claude Connect
 
-Control Claude Code hands-free from your iPhone. Voice commands with TTS responses, session management, tool output viewing, file browsing, and remote permission approval — all over WebSocket to a Mac server.
-
-For Claude, written entirely by Claude, with oversight.
+Control Claude Code via iOS + macOS. Voice commands with TTS responses, session management, tool output viewing, file browsing, and remote permission approval — all over WebSocket to a Mac server.
 
 ## Prerequisites
 
-- **macOS** (Apple Silicon or Intel)
-- **[Claude Code](https://claude.ai/code)** installed and working
-- **Python 3.9–3.12** (kokoro TTS doesn't have wheels for newer versions yet)
-- **tmux** (the installer will offer to install it, or `brew install tmux`)
+- **macOS**
+- **[Claude Code](https://claude.ai/code)**
 
 ## Install
 
