@@ -54,7 +54,7 @@ struct ContentView: View {
                 }
             }
             .padding(.bottom, 40)
-            .navigationTitle("Claude Voice")
+            .navigationTitle("Claude Connect")
             .navigationBarItems(trailing: Button(action: {
                 showingSettings = true
             }) {

@@ -1,1 +1,1 @@
-"""Claude Voice Server package."""
+"""Claude Connect server package."""

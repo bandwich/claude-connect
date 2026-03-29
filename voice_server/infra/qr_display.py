@@ -59,10 +59,10 @@ def print_startup_banner(ip: str, port: int):
     qr = generate_qr_code(url)
 
     print("\n" + "=" * 50)
-    print("Claude Voice Server")
+    print("Claude Connect")
     print("=" * 50 + "\n")
     print(qr)
-    print(f"\nScan QR code with Claude Voice app\n")
+    print(f"\nScan QR code with Claude Connect app\n")
     print(f"{url}\n")
     print("Waiting for connection...")
     print("=" * 50 + "\n")
