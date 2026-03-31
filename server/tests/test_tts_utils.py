@@ -205,11 +205,19 @@ class TestSamplesToWavBytes:
 class TestWarmupTTS:
     """Tests for TTS pipeline caching and warmup"""
 
+    def _mock_kmodel(self):
+        m = Mock()
+        m.REPO_ID = "hexgrad/Kokoro-82M"
+        return m
+
     def setup_method(self):
         tts_mod._pipeline = None
+        self._saved_kmodel = tts_mod.KModel
+        tts_mod.KModel = self._mock_kmodel()
 
     def teardown_method(self):
         tts_mod._pipeline = None
+        tts_mod.KModel = self._saved_kmodel
 
     @patch('server.services.tts_manager.try_to_load_from_cache', return_value=None)
     @patch('server.services.tts_manager.KPipeline')
@@ -255,7 +263,7 @@ class TestWarmupTTS:
         warmup_tts()
 
         output = capsys.readouterr().out
-        assert "Loading model from cache" in output
+        assert "Loading model" in output
 
     @patch('server.services.tts_manager.try_to_load_from_cache', return_value="/some/cached/path")
     @patch('server.services.tts_manager.KPipeline')
