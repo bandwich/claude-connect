@@ -20,7 +20,7 @@ cd ios/ClaudeConnect && ./run_e2e_tests.sh
 
 | Suite | Count | Type | Location |
 |-------|-------|------|----------|
-| Server Tests | ~287 (25 files) | pytest | `server/tests/` |
+| Server Tests | ~315 (31 files) | pytest | `server/tests/` |
 | iOS Unit Tests | ~69 | XCTest | `ios/ClaudeConnect/ClaudeConnectTests/` |
 | E2E Tests | 18 | XCUITest | `ios/ClaudeConnect/ClaudeConnectUITests/E2E*.swift` |
 | Integration Tests | ~34 | XCUITest | `ios/ClaudeConnect/ClaudeConnectUITests/*Tests.swift` |

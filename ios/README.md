@@ -42,7 +42,7 @@ xcodebuild test -scheme ClaudeConnect \
 
 ```
 ClaudeConnect/
-├── ClaudeVoiceApp.swift        # @main entry point
+├── ClaudeConnectApp.swift      # @main entry point
 ├── Models/                     # Data types
 │   ├── Message.swift           # WebSocket message types
 │   ├── Session.swift           # Session model, ConversationItem enum

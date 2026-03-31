@@ -60,7 +60,6 @@ pytest test_main.py::TestConnectServer::test_send_status -v
 - ✅ Server initialization
 - ✅ Transcript file discovery
 - ✅ Status message formatting
-- ✅ VS Code integration (AppleScript)
 - ✅ Audio streaming with chunking
 - ✅ Voice input handling
 - ✅ Claude response handling
