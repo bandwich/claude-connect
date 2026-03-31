@@ -52,7 +52,7 @@ iPhone App                         Mac Server
 ```
 server/                  # Python server
 ├─ server.py                  # Main WebSocket server (ConnectServer coordinator)
-├─ tts_utils.py               # Legacy re-export (tests import from here)
+├─ tts_utils.py               # Re-exports from services/tts_manager.py
 ├─ models/
 │   ├─ content_models.py      # Pydantic models for content blocks
 │   └─ session_context.py     # Per-session state container (SessionContext)
@@ -416,7 +416,7 @@ Activity state is also re-checked immediately after sending an assistant_respons
 
 ### TTS Pipeline
 1. Assistant text extracted from transcript → markdown stripped
-2. Text queued to `tts_utils.py` (Kokoro pipeline, 24kHz, voice "af_heart")
+2. Text queued to `tts_manager.py` (Kokoro pipeline, 24kHz, voice "af_heart")
 3. Audio chunked and streamed as base64 WAV via WebSocket `audio_chunk` messages
 4. iOS `AudioPlayer` buffers chunks and plays via `AVAudioEngine`
 

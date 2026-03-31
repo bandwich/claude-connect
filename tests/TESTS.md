@@ -200,9 +200,8 @@ tail -f /tmp/e2e_server.log         # check server logs
 
 **Server tests fail:**
 ```bash
-source .venv/bin/activate           # ensure venv active
-pip install -r server/tests/requirements-test.txt
-rm -rf .pytest_cache                # clear cache
+pipx install --force /Users/aaron/Desktop/max  # reinstall with latest code
+rm -rf .pytest_cache                            # clear cache
 ```
 
 ---

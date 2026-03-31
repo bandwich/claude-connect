@@ -4,7 +4,7 @@ Comprehensive test suite for the iOS voice mode WebSocket server and TTS utiliti
 
 ## Test Files
 
-- `test_tts_utils.py` - Tests for TTS utility functions (Kokoro integration)
+- `test_tts_utils.py` - Tests for TTS functions (tts_manager.py)
 - `test_main.py` - Tests for WebSocket server and transcript handling
 - `conftest.py` - Pytest fixtures and configuration
 - `pytest.ini` - Pytest settings
@@ -35,8 +35,7 @@ cd server/tests
 ### Run Specific Test File
 
 ```bash
-source /Users/aaron/Desktop/max/.venv/bin/activate
-pytest test_tts_utils.py -v
+/Users/aaron/.local/pipx/venvs/claude-connect/bin/python -m pytest test_tts_utils.py -v
 ```
 
 ### Run Specific Test
@@ -47,12 +46,13 @@ pytest test_main.py::TestConnectServer::test_send_status -v
 
 ## Test Coverage
 
-### tts_utils.py
+### tts_manager.py
 - ✅ TTS audio generation
 - ✅ WAV file saving
 - ✅ Audio chunking for streaming
 - ✅ WAV byte conversion
-- ✅ Error handling
+- ✅ Startup logging (download vs cache)
+- ✅ Voice preloading
 
 ### main.py
 
@@ -144,20 +144,18 @@ To integrate with CI/CD pipelines:
 # Example GitHub Actions
 - name: Run tests
   run: |
-    source .venv/bin/activate
     cd server/tests
-    pytest --cov --cov-report=xml
+    ./run_tests.sh coverage
 ```
 
 ## Troubleshooting
 
 ### Import Errors
 
-Make sure the virtual environment is activated and all dependencies are installed:
+Make sure the package is installed via pipx with latest code:
 
 ```bash
-source /Users/aaron/Desktop/max/.venv/bin/activate
-pip install -r requirements-test.txt
+pipx install --force /Users/aaron/Desktop/max
 ```
 
 ### Async Test Warnings

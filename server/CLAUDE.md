@@ -126,7 +126,7 @@ server.py (ConnectServer — thin coordinator)
 ├── models/
 │   ├── content_models.py  — Pydantic models for content blocks
 │   └── session_context.py — per-session state container (SessionContext dataclass)
-└── tts_utils.py           — legacy re-export (tests still import from here)
+└── tts_utils.py           — re-exports from services/tts_manager.py
 ```
 
 Delegates (handlers/, services/) receive a `ConnectServer` reference at construction and access shared state via `self.server.*`. Type hints use `TYPE_CHECKING` guards to avoid circular imports.
