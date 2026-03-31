@@ -7,17 +7,16 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VOICE_MODE_DIR="$(dirname "$SCRIPT_DIR")"
 
-# Activate virtual environment
-echo "Activating virtual environment..."
-source "$VOICE_MODE_DIR/../.venv/bin/activate"
+# Use the pipx-installed Python
+PYTHON="/Users/aaron/.local/pipx/venvs/claude-connect/bin/python"
 
 # Set library path for zbar (required by pyzbar for QR scanning tests)
 export DYLD_LIBRARY_PATH="/opt/homebrew/lib:$DYLD_LIBRARY_PATH"
 
 # Install test dependencies if needed
-if ! python -c "import pytest" 2>/dev/null; then
-    echo "Installing test dependencies..."
-    pip install -r "$SCRIPT_DIR/requirements-test.txt"
+if ! "$PYTHON" -c "import pytest" 2>/dev/null; then
+    echo "pytest not found in pipx venv"
+    exit 1
 fi
 
 # Run tests
@@ -28,17 +27,17 @@ cd "$SCRIPT_DIR"
 
 # Run with different options based on arguments
 if [ "$1" == "coverage" ]; then
-    pytest --cov="$VOICE_MODE_DIR" --cov-report=term-missing --cov-report=html
+    "$PYTHON" -m pytest --cov="$VOICE_MODE_DIR" --cov-report=term-missing --cov-report=html
     echo ""
     echo "Coverage report generated in htmlcov/index.html"
 elif [ "$1" == "verbose" ]; then
-    pytest -vv
+    "$PYTHON" -m pytest -vv
 elif [ "$1" == "unit" ]; then
-    pytest -m unit
+    "$PYTHON" -m pytest -m unit
 elif [ "$1" == "integration" ]; then
-    pytest -m integration
+    "$PYTHON" -m pytest -m integration
 else
-    pytest
+    "$PYTHON" -m pytest
 fi
 
 echo ""
