@@ -1,9 +1,4 @@
-"""
-TTS Manager - handles text-to-speech generation and audio streaming.
-
-Absorbs the old tts_utils.py functionality and the TTS-related methods
-from ConnectServer into a single delegate.
-"""
+"""TTS Manager - text-to-speech generation and audio streaming via Kokoro."""
 
 import asyncio
 import base64
@@ -19,23 +14,46 @@ from server.models.content_models import ContentBlock, TextBlock
 if TYPE_CHECKING:
     from server.main import ConnectServer
 
-# --- Low-level TTS functions (from tts_utils.py) ---
-
+import logging
 import sys
 sys.path.insert(0, '/Users/aaron/Desktop/max/.venv/lib/python3.9/site-packages')
 
+from huggingface_hub import try_to_load_from_cache
 from kokoro import KPipeline
+from kokoro.model import KModel
 import soundfile as sf
 
 # Cached pipeline instance (initialized eagerly via warmup_tts())
 _pipeline = None
 
 
-def warmup_tts(lang_code: str = "en-us"):
+def warmup_tts(lang_code: str = "en-us", voice: str = "af_heart"):
     """Initialize the Kokoro TTS pipeline eagerly so first TTS has no load delay."""
     global _pipeline
-    if _pipeline is None:
-        _pipeline = KPipeline(lang_code=lang_code)
+    if _pipeline is not None:
+        return
+
+    # Enable huggingface_hub logging so download progress bars are visible
+    logging.getLogger("huggingface_hub").setLevel(logging.INFO)
+
+    # Check if model files need downloading
+    repo_id = KModel.REPO_ID
+    model_cached = try_to_load_from_cache(repo_id, "kokoro-v1_0.pth")
+    config_cached = try_to_load_from_cache(repo_id, "config.json")
+    voice_cached = try_to_load_from_cache(repo_id, f"voices/{voice}.pt")
+
+    if not model_cached or not config_cached:
+        print(f"[TTS] Downloading Kokoro model from {repo_id} (first run)...")
+    else:
+        print("[TTS] Loading model from cache...")
+
+    _pipeline = KPipeline(lang_code=lang_code)
+
+    if not voice_cached:
+        print(f"[TTS] Downloading voice '{voice}'...")
+    else:
+        print(f"[TTS] Loading voice '{voice}'...")
+    _pipeline.load_single_voice(voice)
 
 
 def generate_tts_audio(text: str, voice: str = "af_heart", lang_code: str = "en-us") -> np.ndarray:

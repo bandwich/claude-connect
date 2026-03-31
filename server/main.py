@@ -1321,9 +1321,8 @@ def main():
     """Entry point for claude-connect command."""
     from server.infra.setup_check import ensure_dependencies
     ensure_dependencies()
-    print("[TTS] Warming up Kokoro pipeline...")
     warmup_tts()
-    print("[TTS] Pipeline ready")
+    print("[TTS] Ready")
     asyncio.run(ConnectServer().start())
 
 
