@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Tests for tts_utils.py - TTS Utility Functions
+Tests for TTS utility functions (server.services.tts_manager)
 """
 
 import pytest
@@ -10,11 +10,13 @@ import os
 from unittest.mock import Mock, patch, MagicMock
 import sys
 
-from server.tts_utils import (
+import server.services.tts_manager as tts_mod
+from server.services.tts_manager import (
     generate_tts_audio,
     save_wav,
     chunk_audio,
-    samples_to_wav_bytes
+    samples_to_wav_bytes,
+    warmup_tts,
 )
 
 
@@ -23,15 +25,13 @@ class TestGenerateTTSAudio:
 
     def setup_method(self):
         """Clear cached pipeline before each test"""
-        import server.tts_utils as tts_mod
         tts_mod._pipeline = None
 
     def teardown_method(self):
         """Clear cached pipeline after each test"""
-        import server.tts_utils as tts_mod
         tts_mod._pipeline = None
 
-    @patch('server.tts_utils.KPipeline')
+    @patch('server.services.tts_manager.KPipeline')
     def test_generate_tts_audio(self, mock_pipeline_class):
         """Test basic TTS generation returns valid numpy array"""
         # Setup mock
@@ -51,7 +51,7 @@ class TestGenerateTTSAudio:
         mock_pipeline_class.assert_called_once_with(lang_code="en-us")
         mock_pipeline.assert_called_once_with("Hello world", voice="af_heart")
 
-    @patch('server.tts_utils.KPipeline')
+    @patch('server.services.tts_manager.KPipeline')
     def test_generate_tts_audio_empty_text(self, mock_pipeline_class):
         """Test with empty string"""
         mock_chunk = Mock()
@@ -66,7 +66,7 @@ class TestGenerateTTSAudio:
         assert isinstance(result, np.ndarray)
         assert len(result) == 0
 
-    @patch('server.tts_utils.KPipeline')
+    @patch('server.services.tts_manager.KPipeline')
     def test_generate_tts_audio_multiple_chunks(self, mock_pipeline_class):
         """Test concatenation of multiple audio chunks"""
         mock_chunk1 = Mock()
@@ -88,7 +88,7 @@ class TestGenerateTTSAudio:
 class TestSaveWav:
     """Tests for save_wav function"""
 
-    @patch('server.tts_utils.sf.write')
+    @patch('server.services.tts_manager.sf.write')
     def test_save_wav(self, mock_write):
         """Test WAV file creation"""
         samples = np.array([0.1, 0.2, 0.3])
@@ -98,7 +98,7 @@ class TestSaveWav:
 
         mock_write.assert_called_once_with(filepath, samples, 24000)
 
-    @patch('server.tts_utils.sf.write')
+    @patch('server.services.tts_manager.sf.write')
     def test_save_wav_custom_sample_rate(self, mock_write):
         """Test with custom sample rate"""
         samples = np.array([0.1, 0.2, 0.3])
@@ -205,28 +205,24 @@ class TestSamplesToWavBytes:
 class TestWarmupTTS:
     """Tests for TTS pipeline caching and warmup"""
 
-    @patch('server.tts_utils.KPipeline')
-    def test_warmup_initializes_pipeline(self, mock_pipeline_class):
-        """Test that warmup_tts creates the cached pipeline"""
-        from server.tts_utils import warmup_tts, _pipeline
-        import server.tts_utils as tts_mod
-
-        # Clear any cached pipeline
+    def setup_method(self):
         tts_mod._pipeline = None
 
+    def teardown_method(self):
+        tts_mod._pipeline = None
+
+    @patch('server.services.tts_manager.try_to_load_from_cache', return_value=None)
+    @patch('server.services.tts_manager.KPipeline')
+    def test_warmup_initializes_pipeline(self, mock_pipeline_class, mock_cache_check):
+        """Test that warmup_tts creates the cached pipeline"""
         warmup_tts()
 
         mock_pipeline_class.assert_called_once_with(lang_code="en-us")
         assert tts_mod._pipeline is not None
 
-        # Cleanup
-        tts_mod._pipeline = None
-
-    @patch('server.tts_utils.KPipeline')
+    @patch('server.services.tts_manager.KPipeline')
     def test_generate_reuses_cached_pipeline(self, mock_pipeline_class):
         """Test that generate_tts_audio reuses the cached pipeline instead of creating a new one"""
-        import server.tts_utils as tts_mod
-
         mock_pipeline_instance = Mock()
         mock_chunk = Mock()
         mock_chunk.output.audio.numpy.return_value = np.array([0.1, 0.2])
@@ -243,8 +239,63 @@ class TestWarmupTTS:
         # But the pipeline should have been called twice
         assert mock_pipeline_instance.call_count == 2
 
-        # Cleanup
-        tts_mod._pipeline = None
+    @patch('server.services.tts_manager.try_to_load_from_cache', return_value=None)
+    @patch('server.services.tts_manager.KPipeline')
+    def test_warmup_logs_download_on_first_run(self, mock_pipeline_class, mock_cache_check, capsys):
+        """Test that warmup prints download message when model is not cached"""
+        warmup_tts()
+
+        output = capsys.readouterr().out
+        assert "Downloading" in output
+
+    @patch('server.services.tts_manager.try_to_load_from_cache', return_value="/some/cached/path")
+    @patch('server.services.tts_manager.KPipeline')
+    def test_warmup_logs_cache_hit(self, mock_pipeline_class, mock_cache_check, capsys):
+        """Test that warmup prints cache message when model is already cached"""
+        warmup_tts()
+
+        output = capsys.readouterr().out
+        assert "Loading model from cache" in output
+
+    @patch('server.services.tts_manager.try_to_load_from_cache', return_value="/some/cached/path")
+    @patch('server.services.tts_manager.KPipeline')
+    def test_warmup_preloads_voice(self, mock_pipeline_class, mock_cache_check):
+        """Test that warmup pre-loads the voice file"""
+        mock_pipeline_instance = Mock()
+        mock_pipeline_class.return_value = mock_pipeline_instance
+
+        warmup_tts()
+
+        mock_pipeline_instance.load_single_voice.assert_called_once_with("af_heart")
+
+    @patch('server.services.tts_manager.try_to_load_from_cache', return_value="/some/cached/path")
+    @patch('server.services.tts_manager.KPipeline')
+    def test_warmup_skips_if_already_initialized(self, mock_pipeline_class, mock_cache_check):
+        """Test that warmup is a no-op if pipeline already exists"""
+        tts_mod._pipeline = Mock()
+
+        warmup_tts()
+
+        mock_pipeline_class.assert_not_called()
+
+
+class TestLegacyReExport:
+    """Test that server.tts_utils re-exports from tts_manager"""
+
+    def test_imports_work(self):
+        from server.tts_utils import generate_tts_audio as f1
+        from server.services.tts_manager import generate_tts_audio as f2
+        assert f1 is f2
+
+    def test_warmup_import(self):
+        from server.tts_utils import warmup_tts as f1
+        from server.services.tts_manager import warmup_tts as f2
+        assert f1 is f2
+
+    def test_save_wav_import(self):
+        from server.tts_utils import save_wav as f1
+        from server.services.tts_manager import save_wav as f2
+        assert f1 is f2
 
 
 if __name__ == '__main__':
