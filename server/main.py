@@ -1317,6 +1317,13 @@ class ConnectServer:
 
 def main():
     """Entry point for claude-connect command."""
+    import argparse
+    from server import __version__
+
+    parser = argparse.ArgumentParser(description="Claude Connect Server")
+    parser.add_argument("--version", action="version", version=f"claude-connect {__version__}")
+    parser.parse_args()
+
     from server.infra.setup_check import ensure_dependencies
     ensure_dependencies()
     warmup_tts()
