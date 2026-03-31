@@ -325,14 +325,11 @@ class TranscriptHandler(FileSystemEventHandler):
             self.agent_tool_ids = set()
             if from_beginning:
                 self.processed_line_count = 0
-                print(f"[INFO] Watching session file: {file_path} (from beginning)")
             elif file_path and os.path.exists(file_path):
                 with open(file_path, 'r') as f:
                     self.processed_line_count = sum(1 for _ in f)
-                print(f"[INFO] Watching session file: {file_path} (starting at line {self.processed_line_count})")
             else:
                 self.processed_line_count = 0
-                print(f"[INFO] Watching session file: {file_path} (new file)")
 
     def reconcile(self):
         """Check for lines that watchdog missed and extract their content."""

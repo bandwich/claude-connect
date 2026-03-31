@@ -409,5 +409,5 @@ async def start_http_server(
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-    print(f"HTTP server running on http://0.0.0.0:{port}")
+    # HTTP hook server ready (port logged in startup banner)
     return runner

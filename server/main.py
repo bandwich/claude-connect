@@ -1266,8 +1266,6 @@ class ConnectServer:
         # Check tmux availability
         if not self.tmux.is_available():
             print("WARNING: tmux not installed. Install with: brew install tmux")
-        else:
-            print("tmux available for session management")
 
         self.transcript_path = self.find_transcript_path()
 
