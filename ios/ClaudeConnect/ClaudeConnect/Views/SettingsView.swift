@@ -38,7 +38,6 @@ struct SettingsView: View {
                                     .background(Color(.secondarySystemGroupedBackground))
                                 }
                             } else if case .connecting = webSocketManager.connectionState {
-                                // Non-interactive connecting state
                                 HStack {
                                     Spacer()
                                     ProgressView()
@@ -46,6 +45,12 @@ struct SettingsView: View {
                                     Text("Connecting...")
                                         .foregroundColor(.secondary)
                                     Spacer()
+                                    Button(action: {
+                                        webSocketManager.disconnect()
+                                    }) {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .foregroundColor(.secondary)
+                                    }
                                 }
                                 .padding()
                                 .background(Color(.secondarySystemGroupedBackground))

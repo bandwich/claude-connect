@@ -111,6 +111,7 @@ class WebSocketManager: NSObject, ObservableObject {
 
         shouldReconnect = true
         reconnectAttempts = 0
+        connectedURL = url.absoluteString
         connectToURL(url)
     }
 
@@ -168,15 +169,16 @@ class WebSocketManager: NSObject, ObservableObject {
             webSocketTask = nil
         }
 
-        // TCP pre-check — fail fast if server is unreachable
-        // Skip for Tailscale CGNAT IPs (100.64.0.0/10) — NWConnection
-        // doesn't route through the iOS VPN tunnel, causing false failures
-        let skipTcpCheck = url.host.map { isTailscaleIP($0) } ?? false
-
-        if !skipTcpCheck, let host = url.host, let port = url.port {
+        // Pre-check — fail fast if server is unreachable
+        // Tailscale CGNAT IPs use HTTP probe (NWConnection doesn't route through VPN)
+        // Local IPs use TCP probe (faster, no VPN issues)
+        if let host = url.host, let port = url.port {
             Task { [weak self] in
                 guard let self = self else { return }
-                let reachable = await self.tcpCheck(host: host, port: UInt16(port))
+                let useTailscaleProbe = isTailscaleIP(host)
+                let reachable = useTailscaleProbe
+                    ? await self.httpCheck(host: host, port: UInt16(port))
+                    : await self.tcpCheck(host: host, port: UInt16(port))
                 if !reachable {
                     await MainActor.run {
                         self.connectionState = .error("Server not reachable")
@@ -184,7 +186,7 @@ class WebSocketManager: NSObject, ObservableObject {
                     }
                     return
                 }
-                // TCP succeeded — proceed with WebSocket on main thread
+                // Pre-check succeeded — proceed with WebSocket on main thread
                 await MainActor.run {
                     guard self.connectionState == .connecting else { return }
                     let task = self.urlSession?.webSocketTask(with: url)
@@ -194,7 +196,7 @@ class WebSocketManager: NSObject, ObservableObject {
                 }
             }
         } else {
-            // Direct connect: no host/port available, or Tailscale IP
+            // Fallback: no host/port available, connect directly
             webSocketTask = session.webSocketTask(with: url)
             webSocketTask?.resume()
             receiveMessage()
@@ -952,6 +954,23 @@ class WebSocketManager: NSObject, ObservableObject {
         let parts = host.split(separator: ".").compactMap { UInt8($0) }
         guard parts.count == 4, parts[0] == 100 else { return false }
         return parts[1] >= 64 && parts[1] <= 127
+    }
+
+    private func httpCheck(host: String, port: UInt16) async -> Bool {
+        // HTTP probe for Tailscale IPs — uses URLSession which routes through VPN
+        guard let url = URL(string: "http://\(host):\(port)") else { return false }
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 5
+        config.timeoutIntervalForResource = 5
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel() }
+        do {
+            let (_, response) = try await session.data(from: url)
+            // Any response (even error status) means server is reachable
+            return (response as? HTTPURLResponse) != nil
+        } catch {
+            return false
+        }
     }
 
     private func tcpCheck(host: String, port: UInt16) async -> Bool {
