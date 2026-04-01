@@ -8,7 +8,7 @@ import sys
 import os
 import numpy as np
 
-from server.tts_utils import save_wav
+from server.services.tts_manager import save_wav
 
 def generate_test_audio():
     """Generate test audio file (6 seconds, 440Hz tone)"""

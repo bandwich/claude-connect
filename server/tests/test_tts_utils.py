@@ -287,24 +287,5 @@ class TestWarmupTTS:
         mock_pipeline_class.assert_not_called()
 
 
-class TestLegacyReExport:
-    """Test that server.tts_utils re-exports from tts_manager"""
-
-    def test_imports_work(self):
-        from server.tts_utils import generate_tts_audio as f1
-        from server.services.tts_manager import generate_tts_audio as f2
-        assert f1 is f2
-
-    def test_warmup_import(self):
-        from server.tts_utils import warmup_tts as f1
-        from server.services.tts_manager import warmup_tts as f2
-        assert f1 is f2
-
-    def test_save_wav_import(self):
-        from server.tts_utils import save_wav as f1
-        from server.services.tts_manager import save_wav as f2
-        assert f1 is f2
-
-
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

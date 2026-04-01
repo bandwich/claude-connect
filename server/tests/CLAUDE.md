@@ -28,8 +28,6 @@ HTTP endpoint tests inherit `AioHTTPTestCase` and use `@unittest_run_loop`.
 - `temp_transcript_file` — temporary .jsonl with cleanup
 - `sample_transcript_data` — sample JSONL entries (user + assistant messages)
 - `populated_transcript_file` — transcript pre-filled with sample data
-- `sample_audio_data` — numpy array (24kHz silence)
-- `temp_transcript_dir` — temporary directory
 
 ## Common Patterns
 

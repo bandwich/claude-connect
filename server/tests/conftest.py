@@ -7,9 +7,6 @@ import pytest
 import tempfile
 import os
 import json
-import numpy as np
-
-
 @pytest.fixture
 def temp_transcript_file():
     """Create a temporary transcript file"""
@@ -34,30 +31,6 @@ def sample_transcript_data():
             ]
         },
     ]
-
-
-@pytest.fixture
-def sample_audio_data():
-    """Sample audio data as numpy array"""
-    # Create 1 second of silence at 24kHz
-    return np.zeros(24000, dtype=np.float32)
-
-
-@pytest.fixture
-def sample_websocket_message():
-    """Sample WebSocket message from iOS app"""
-    return {
-        "type": "voice_input",
-        "text": "What is the weather today?",
-        "timestamp": 1234567890.123
-    }
-
-
-@pytest.fixture
-def temp_transcript_dir():
-    """Create a temporary directory for transcript files"""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        yield tmpdir
 
 
 @pytest.fixture

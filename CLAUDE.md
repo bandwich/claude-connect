@@ -51,8 +51,7 @@ iPhone App                         Mac Server
 
 ```
 server/                  # Python server
-├─ server.py                  # Main WebSocket server (ConnectServer coordinator)
-├─ tts_utils.py               # Re-exports from services/tts_manager.py
+├─ main.py                    # Main WebSocket server (ConnectServer coordinator)
 ├─ models/
 │   ├─ content_models.py      # Pydantic models for content blocks
 │   └─ session_context.py     # Per-session state container (SessionContext)
@@ -85,7 +84,7 @@ server/                  # Python server
 └─ tests/                     # pytest test suite (~315 tests)
 
 ios/ClaudeConnect/     # iOS app (Swift/SwiftUI)
-├─ ClaudeConnectApp.swift       # @main entry point, auto-connect on launch
+├─ ClaudeVoiceApp.swift         # @main entry point, auto-connect on launch
 ├─ Models/
 │   ├─ AssistantContent.swift # Content block types (text, tool_use, etc.)
 │   ├─ ConnectionState.swift  # WebSocket connection states

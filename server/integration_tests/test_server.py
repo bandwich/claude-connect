@@ -14,7 +14,7 @@ import base64
 from aiohttp import web
 import logging
 
-from server.tts_utils import samples_to_wav_bytes
+from server.services.tts_manager import samples_to_wav_bytes
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from integration_tests.test_config import *

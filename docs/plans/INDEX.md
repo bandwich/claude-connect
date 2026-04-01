@@ -4,7 +4,7 @@
 
 <!-- write-plan adds entries here. finish-branch moves them to Completed when done. -->
 
-- [Health check cleanup](2026-03-31/health-check-cleanup.md) — Delete cruft, fix doc drift, consolidate duplicated code
+
 
 ---
 
@@ -97,3 +97,4 @@ Test infrastructure and stabilization.
 - [VSCode removal](2026-01-06/vscode-removal-design.md) — Removing VSCode extension support
 - [PyPI publishing](2026-02-25/pypi-publishing-design.md) — Package distribution via pipx
 - [Fresh install cleanup](2026-02-18/fresh-install-cleanup.md) — First-run experience fixes
+- [Health check cleanup](2026-03-31/health-check-cleanup.md) — Dead code removal, doc drift fixes, tts_utils/rewrite_user_text dedup

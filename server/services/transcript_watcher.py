@@ -20,23 +20,8 @@ from server.models.content_models import (
     ContentBlock, AssistantResponse, strip_agent_metadata as _strip_agent_metadata,
 )
 from server.services.context_tracker import ContextTracker
-from server.services.session_manager import HIDDEN_TOOLS
+from server.services.session_manager import HIDDEN_TOOLS, rewrite_user_text
 from server.services.tts_manager import extract_text_for_tts
-
-
-IMAGE_SOURCE_RE = re.compile(r'^\[Image: source: (.+)\]$')
-
-
-def rewrite_user_text(text: str) -> str:
-    """Clean up user text for display: rewrite image sources, strip suffixes."""
-    stripped = text.strip()
-    m = IMAGE_SOURCE_RE.match(stripped)
-    if m:
-        filename = os.path.basename(m.group(1))
-        return f"[Image: {filename}]"
-    if stripped.startswith('[Request interrupted by user'):
-        return "[Request interrupted by user]"
-    return stripped
 
 
 async def poll_for_session_file(find_fn, timeout=10.0, interval=0.2):
