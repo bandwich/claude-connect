@@ -71,10 +71,15 @@ New sessions don't have an ID when created — the server creates the tmux sessi
 
 ## Connection & Reconnection
 
-- TCP pre-check via NWConnection before WebSocket attempt (fail fast if server unreachable)
+- Pre-check before WebSocket attempt (fail fast if server unreachable):
+  - Local IPs: TCP probe via NWConnection (2s timeout)
+  - Tailscale CGNAT IPs (100.64.0.0/10): HTTP probe via URLSession (5s timeout) — NWConnection doesn't route through the iOS VPN tunnel
+  - `isTailscaleIP()` detects CGNAT range
+- ATS: `NSAllowsArbitraryLoads = true` only — do NOT add `NSAllowsLocalNetworking` alongside it (causes iOS to block non-RFC1918 IPs like Tailscale's CGNAT range)
 - URLSession config: 90s request timeout (must exceed server's 30s ping interval), unlimited resource timeout
 - Reconnection: exponential backoff (2^attempt, max 30s), 5 attempts background / 3 foreground
 - App foreground return triggers `reconnectIfNeeded()` — checks if WebSocket is still alive
+- Settings "Connecting..." state has X button to cancel and return to Connect/scan state
 
 ## Audio Pipeline
 
