@@ -70,7 +70,7 @@ class WebSocketManager: NSObject, ObservableObject {
 
     private var webSocketTask: URLSessionWebSocketTask?
     private var urlSession: URLSession?
-    private var currentURL: URL?
+    var currentURL: URL?
     private var reconnectAttempts = 0
     private let maxReconnectAttempts = 5
     private var shouldReconnect = false
@@ -949,7 +949,7 @@ class WebSocketManager: NSObject, ObservableObject {
         onAssistantResponse?(message)
     }
 
-    private func isTailscaleIP(_ host: String) -> Bool {
+    func isTailscaleIP(_ host: String) -> Bool {
         // Tailscale CGNAT range: 100.64.0.0/10 (100.64.0.0 – 100.127.255.255)
         let parts = host.split(separator: ".").compactMap { UInt8($0) }
         guard parts.count == 4, parts[0] == 100 else { return false }

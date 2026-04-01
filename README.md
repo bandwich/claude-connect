@@ -26,7 +26,7 @@ Build from source with Xcode:
 ```bash
 cd ios/ClaudeConnect
 xcodebuild build -scheme ClaudeConnect \
-  -destination 'platform=iOS Simulator,name=iPhone 16'
+  -destination 'platform=iOS Simulator,name=iPhone 17'
 ```
 
 ## Usage
@@ -101,8 +101,9 @@ cd server/tests && ./run_tests.sh
 # iOS unit tests
 cd ios/ClaudeConnect
 xcodebuild test -scheme ClaudeConnect \
-  -destination 'platform=iOS Simulator,name=iPhone 16' \
-  -only-testing:ClaudeConnectTests
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -only-testing:ClaudeConnectTests \
+  -parallel-testing-enabled NO
 
 # E2E tests
 cd ios/ClaudeConnect && ./run_e2e_tests.sh

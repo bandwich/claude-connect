@@ -1164,7 +1164,7 @@ struct AgentGroupTests {
             input: ["description": AnyCodable(longDesc), "subagent_type": AnyCodable("Explore")]
         )
         let agent = AgentInfo(tool: tool, result: nil)
-        #expect(agent.displayDescription.count <= 60) // "Explore: " + 50 + "..."
+        #expect(agent.displayDescription.count <= 63) // "Explore: " (9) + 50 + "..." (3)
     }
 }
 

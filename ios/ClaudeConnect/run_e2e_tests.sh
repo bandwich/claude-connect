@@ -185,7 +185,7 @@ fi
 xcodebuild test \
     -scheme ClaudeConnect \
     -sdk iphonesimulator \
-    -destination 'platform=iOS Simulator,name=iPhone 16' \
+    -destination 'platform=iOS Simulator,name=iPhone 17' \
     $TEST_ARGS \
     -parallel-testing-enabled NO \
     2>&1 | tee /tmp/e2e_test.log

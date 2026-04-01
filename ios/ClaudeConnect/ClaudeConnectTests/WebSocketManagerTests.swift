@@ -569,32 +569,29 @@ struct WebSocketManagerTests {
 
     @Test func reconnectIfNeededStartsWhenDisconnectedWithURL() {
         let manager = WebSocketManager()
-        // Simulate a previous connection that stored the URL
-        manager.connect(url: "ws://192.168.1.1:8765")
-        // The connect sets currentURL internally via connectToURL
-        // Now simulate iOS killing the connection (sets disconnected without clearing URL)
+        // Set currentURL directly (avoid connect() which triggers async pre-check)
+        manager.currentURL = URL(string: "ws://192.168.1.1:8765")
         manager.connectionState = .disconnected
 
         manager.reconnectIfNeeded()
 
+        // isReconnecting is set synchronously; connectionState is set async in connectToURL
         #expect(manager.isReconnecting == true)
-        #expect(manager.connectionState == .connecting)
     }
 
     @Test func reconnectIfNeededStartsWhenErrorWithURL() {
         let manager = WebSocketManager()
-        manager.connect(url: "ws://192.168.1.1:8765")
+        manager.currentURL = URL(string: "ws://192.168.1.1:8765")
         manager.connectionState = .error("Connection lost")
 
         manager.reconnectIfNeeded()
 
         #expect(manager.isReconnecting == true)
-        #expect(manager.connectionState == .connecting)
     }
 
     @Test func foregroundReconnectUsesThreeMaxRetries() {
         let manager = WebSocketManager()
-        manager.connect(url: "ws://192.168.1.1:8765")
+        manager.currentURL = URL(string: "ws://192.168.1.1:8765")
         manager.connectionState = .disconnected
 
         manager.reconnectIfNeeded()
@@ -614,8 +611,12 @@ struct WebSocketManagerTests {
 
     @Test func reconnectIfNeededSkipsAfterExplicitDisconnect() {
         let manager = WebSocketManager()
-        manager.connect(url: "ws://192.168.1.1:8765")
-        manager.disconnect()  // Clears currentURL
+        // Simulate a stored connection
+        manager.currentURL = URL(string: "ws://192.168.1.1:8765")
+        manager.connectedURL = "ws://192.168.1.1:8765"
+
+        // Explicit disconnect clears currentURL
+        manager.disconnect()
 
         manager.reconnectIfNeeded()
 

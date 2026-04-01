@@ -69,6 +69,9 @@ class AudioPlayer: NSObject, ObservableObject {
     }
 
     func receiveAudioChunk(_ chunk: AudioChunkMessage) {
+        // No AVAudioEngine in test environment — skip entirely
+        guard !isRunningUITests else { return }
+
         // If we're in the delay period, buffer chunks
         if interruptionDelay != nil {
             pendingChunks.append(chunk)
@@ -292,6 +295,13 @@ class AudioPlayer: NSObject, ObservableObject {
     }
 
     func stop() {
+        guard !isRunningUITests else {
+            let wasPlaying = isPlaying
+            isPlaying = false
+            if wasPlaying { onPlaybackFinished?() }
+            return
+        }
+
         let wasPlaying = isPlaying
 
         playerNode.stop()

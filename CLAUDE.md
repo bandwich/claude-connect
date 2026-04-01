@@ -159,8 +159,9 @@ cd server/tests && ./run_tests.sh
 # 2. iOS unit tests
 cd ios/ClaudeConnect
 xcodebuild test -scheme ClaudeConnect \
-  -destination 'platform=iOS Simulator,name=iPhone 16' \
-  -only-testing:ClaudeConnectTests
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -only-testing:ClaudeConnectTests \
+  -parallel-testing-enabled NO
 
 # 3. iOS E2E tests (may timeout, needs simulator)
 cd ios/ClaudeConnect && ./run_e2e_tests.sh
@@ -180,7 +181,7 @@ xcodebuild clean -target ClaudeConnect
 
 # Build for simulator
 xcodebuild build -scheme ClaudeConnect \
-  -destination 'platform=iOS Simulator,name=iPhone 16'
+  -destination 'platform=iOS Simulator,name=iPhone 17'
 
 # Build and install on device (use -target, not -scheme, for device builds)
 # Step 1: Build

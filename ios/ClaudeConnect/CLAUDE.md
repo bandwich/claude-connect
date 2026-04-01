@@ -123,3 +123,18 @@ NavigationStack from ClaudeConnectApp.swift (not ContentView — ContentView is 
 - Tool results for Bash are collapsed by default (expandable) — collapsed state shows a content preview (first 3 lines, truncated with "… +N lines"), "Running in background" for background commands (updates to "Done" when server sends `task_completed`), "Done" for empty output, or "Error — tap to show" for errors. Preview logic lives in `BashPreview` enum (ToolUseView.swift). Task, Read, Edit, Grep, Glob, AskUserQuestion, ToolSearch results are fully hidden (show "Done" checkmark, not expandable)
 - `@AppStorage` for persistent settings: ttsEnabled, serverIP, serverPort
 - All delegate callbacks on main thread (URLSession delegateQueue: .main)
+
+## Testing
+
+After modifying Swift code, run iOS unit tests to check for regressions:
+
+```bash
+cd ios/ClaudeConnect
+xcodebuild test -scheme ClaudeConnect \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -only-testing:ClaudeConnectTests \
+  -parallel-testing-enabled NO
+```
+
+Tests use Swift Testing framework (`import Testing`, `@Suite`, `@Test`, `#expect`).
+Test files are in `ClaudeConnectTests/`. New `.swift` files added to that directory are automatically included in the test target (Xcode 16+ file-based membership).

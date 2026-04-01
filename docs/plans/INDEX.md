@@ -4,6 +4,8 @@
 
 <!-- write-plan adds entries here. finish-branch moves them to Completed when done. -->
 
+<!-- write-plan adds entries here. finish-branch moves them to Completed when done. -->
+
 
 
 ---
@@ -90,6 +92,7 @@ Test infrastructure and stabilization.
 - [True E2E architecture](2026-01-05/2026-01-05-true-e2e-test-architecture.md) — Real server + simulator approach
 - [E2E test stabilization](2026-01-07/e2e-test-stabilization.md) — Fixing flaky tests
 - [Test efficiency](e2e-test-efficiency.md) — Reducing E2E test run time
+- [Fix iOS unit tests](2026-04-01/fix-ios-unit-tests-v2.md) — Fix AudioPlayer crash, reconnect test races, update simulator to iPhone 17, add Tailscale/session_cleared coverage
 
 ## Server Refactoring & Infrastructure
 - [Voice server refactor](2026-03-23/voice-server-refactor-design.md) — Splitting monolithic server into services/handlers/infra

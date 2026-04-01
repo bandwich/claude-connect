@@ -9,8 +9,9 @@ cd server/tests && ./run_tests.sh
 # iOS unit tests
 cd ios/ClaudeConnect
 xcodebuild test -scheme ClaudeConnect \
-  -destination 'platform=iOS Simulator,name=iPhone 16' \
-  -only-testing:ClaudeConnectTests
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -only-testing:ClaudeConnectTests \
+  -parallel-testing-enabled NO
 
 # E2E tests (full integration with real server)
 cd ios/ClaudeConnect && ./run_e2e_tests.sh
@@ -63,13 +64,15 @@ pytest test_main.py::TestConnectServer::test_send_status -v  # specific test
 ```bash
 cd ios/ClaudeConnect
 xcodebuild test -scheme ClaudeConnect \
-  -destination 'platform=iOS Simulator,name=iPhone 16' \
-  -only-testing:ClaudeConnectTests
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -only-testing:ClaudeConnectTests \
+  -parallel-testing-enabled NO
 
 # Specific test class
 xcodebuild test -scheme ClaudeConnect \
-  -destination 'platform=iOS Simulator,name=iPhone 16' \
-  -only-testing:ClaudeConnectTests/AudioPlayerTests
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -only-testing:ClaudeConnectTests/AudioPlayerTests \
+  -parallel-testing-enabled NO
 ```
 
 **What's tested:**
@@ -149,7 +152,7 @@ python3 server/main.py
 
 # Run integration tests
 xcodebuild test -scheme ClaudeConnect \
-  -destination 'platform=iOS Simulator,name=iPhone 16' \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
   -only-testing:ClaudeConnectUITests/StateManagementTests
 ```
 
@@ -171,13 +174,14 @@ pytest server/tests/test_main.py::TestSessionManager -v
 
 # iOS unit - specific class
 xcodebuild test -scheme ClaudeConnect \
-  -destination 'platform=iOS Simulator,name=iPhone 16' \
-  -only-testing:ClaudeConnectTests/WebSocketManagerTests
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -only-testing:ClaudeConnectTests/WebSocketManagerTests \
+  -parallel-testing-enabled NO
 
 # E2E - run manually (start server first)
 python3 server/main.py  # terminal 1
 xcodebuild test -scheme ClaudeConnect \
-  -destination 'platform=iOS Simulator,name=iPhone 16' \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
   -only-testing:ClaudeConnectUITests/E2EHappyPathTests  # terminal 2
 ```
 
