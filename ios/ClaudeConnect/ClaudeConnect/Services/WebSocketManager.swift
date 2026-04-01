@@ -169,7 +169,11 @@ class WebSocketManager: NSObject, ObservableObject {
         }
 
         // TCP pre-check — fail fast if server is unreachable
-        if let host = url.host, let port = url.port {
+        // Skip for Tailscale CGNAT IPs (100.64.0.0/10) — NWConnection
+        // doesn't route through the iOS VPN tunnel, causing false failures
+        let skipTcpCheck = url.host.map { isTailscaleIP($0) } ?? false
+
+        if !skipTcpCheck, let host = url.host, let port = url.port {
             Task { [weak self] in
                 guard let self = self else { return }
                 let reachable = await self.tcpCheck(host: host, port: UInt16(port))
@@ -190,7 +194,7 @@ class WebSocketManager: NSObject, ObservableObject {
                 }
             }
         } else {
-            // Fallback: no host/port available, connect directly
+            // Direct connect: no host/port available, or Tailscale IP
             webSocketTask = session.webSocketTask(with: url)
             webSocketTask?.resume()
             receiveMessage()
@@ -943,6 +947,13 @@ class WebSocketManager: NSObject, ObservableObject {
         onAssistantResponse?(message)
     }
 
+    private func isTailscaleIP(_ host: String) -> Bool {
+        // Tailscale CGNAT range: 100.64.0.0/10 (100.64.0.0 – 100.127.255.255)
+        let parts = host.split(separator: ".").compactMap { UInt8($0) }
+        guard parts.count == 4, parts[0] == 100 else { return false }
+        return parts[1] >= 64 && parts[1] <= 127
+    }
+
     private func tcpCheck(host: String, port: UInt16) async -> Bool {
         await withCheckedContinuation { continuation in
             let connection = NWConnection(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: port)!, using: .tcp)
@@ -966,8 +977,8 @@ class WebSocketManager: NSObject, ObservableObject {
 
             connection.start(queue: .global())
 
-            // Safety timeout
-            DispatchQueue.global().asyncAfter(deadline: .now() + 2.0) {
+            // Safety timeout (5s to allow for Tailscale tunnel setup)
+            DispatchQueue.global().asyncAfter(deadline: .now() + 5.0) {
                 guard !resumed else { return }
                 resumed = true
                 connection.cancel()

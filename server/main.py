@@ -1294,10 +1294,11 @@ class ConnectServer:
         http_runner = await start_http_server(self.permission_handler)
 
         from server.infra.qr_display import get_local_ip, print_startup_banner
+        from server.infra.tailscale import get_tailscale_ip
 
-        local_ip = get_local_ip()
-        if local_ip:
-            print_startup_banner(local_ip, PORT)
+        ip = get_tailscale_ip() or get_local_ip()
+        if ip:
+            print_startup_banner(ip, PORT)
         else:
             print(f"WARNING: Could not detect local IP. Server running on port {PORT}")
 

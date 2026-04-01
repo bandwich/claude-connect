@@ -4,7 +4,7 @@
 
 <!-- write-plan adds entries here. finish-branch moves them to Completed when done. -->
 
-(none)
+- [Health check cleanup](2026-03-31/health-check-cleanup.md) — Delete cruft, fix doc drift, consolidate duplicated code
 
 ---
 
@@ -74,6 +74,7 @@ WebSocket, reconnection, QR setup.
 
 - [QR connect](2026-01-14/qr-connect-design.md) — QR code scanning for server connection
 - [Background reconnect](2026-03-10/background-reconnect-design.md) — Reconnection on app foreground, exponential backoff
+- [Tailscale remote access](2026-03-31/tailscale-remote-access.md) — Tailscale IP in QR code, guided setup, iOS ATS fix for CGNAT range
 
 ## Slash Commands
 iOS-initiated slash commands sent to Claude Code.
