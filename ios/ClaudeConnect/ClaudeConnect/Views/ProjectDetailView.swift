@@ -82,9 +82,20 @@ struct SessionsContentView: View {
                                 .lineLimit(1)
                                 .truncationMode(.tail)
 
-                            Text("\(session.messageCount) messages")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+                            HStack(spacing: 6) {
+                                Text("\(session.messageCount) messages")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                if session.isWorktreeSession {
+                                    Text(session.worktreeBranch!)
+                                        .font(.caption2)
+                                        .foregroundColor(.orange)
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 1)
+                                        .background(Color.orange.opacity(0.15))
+                                        .cornerRadius(4)
+                                }
+                            }
                         }
 
                         Spacer()

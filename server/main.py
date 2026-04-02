@@ -722,9 +722,17 @@ class ConnectServer:
         folder_name = data.get("folder_name", "")
         sessions = self.session_manager.list_sessions(folder_name)
 
+        # Collect active IDs across main project and worktree folders
+        worktree_folders = set()
+        project_path = self.session_manager._get_project_cwd(folder_name)
+        if project_path:
+            worktree_folders = set(self.session_manager._get_worktree_folders(project_path).keys())
+
         active_ids = [
             ctx.session_id for ctx in self.active_sessions.values()
-            if ctx.session_id and ctx.folder_name == folder_name
+            if ctx.session_id and (
+                ctx.folder_name == folder_name or ctx.folder_name in worktree_folders
+            )
         ]
 
         response = {
@@ -735,6 +743,8 @@ class ConnectServer:
                     "title": s.title,
                     "timestamp": s.timestamp,
                     "message_count": s.message_count,
+                    "folder_name": s.folder_name,
+                    "worktree_branch": s.worktree_branch,
                 }
                 for s in sessions
             ],

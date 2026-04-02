@@ -6,10 +6,14 @@ struct Session: Codable, Identifiable, Hashable {
     let title: String
     let timestamp: Double
     let messageCount: Int
+    let folderName: String?
+    let worktreeBranch: String?
 
     enum CodingKeys: String, CodingKey {
         case id, title, timestamp
         case messageCount = "message_count"
+        case folderName = "folder_name"
+        case worktreeBranch = "worktree_branch"
     }
 
     var formattedDate: String {
@@ -23,8 +27,15 @@ struct Session: Codable, Identifiable, Hashable {
         id.isEmpty
     }
 
+    var isWorktreeSession: Bool {
+        if let branch = worktreeBranch, !branch.isEmpty {
+            return true
+        }
+        return false
+    }
+
     static func newSession() -> Session {
-        Session(id: "", title: "New Session", timestamp: Date().timeIntervalSince1970, messageCount: 0)
+        Session(id: "", title: "New Session", timestamp: Date().timeIntervalSince1970, messageCount: 0, folderName: nil, worktreeBranch: nil)
     }
 }
 

@@ -369,7 +369,7 @@ struct SessionView: View {
                 } else {
                     // First connection — load full history and sync tmux session
                     print("[SessionView] First connection: loading history")
-                    webSocketManager.requestSessionHistory(folderName: project.folderName, sessionId: session.id)
+                    webSocketManager.requestSessionHistory(folderName: session.folderName ?? project.folderName, sessionId: session.id)
                     syncSession()
                 }
             }
@@ -602,7 +602,7 @@ struct SessionView: View {
                 }
                 self.items = groupAgentItems(newItems)
             }
-            webSocketManager.requestSessionHistory(folderName: project.folderName, sessionId: session.id)
+            webSocketManager.requestSessionHistory(folderName: session.folderName ?? project.folderName, sessionId: session.id)
 
             // Auto-resume session in tmux (existing sessions only)
             // Note: syncSession() will check connection state and retry via onChange if not connected
@@ -1021,7 +1021,7 @@ struct SessionView: View {
         if webSocketManager.activeSessionIds.contains(session.id) {
             webSocketManager.viewSession(sessionId: session.id)
         } else {
-            webSocketManager.resumeSession(sessionId: session.id, folderName: project.folderName)
+            webSocketManager.resumeSession(sessionId: session.id, folderName: session.folderName ?? project.folderName)
         }
 
         // Timeout: if sync doesn't complete in 10s, fall back to normal input

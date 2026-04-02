@@ -4,12 +4,15 @@ import os
 import re
 import json
 import glob
-from dataclasses import dataclass
+import subprocess
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
 
 IMAGE_SOURCE_RE = re.compile(r'^\[Image: source: (.+)\]$')
+COMMAND_ARGS_RE = re.compile(r'<command-args>(.*?)(?:</command-args>|$)', re.DOTALL)
+COMMAND_NAME_RE = re.compile(r'<command-name>(/\S+)</command-name>')
 
 def rewrite_user_text(text: str) -> str:
     """Clean up user text for display: rewrite image sources, strip suffixes."""
@@ -38,6 +41,8 @@ class Session:
     title: str
     timestamp: float
     message_count: int
+    folder_name: str = ""  # Source folder (for worktree sessions that live in a different folder)
+    worktree_branch: str = ""  # Git branch name if this session is from a worktree
 
 
 @dataclass
@@ -62,12 +67,75 @@ class SessionManager:
     def __init__(self, projects_dir: Optional[str] = None):
         self.projects_dir = projects_dir or os.path.expanduser("~/.claude/projects/")
 
+    def _get_worktree_folders(self, project_path: str) -> dict[str, str]:
+        """Get project folders for linked worktrees of a given project.
+
+        Runs `git worktree list` in the project directory and returns a mapping
+        of {folder_name: branch_name} for each linked worktree that has a
+        corresponding folder in ~/.claude/projects/.
+
+        Excludes the main worktree (first entry in porcelain output), so this
+        is safe to call from any worktree path — it always returns only linked
+        worktrees, never the main repo.
+        """
+        result = {}
+        try:
+            proc = subprocess.run(
+                ["git", "worktree", "list", "--porcelain"],
+                cwd=project_path, capture_output=True, text=True, timeout=5
+            )
+            if proc.returncode != 0:
+                return result
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            return result
+
+        # Parse porcelain output: blocks separated by blank lines
+        # Each block has: worktree <path>\nHEAD <sha>\nbranch refs/heads/<name>
+        # First entry is always the main worktree — skip it.
+        main_worktree_path = None
+        current_path = None
+        current_branch = None
+        for line in proc.stdout.splitlines():
+            if line.startswith("worktree "):
+                current_path = line[9:]
+                current_branch = None
+            elif line.startswith("branch refs/heads/"):
+                current_branch = line[18:]
+            elif line == "":
+                if current_path:
+                    real_path = os.path.realpath(current_path)
+                    if main_worktree_path is None:
+                        main_worktree_path = real_path  # First entry = main
+                    elif current_branch:
+                        folder = self.encode_path_to_folder(real_path)
+                        folder_dir = os.path.join(self.projects_dir, folder)
+                        if os.path.isdir(folder_dir):
+                            result[folder] = current_branch
+                current_path = None
+                current_branch = None
+        # Handle last block (porcelain output may not end with blank line)
+        if current_path:
+            real_path = os.path.realpath(current_path)
+            if main_worktree_path is None:
+                pass  # Only one worktree (the main one), nothing to return
+            elif current_branch:
+                folder = self.encode_path_to_folder(real_path)
+                folder_dir = os.path.join(self.projects_dir, folder)
+                if os.path.isdir(folder_dir):
+                    result[folder] = current_branch
+        return result
+
     def list_projects(self) -> list[Project]:
-        """List all projects with session counts"""
+        """List all projects with session counts.
+
+        Worktree project folders are hidden — their sessions are merged into
+        the parent project via list_sessions().
+        """
         if not os.path.exists(self.projects_dir):
             return []
 
-        projects = []
+        # First pass: build project list with decoded paths
+        raw_projects = []
         for entry in os.listdir(self.projects_dir):
             project_path = os.path.join(self.projects_dir, entry)
             if os.path.isdir(project_path):
@@ -88,14 +156,32 @@ class SessionManager:
                     if not decoded_path.startswith("/"):
                         decoded_path = "/" + decoded_path
 
-                name = os.path.basename(decoded_path)
+                raw_projects.append((entry, decoded_path, session_count))
 
-                projects.append(Project(
-                    path=decoded_path,
-                    name=name,
-                    session_count=session_count,
-                    folder_name=entry  # Store original folder name
-                ))
+        # Second pass: find worktree folders to hide and cache results
+        worktree_map = {}  # decoded_path -> {folder: branch}
+        worktree_folders = set()
+        for entry, decoded_path, _ in raw_projects:
+            wt_folders = self._get_worktree_folders(decoded_path)
+            worktree_map[decoded_path] = wt_folders
+            worktree_folders.update(wt_folders.keys())
+
+        projects = []
+        for entry, decoded_path, session_count in raw_projects:
+            if entry in worktree_folders:
+                continue  # Hidden — sessions appear under parent project
+            # Add worktree session counts to parent
+            for wt_folder in worktree_map.get(decoded_path, {}):
+                wt_path = os.path.join(self.projects_dir, wt_folder)
+                session_count += len(glob.glob(os.path.join(wt_path, "*.jsonl")))
+
+            name = os.path.basename(decoded_path)
+            projects.append(Project(
+                path=decoded_path,
+                name=name,
+                session_count=session_count,
+                folder_name=entry,
+            ))
 
         projects.sort(key=lambda p: self._get_project_latest_mtime(p.folder_name), reverse=True)
         return projects
@@ -226,15 +312,9 @@ class SessionManager:
 
         return None
 
-    def list_sessions(self, folder_name: str, limit: int = 10) -> list[Session]:
-        """List sessions for a project, sorted by most recent first
-
-        Args:
-            folder_name: The actual folder name in projects_dir (not encoded path)
-            limit: Maximum number of sessions to return
-        """
+    def _collect_sessions(self, folder_name: str, worktree_branch: str = "") -> list[Session]:
+        """Collect sessions from a single project folder."""
         project_dir = os.path.join(self.projects_dir, folder_name)
-
         if not os.path.exists(project_dir):
             return []
 
@@ -245,7 +325,6 @@ class SessionManager:
             session_id = os.path.splitext(os.path.basename(filepath))[0]
             title, message_count, timestamp = self._parse_session_file(filepath)
 
-            # Filter out Warmup sessions, empty sessions, and system-only sessions
             if title.startswith("Warmup") or title == "Untitled" or message_count == 0:
                 continue
 
@@ -253,12 +332,59 @@ class SessionManager:
                 id=session_id,
                 title=title,
                 timestamp=timestamp,
-                message_count=message_count
+                message_count=message_count,
+                folder_name=folder_name,
+                worktree_branch=worktree_branch,
             ))
+
+        return sessions
+
+    def list_sessions(self, folder_name: str, limit: int = 10) -> list[Session]:
+        """List sessions for a project, sorted by most recent first.
+
+        Includes sessions from git worktree folders that belong to this project.
+
+        Args:
+            folder_name: The actual folder name in projects_dir (not encoded path)
+            limit: Maximum number of sessions to return
+        """
+        sessions = self._collect_sessions(folder_name)
+
+        # Find worktree folders and include their sessions
+        project_path = self._get_project_cwd(folder_name)
+        if project_path:
+            for wt_folder, branch in self._get_worktree_folders(project_path).items():
+                sessions.extend(self._collect_sessions(wt_folder, worktree_branch=branch))
 
         # Sort by last message timestamp (most recent first)
         sessions.sort(key=lambda s: s.timestamp, reverse=True)
         return sessions[:limit]
+
+    @staticmethod
+    def _extract_title(text: str) -> str:
+        """Extract a session title from a user message.
+
+        For normal messages, returns the text (up to 50 chars).
+        For skill commands (system-injected), extracts command-args if present,
+        or falls back to the command name (e.g. "/dispatch").
+        Returns empty string if no title can be extracted.
+        """
+        if not text or not text.strip():
+            return ""
+        stripped = text.strip()
+        if not SessionManager._is_system_injected(stripped):
+            return stripped[:50]
+        # Skill command — try to extract args
+        m = COMMAND_ARGS_RE.search(stripped)
+        if m:
+            args = m.group(1).strip()
+            if args:
+                return args[:50]
+        # Fall back to command name
+        m = COMMAND_NAME_RE.search(stripped)
+        if m:
+            return m.group(1)
+        return ""
 
     @staticmethod
     def _is_system_injected(text: str) -> bool:
@@ -306,14 +432,11 @@ class SessionManager:
                             if role == 'user' and title == "Untitled":
                                 content = msg.get('content', entry.get('content', ''))
                                 if isinstance(content, str):
-                                    if not self._is_system_injected(content):
-                                        title = content[:50]
+                                    title = self._extract_title(content) or title
                                 elif isinstance(content, list):
                                     for block in content:
                                         if isinstance(block, dict) and block.get('type') == 'text':
-                                            text = block.get('text', '')
-                                            if not self._is_system_injected(text):
-                                                title = text[:50]
+                                            title = self._extract_title(block.get('text', '')) or title
                                             break
                     except json.JSONDecodeError:
                         continue
