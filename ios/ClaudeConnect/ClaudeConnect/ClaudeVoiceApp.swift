@@ -25,6 +25,11 @@ struct ClaudeConnectApp: App {
                 ProjectsListView(webSocketManager: webSocketManager)
             }
             .onAppear {
+                // Disable UIKit animations in test mode for faster E2E tests
+                if ProcessInfo.processInfo.environment["INTEGRATION_TEST_MODE"] == "1" {
+                    UIView.setAnimationsEnabled(false)
+                }
+
                 // Auto-connect if we have settings and not already connected
                 // Environment variables (for E2E tests) override saved settings
                 if !effectiveServerIP.isEmpty && webSocketManager.connectionState == .disconnected {

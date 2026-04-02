@@ -35,7 +35,7 @@ from server.services.commands_provider import CommandsProvider
 from server.infra.http_server import start_http_server, set_tmux_controller, set_server
 
 # Configuration
-PORT = 8765
+PORT = int(os.environ.get("CLAUDE_CONNECT_PORT", "8765"))
 IDLE_DEBOUNCE_SECS = 3.0  # Seconds before broadcasting idle activity state
 TRANSCRIPT_DIR = os.path.expanduser("~/.claude/projects/")
 PROJECTS_BASE_PATH = os.path.expanduser("~/Desktop/code")

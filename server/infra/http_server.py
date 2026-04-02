@@ -3,11 +3,12 @@
 
 import asyncio
 import json
+import os
 from aiohttp import web
 from server.services.permission_handler import PermissionHandler
 from server.infra.tmux_controller import session_name_for
 
-HTTP_PORT = 8766
+HTTP_PORT = int(os.environ.get("CLAUDE_CONNECT_HTTP_PORT", "8766"))
 
 # References to server components, set by ConnectServer
 _tmux_controller = None

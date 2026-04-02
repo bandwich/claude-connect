@@ -4,7 +4,6 @@
 
 <!-- write-plan adds entries here. finish-branch moves them to Completed when done. -->
 
-<!-- write-plan adds entries here. finish-branch moves them to Completed when done. -->
 
 
 
@@ -101,3 +100,4 @@ Test infrastructure and stabilization.
 - [PyPI publishing](2026-02-25/pypi-publishing-design.md) — Package distribution via pipx
 - [Fresh install cleanup](2026-02-18/fresh-install-cleanup.md) — First-run experience fixes
 - [Health check cleanup](2026-03-31/health-check-cleanup.md) — Dead code removal, doc drift fixes, tts_utils/rewrite_user_text dedup
+- [E2E test rewrite](2026-04-01/e2e-test-rewrite-design.md) — Two-tier E2E architecture: test server (tier 1) + real Claude smoke tests (tier 2) ([phase 1](2026-04-01/e2e-test-rewrite-phase1.md), [phase 2](2026-04-01/e2e-test-rewrite-phase2.md), [phase 3](2026-04-01/e2e-test-rewrite-phase3.md), [idle-wait fix](2026-04-01/e2e-idle-wait-fix.md))

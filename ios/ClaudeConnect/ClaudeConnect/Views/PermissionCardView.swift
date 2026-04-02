@@ -23,6 +23,7 @@ struct PermissionCardView: View {
         .padding(12)
         .background(Color(.systemGray6))
         .cornerRadius(12)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("permissionCard")
     }
 
@@ -268,6 +269,7 @@ struct QuestionCardView: View {
         .padding(12)
         .background(Color(.systemGray6))
         .cornerRadius(12)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("questionCard")
     }
 }

@@ -36,6 +36,7 @@ struct SessionView: View {
     @State private var isTextFieldFocused: Bool = false
     @State private var selectedCommandPrefix: String? = nil
     @State private var showCommandDropdown: Bool = false
+    private static let isTestMode = ProcessInfo.processInfo.environment["INTEGRATION_TEST_MODE"] == "1"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -143,9 +144,7 @@ struct SessionView: View {
 
                     if !isNearBottom && scrollTrackingEnabled {
                         Button(action: {
-                            withAnimation {
-                                proxy.scrollTo("bottom-anchor", anchor: .bottom)
-                            }
+                            scrollToBottom(proxy)
                         }) {
                             Image(systemName: "chevron.down.circle.fill")
                                 .font(.system(size: 32))
@@ -160,30 +159,26 @@ struct SessionView: View {
                 .onChange(of: items.count) { _, _ in
                     if isInitialLoad {
                         isInitialLoad = false
-                        proxy.scrollTo("bottom-anchor", anchor: .bottom)
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                            scrollTrackingEnabled = true
+                        scrollToBottom(proxy, animated: false)
+                        if !Self.isTestMode {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                                scrollTrackingEnabled = true
+                            }
                         }
                     } else if isNearBottom {
-                        withAnimation {
-                            proxy.scrollTo("bottom-anchor", anchor: .bottom)
-                        }
+                        scrollToBottom(proxy)
                     }
                 }
                 .onChange(of: webSocketManager.activityState?.state) { _, newState in
                     if let state = newState, state != "idle", isNearBottom {
-                        withAnimation {
-                            proxy.scrollTo("bottom-anchor", anchor: .bottom)
-                        }
+                        scrollToBottom(proxy)
                     }
                 }
                 .onChange(of: isTextFieldFocused) { _, focused in
                     if focused {
                         // Keyboard appearing — scroll to bottom after layout adjusts
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            withAnimation {
-                                proxy.scrollTo("bottom-anchor", anchor: .bottom)
-                            }
+                            scrollToBottom(proxy)
                         }
                     }
                 }
@@ -342,6 +337,18 @@ struct SessionView: View {
         .onAppear {
             webSocketManager.currentlyViewingSessionId = session.isNewSession ? nil : session.id
             setupView()
+
+            // Check for pending permission that arrived before this view appeared
+            // (.onChange only fires on changes AFTER registration, so we need onAppear too)
+            if let request = webSocketManager.pendingPermission {
+                let alreadyExists = items.contains(where: {
+                    if case .permissionPrompt(let id, _) = $0 { return id == request.requestId }
+                    return false
+                })
+                if !alreadyExists {
+                    items.append(.permissionPrompt(requestId: request.requestId, request: request))
+                }
+            }
         }
         .onDisappear {
             webSocketManager.currentlyViewingSessionId = nil
@@ -1160,6 +1167,16 @@ struct SessionView: View {
         // Reset input bar immediately — don't wait for server roundtrip
         webSocketManager.pendingPermission = nil
         webSocketManager.handleInputBarResolved()
+    }
+
+    private func scrollToBottom(_ proxy: ScrollViewProxy, animated: Bool = true) {
+        if Self.isTestMode || !animated {
+            proxy.scrollTo("bottom-anchor", anchor: .bottom)
+        } else {
+            withAnimation {
+                proxy.scrollTo("bottom-anchor", anchor: .bottom)
+            }
+        }
     }
 }
 

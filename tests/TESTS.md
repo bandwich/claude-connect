@@ -23,8 +23,7 @@ cd ios/ClaudeConnect && ./run_e2e_tests.sh
 |-------|-------|------|----------|
 | Server Tests | ~315 (31 files) | pytest | `server/tests/` |
 | iOS Unit Tests | ~69 | XCTest | `ios/ClaudeConnect/ClaudeConnectTests/` |
-| E2E Tests | 18 | XCUITest | `ios/ClaudeConnect/ClaudeConnectUITests/E2E*.swift` |
-| Integration Tests | ~34 | XCUITest | `ios/ClaudeConnect/ClaudeConnectUITests/*Tests.swift` |
+| E2E Tests (Tier 1) | 17 | XCUITest + test server | `ios/ClaudeConnect/ClaudeConnectUITests/E2E*.swift` |
 
 ---
 
@@ -87,82 +86,57 @@ xcodebuild test -scheme ClaudeConnect \
 
 ---
 
-## E2E Tests (XCUITest + Real Server)
+## E2E Tests (Two-Tier Architecture)
 
 **Location:** `ios/ClaudeConnect/ClaudeConnectUITests/E2E*.swift`
 
+E2E tests use a two-tier architecture:
+
+- **Tier 1 (test server):** Fast, deterministic tests using a mock test server with HTTP injection endpoints. No real Claude session needed. ~2 min.
+- **Tier 2 (smoke):** Real Claude Code integration tests using a live server and tmux session. Coming in Phase 3.
+
 ```bash
-# Run all E2E tests
+# All E2E tests (test server + smoke)
 cd ios/ClaudeConnect && ./run_e2e_tests.sh
 
-# Run specific E2E test suite
-cd ios/ClaudeConnect && ./run_e2e_tests.sh E2EPermissionTests
+# Tier 1 only — fast, test server (~2 min)
+cd ios/ClaudeConnect && ./run_e2e_tests.sh --fast
+
+# Tier 2 only — smoke, real Claude (~3 min)
+cd ios/ClaudeConnect && ./run_e2e_tests.sh --smoke
+
+# Specific suite
+cd ios/ClaudeConnect && ./run_e2e_tests.sh --fast E2EPermissionTests
 ```
 
-### How E2E Tests Work
+### How Tier 1 (Test Server) Tests Work
 
-The E2E runner (`run_e2e_tests.sh`) performs these steps:
+1. **Start test server** — `server/integration_tests/test_server.py` launches on ports 8765 (WebSocket) + 8766 (HTTP)
+2. **Write config** — `/tmp/e2e_test_config.json` with `"mode": "test_server"` and mock session data
+3. **iOS app connects** — App reads config, connects to test server WebSocket
+4. **Tests inject content** — Swift test helpers call HTTP endpoints (`/inject_content_blocks`, `/inject_permission`, `/inject_question`, etc.) to push content into the app
+5. **Tests verify UI** — XCUITest assertions check that injected content renders correctly
 
-1. **Create test session** - Runs `claude --print "Reply with only: ok"` in `/tmp/e2e_test_project` to create a real Claude session
-2. **Extract session ID** - Finds the session file in `~/.claude/projects/-tmp-e2e_test_project/` and extracts the UUID
-3. **Start server** - Launches `main.py`
-4. **Pass session info** - Exports environment variables to tests:
-   - `E2E_TEST_SESSION_ID` - UUID of the created session
-   - `E2E_TEST_PROJECT_NAME` - "e2e_test_project"
-   - `E2E_TEST_FOLDER_NAME` - "-tmp-e2e_test_project"
-5. **Run tests** - Executes specified test suites
-6. **Cleanup** - Kills server and tmux session (keeps session files for debugging)
+### Test Suites (17 tests across 7 suites)
 
-### Why Dynamic Session Creation?
+| Suite | Tests | What it covers |
+|-------|-------|----------------|
+| `E2EConnectionTests` | 3 | Connect, settings status, disconnect flow |
+| `E2EConversationTests` | 3 | Text responses, tool use blocks, multiple blocks |
+| `E2EPermissionTests` | 4 | Bash/edit permissions, deny, suggestions |
+| `E2EQuestionTests` | 2 | Question with options, question without options |
+| `E2ENavigationTests` | 1 | Full navigation flow (projects → detail → settings → back) |
+| `E2ESessionTests` | 2 | Open session, navigate back from session |
+| `E2EFileBrowserTests` | 2 | Files tab listing, view file contents |
 
-Tests use a real Claude session created at test start because:
-- Session files persist in `~/.claude/projects/` but working directories in `/tmp` are cleared on reboot
-- Pre-created sessions can become stale or reference non-existent paths
-- Dynamic creation ensures the session is always valid and resumable
+### Key Infrastructure
 
-**CRITICAL: If the test passes, it MUST work on a real device.**
-
-Tests that mock core functionality (subprocess calls, file operations) can pass while the real system is broken. E2E tests must use:
-- Real tmux sessions (with test-specific session names)
-- Real file watching with real file modifications
-- Real WebSocket connections
-
-**Test suites:**
-- `E2EConnectionTests` - Server connection and reconnection
-- `E2EErrorHandlingTests` - Malformed messages, server errors
-- `E2ESessionFlowTests` - Session sync and management
-- `E2EFullConversationFlowTests` - Full voice → Claude → TTS flow
-- `E2ENavigationFlowTests` - Project/session navigation
-- `E2EPermissionTests` - Permission prompt UI
+- **Test server** (`server/integration_tests/test_server.py`): WebSocket server with canned responses for `list_projects`, `open_session`, etc. HTTP injection endpoints for test control.
+- **E2ETestBase** (`E2ETestBase.swift`): Base class with injection helpers (`injectTextResponse`, `injectToolUse`, `injectPermissionRequest`, `injectQuestionPrompt`, etc.) and navigation utilities.
+- **Runner script** (`run_e2e_tests.sh`): Manages test server lifecycle, config file, and xcodebuild invocation.
 
 **Support utilities:** `tests/e2e_support/`
 - `server_manager.py` - Server lifecycle management
-
----
-
-## Integration Tests (XCUITest + Test Server)
-
-**Location:** `ios/ClaudeConnect/ClaudeConnectUITests/*Tests.swift` (non-E2E)
-
-These tests use `IntegrationTestBase` and require a running test server:
-
-```bash
-# Start server first
-python3 server/main.py
-
-# Run integration tests
-xcodebuild test -scheme ClaudeConnect \
-  -destination 'platform=iOS Simulator,name=iPhone 17' \
-  -only-testing:ClaudeConnectUITests/StateManagementTests
-```
-
-**Test suites (~34 tests):**
-- `StateManagementTests` - Voice state transitions, button enable/disable states
-- `VoiceInputFlowTests` - Voice input delivery and processing flow
-- `AudioStreamingTests` - Audio chunk handling and playback
-- `ErrorHandlingTests` - Error states and recovery
-- `TranscriptMonitoringTests` - Transcript file watching
-- `PerformanceTests` - Performance benchmarks
 
 ---
 
@@ -178,11 +152,8 @@ xcodebuild test -scheme ClaudeConnect \
   -only-testing:ClaudeConnectTests/WebSocketManagerTests \
   -parallel-testing-enabled NO
 
-# E2E - run manually (start server first)
-python3 server/main.py  # terminal 1
-xcodebuild test -scheme ClaudeConnect \
-  -destination 'platform=iOS Simulator,name=iPhone 17' \
-  -only-testing:ClaudeConnectUITests/E2EHappyPathTests  # terminal 2
+# E2E - specific suite
+cd ios/ClaudeConnect && ./run_e2e_tests.sh --fast E2EPermissionTests
 ```
 
 ---
@@ -250,7 +221,7 @@ xcrun xcresulttool get --path "$RESULT" --format json 2>/dev/null | python3 -m j
 
 | Failure | Likely Cause |
 |---------|--------------|
-| `waitForVoiceState("Speaking")` timeout | TTS/audio pipeline issue, server not responding |
-| `waitForExistence` timeout | UI element not rendered, navigation issue |
-| `connection status` failures | Server not running, port conflict |
+| `waitForExistence` timeout | UI element not rendered, wrong accessibility identifier, or test server message format mismatch |
+| `connection status` failures | Test server not running, port conflict |
 | `no close frame received` in server log | Normal - test client disconnected |
+| Server tests pass from root but fail from `server/tests/` | Stale pipx install — run `pipx install --force /Users/aaron/Desktop/max` |

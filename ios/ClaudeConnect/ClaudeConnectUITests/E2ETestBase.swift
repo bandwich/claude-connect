@@ -2,7 +2,9 @@
 //  E2ETestBase.swift
 //  ClaudeConnectUITests
 //
-//  Unified base class for E2E and integration tests
+//  Base class for E2E tests. Supports two modes:
+//  - Test server mode (tier 1): Fast, deterministic. Uses HTTP injection endpoints.
+//  - Real server mode (tier 2): Smoke tests with real Claude Code sessions.
 //
 
 import XCTest
@@ -12,7 +14,8 @@ class E2ETestBase: XCTestCase {
 
     static var app: XCUIApplication!
 
-    // Environment-aware server configuration
+    // MARK: - Server Configuration
+
     let testServerHost: String = {
         if let envHost = ProcessInfo.processInfo.environment["TEST_SERVER_HOST"] {
             return envHost
@@ -20,26 +23,23 @@ class E2ETestBase: XCTestCase {
         #if targetEnvironment(simulator)
         return "127.0.0.1"
         #else
-        return "192.168.1.109"  // Physical device needs Mac's IP
+        return "192.168.1.109"
         #endif
     }()
 
-    let testServerPort: Int = {
-        if let portString = ProcessInfo.processInfo.environment["TEST_SERVER_PORT"],
-           let port = Int(portString) {
-            return port
-        }
-        return 8765
-    }()
+    var testServerPort: Int {
+        // Config port takes precedence (smoke tests use isolated ports)
+        return configPort
+    }
 
-    /// Test project info - created dynamically by run_e2e_tests.sh
-    /// The script creates a session and writes config to /tmp/e2e_test_config.json
-    private static var _testConfig: [String: String]?
-    private var testConfig: [String: String] {
+    // MARK: - Test Config
+
+    private static var _testConfig: [String: Any]?
+    private var testConfig: [String: Any] {
         if Self._testConfig == nil {
             let configPath = "/tmp/e2e_test_config.json"
             if let data = FileManager.default.contents(atPath: configPath),
-               let json = try? JSONSerialization.jsonObject(with: data) as? [String: String] {
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                 Self._testConfig = json
                 print("📋 Loaded test config: \(json)")
             } else {
@@ -50,14 +50,28 @@ class E2ETestBase: XCTestCase {
         return Self._testConfig ?? [:]
     }
 
+    var isTestServerMode: Bool {
+        testConfig["mode"] as? String == "test_server"
+    }
+
     var testProjectName: String {
-        testConfig["project_name"] ?? "project"
+        testConfig["project_name"] as? String ?? "e2e_test_project"
     }
+
     var testSessionId: String {
-        testConfig["session_id"] ?? ""
+        testConfig["session_id"] as? String ?? "test-session-1"
     }
+
     var testFolderName: String {
-        testConfig["folder_name"] ?? "-tmp-e2e-test-project"
+        testConfig["folder_name"] as? String ?? "-private-tmp-e2e-test-project"
+    }
+
+    /// Port from config (smoke tests use isolated ports to avoid hook interference)
+    var configPort: Int {
+        if let port = testConfig["port"] as? Int {
+            return port
+        }
+        return 8765
     }
 
     var app: XCUIApplication! {
@@ -69,7 +83,7 @@ class E2ETestBase: XCTestCase {
     override class func setUp() {
         super.setUp()
 
-        print("🚀 Launching app once for all tests in \(String(describing: self))")
+        print("🚀 Launching app for \(String(describing: self))")
 
         let serverHost: String
         if let envHost = ProcessInfo.processInfo.environment["TEST_SERVER_HOST"] {
@@ -81,9 +95,17 @@ class E2ETestBase: XCTestCase {
             serverHost = "192.168.1.109"
             #endif
         }
-        let serverPort = ProcessInfo.processInfo.environment["TEST_SERVER_PORT"] ?? "8765"
 
-        print("📡 Test server: \(serverHost):\(serverPort)")
+        // Read port from config file (smoke tests use isolated ports)
+        var serverPort = ProcessInfo.processInfo.environment["TEST_SERVER_PORT"] ?? "8765"
+        let configPath = "/tmp/e2e_test_config.json"
+        if let data = FileManager.default.contents(atPath: configPath),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let port = json["port"] as? Int {
+            serverPort = String(port)
+        }
+
+        print("📡 Server: \(serverHost):\(serverPort)")
 
         app = XCUIApplication()
         app.launchEnvironment = [
@@ -99,16 +121,26 @@ class E2ETestBase: XCTestCase {
         try super.setUpWithError()
         continueAfterFailure = false
 
-        // Reset server state before each test for isolation
-        resetServerState()
-
+        if isTestServerMode {
+            resetServerState()
+        }
         Self.app.launch()
         sleep(2)
         connectToServer()
     }
 
-    /// Reset server state for test isolation
-    /// Calls /reset endpoint to kill tmux sessions and clear tracking state
+    override func tearDownWithError() throws {
+        try super.tearDownWithError()
+    }
+
+    override class func tearDown() {
+        print("🛑 Terminating app for \(String(describing: self))")
+        app?.terminate()
+        super.tearDown()
+    }
+
+    // MARK: - Server State
+
     func resetServerState() {
         let httpPort = testServerPort + 1
         let url = URL(string: "http://\(testServerHost):\(httpPort)/reset")!
@@ -116,325 +148,208 @@ class E2ETestBase: XCTestCase {
         request.httpMethod = "POST"
 
         let semaphore = DispatchSemaphore(value: 0)
-        var success = false
-
-        URLSession.shared.dataTask(with: request) { data, response, error in
+        URLSession.shared.dataTask(with: request) { _, response, _ in
             if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 {
-                success = true
-                print("✓ Server state reset for test isolation")
-            } else {
-                print("⚠️ Failed to reset server state: \(error?.localizedDescription ?? "unknown error")")
+                print("✓ Server state reset")
             }
             semaphore.signal()
         }.resume()
-
         _ = semaphore.wait(timeout: .now() + 5)
-
-        if !success {
-            print("⚠️ Server reset may have failed, continuing anyway")
-        }
     }
 
-    override func tearDownWithError() throws {
-        if app.staticTexts["connectionStatus"].exists &&
-           app.staticTexts["connectionStatus"].label == "Connected" {
-            disconnectFromServer()
+    // MARK: - Connection
+
+    func connectToServer() {
+        // App auto-connects on launch using SERVER_HOST env var
+        sleep(2)
+
+        // Verify connected — project list shows cells when connected
+        let anyProjectCell = app.cells.firstMatch
+        if anyProjectCell.waitForExistence(timeout: 10) {
+            print("✓ Connected")
+            return
         }
 
-        // Note: We don't clean up test project directories
-        // They contain REAL Claude sessions that may be useful for debugging
-        // and will be reused in subsequent test runs
-
-        try super.tearDownWithError()
+        XCTFail("Auto-connect failed — check server status")
     }
 
-    override class func tearDown() {
-        print("🛑 Terminating app after all tests in \(String(describing: self))")
-        app?.terminate()
-        super.tearDown()
+    func disconnectFromServer() {
+        openSettings()
+        let disconnectButton = app.buttons["Disconnect"]
+        if disconnectButton.waitForExistence(timeout: 2) {
+            disconnectButton.tap()
+        }
+        let doneButton = app.buttons["Done"]
+        if doneButton.waitForExistence(timeout: 2) {
+            doneButton.tap()
+        }
+        sleep(1)
     }
 
     // MARK: - UI Helpers
 
-    /// Tap element using coordinates (bypasses scroll-to-visible which fails for toolbar buttons)
+    /// Tap element using coordinates (bypasses scroll-to-visible which can hang in SwiftUI)
     func tapByCoordinate(_ element: XCUIElement) {
         element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
     }
 
-    /// Open settings by tapping the settings button
     func openSettings() {
         let settingsButton = app.buttons["settingsButton"]
         XCTAssertTrue(settingsButton.waitForExistence(timeout: 5), "Settings button should exist")
         tapByCoordinate(settingsButton)
 
-        // Wait for settings sheet to appear (Done button indicates sheet is open)
         let doneButton = app.buttons["Done"]
-        XCTAssertTrue(doneButton.waitForExistence(timeout: 5), "Settings sheet should appear after tap")
+        XCTAssertTrue(doneButton.waitForExistence(timeout: 5), "Settings sheet should appear")
     }
 
-    // MARK: - Connection Methods
+    // MARK: - Navigation
 
-    func connectToServer() {
-        // App auto-connects on launch using SERVER_HOST env var set in setUp()
-        // Wait for connection to complete
-        sleep(2)
-
-        // Verify connected - project list shows cells when connected
-        let anyProjectCell = app.cells.firstMatch
-        if anyProjectCell.waitForExistence(timeout: 10) {
-            print("✓ Auto-connected successfully")
-            return
-        }
-
-        // If not connected after 10s, fail the test
-        XCTFail("Auto-connect failed - check SERVER_HOST env var and server status")
-    }
-
-    /// Alias for connectToServer (compatibility with IntegrationTestBase tests)
-    func connectToTestServer() {
-        connectToServer()
-    }
-
-    func disconnectFromServer() {
-        openSettings()
-
-        let disconnectButton = app.buttons["Disconnect"]
-        if disconnectButton.waitForExistence(timeout: 2) {
-            disconnectButton.tap()
-        }
-
-        let doneButton = app.buttons["Done"]
-        if doneButton.waitForExistence(timeout: 2) {
-            doneButton.tap()
-        }
-
-        sleep(1)
-    }
-
-    // MARK: - State Waiting
-
-    func waitForVoiceState(_ expectedState: String, timeout: TimeInterval = 10.0) -> Bool {
-        // Voice state is now indicated by mic button appearance
-        // "Idle" = mic button visible with "Tap to Talk" label
-        // "Listening" = mic button visible with "Stop" label
-        let startTime = Date()
-
-        while Date().timeIntervalSince(startTime) < timeout {
-            if expectedState == "Idle" {
-                let talkButton = app.buttons["Tap to Talk"]
-                if talkButton.exists && talkButton.isEnabled {
-                    return true
-                }
-            } else if expectedState == "Listening" {
-                let stopButton = app.buttons["Stop"]
-                if stopButton.exists {
-                    return true
-                }
+    func navigateToProjectsList() {
+        for _ in 0..<5 {
+            let addProjectButton = app.buttons["Add Project"]
+            if addProjectButton.exists {
+                let doneButton = app.buttons["Done"]
+                if !doneButton.exists { return }
             }
-            usleep(250000)
-        }
-        return false
-    }
 
-    func waitForConnectionState(_ expectedState: String, timeout: TimeInterval = 10.0) -> Bool {
-        let stateLabel = app.staticTexts["connectionStatus"]
-        let exists = stateLabel.waitForExistence(timeout: timeout)
-        return exists && stateLabel.label == expectedState
-    }
+            let doneButton = app.buttons["Done"]
+            if doneButton.exists {
+                doneButton.tap()
+                sleep(1)
+                continue
+            }
 
-    /// Wait for a conversation response cycle to complete
-    /// This waits for the mic button to become disabled then enabled again
-    func waitForResponseCycle(timeout: TimeInterval = 30.0) -> Bool {
-        let startTime = Date()
+            // Custom nav bar uses chevron.left image button (not standard back button)
+            let chevronBack = app.buttons["chevron.left"]
+            if chevronBack.exists {
+                tapByCoordinate(chevronBack)
+                sleep(1)
+                continue
+            }
 
-        // First, wait for mic to become unavailable (response cycle started)
-        var sawProcessing = false
-        while Date().timeIntervalSince(startTime) < timeout {
-            let talkButton = app.buttons["Tap to Talk"]
-
-            // Check if mic is disabled or not present (processing)
-            if !talkButton.exists || !talkButton.isEnabled {
-                sawProcessing = true
-                print("✓ Response cycle started (mic unavailable)")
+            // Fallback: standard navigation bar back button
+            let navBackButton = app.navigationBars.buttons.element(boundBy: 0)
+            if navBackButton.exists && navBackButton.isEnabled {
+                navBackButton.tap()
+                sleep(1)
+            } else {
                 break
             }
-
-            usleep(250000)
         }
-
-        if !sawProcessing {
-            print("✗ Response cycle never started within \(timeout)s")
-            return false
-        }
-
-        // Now wait for cycle to complete (mic button becomes available again)
-        while Date().timeIntervalSince(startTime) < timeout {
-            let talkButton = app.buttons["Tap to Talk"]
-
-            if talkButton.exists && talkButton.isEnabled {
-                let elapsed = Date().timeIntervalSince(startTime)
-                print("✓ Response cycle complete after \(String(format: "%.1f", elapsed))s")
-                return true
-            }
-
-            usleep(250000)
-        }
-
-        print("✗ Response cycle did not complete within \(timeout)s")
-        return false
     }
 
-    // MARK: - UI Helpers
+    func navigateToTestSession(resume: Bool = false) {
+        navigateToProjectsList()
 
-    func tapTalkButton() {
-        let talkButton = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Tap to Talk' OR label CONTAINS 'Stop'")).firstMatch
-        XCTAssertTrue(talkButton.exists, "Talk button should exist")
-        XCTAssertTrue(talkButton.isEnabled, "Talk button should be enabled")
-        talkButton.tap()
-    }
-
-    func isTalkButtonEnabled() -> Bool {
-        let talkButton = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Tap to Talk' OR label CONTAINS 'Stop'")).firstMatch
-        return talkButton.exists && talkButton.isEnabled
-    }
-
-    // MARK: - Voice Input
-
-    func sendVoiceInput(_ text: String) {
-        let expectation = XCTestExpectation(description: "Send voice input")
-        let url = URL(string: "ws://\(testServerHost):\(testServerPort)")!
-        let task = URLSession.shared.webSocketTask(with: url)
-        task.resume()
-
-        // Wait for connection to be established by receiving the server's initial status message.
-        // The server sends "idle" status immediately upon connection.
-        // Without this, task.send() may fail silently if called before handshake completes.
-        task.receive { [weak task] result in
-            guard let task = task else {
-                XCTFail("WebSocket task was deallocated")
-                expectation.fulfill()
-                return
-            }
-
-            switch result {
-            case .success(_):
-                // Connection established, now send voice input
-                let message: [String: Any] = [
-                    "type": "voice_input",
-                    "text": text,
-                    "timestamp": Date().timeIntervalSince1970
-                ]
-
-                if let jsonData = try? JSONSerialization.data(withJSONObject: message),
-                   let jsonString = String(data: jsonData, encoding: .utf8) {
-                    task.send(.string(jsonString)) { error in
-                        if let error = error {
-                            XCTFail("WebSocket send failed: \(error)")
-                        }
-                        task.cancel(with: .goingAway, reason: nil)
-                        expectation.fulfill()
-                    }
-                } else {
-                    XCTFail("Failed to serialize voice input message")
-                    task.cancel(with: .goingAway, reason: nil)
-                    expectation.fulfill()
-                }
-
-            case .failure(let error):
-                XCTFail("WebSocket connection failed: \(error)")
-                expectation.fulfill()
-            }
-        }
-
-        wait(for: [expectation], timeout: 10.0)
+        // Find and tap test project
+        let projectLabelPrefix = testProjectName + ","
+        let projectButton = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", projectLabelPrefix)).firstMatch
+        XCTAssertTrue(projectButton.waitForExistence(timeout: 5), "Test project '\(testProjectName)' should exist")
+        projectButton.tap()
         sleep(1)
+
+        if resume {
+            let sessionCell = app.cells.firstMatch
+            XCTAssertTrue(sessionCell.waitForExistence(timeout: 5), "Session should exist to resume")
+            tapByCoordinate(sessionCell)
+        } else {
+            let newSessionButton = app.buttons["New Session"]
+            XCTAssertTrue(newSessionButton.waitForExistence(timeout: 5), "New Session button should exist")
+            // Use coordinate tap to avoid XCTest idle-wait blocking on SwiftUI re-renders
+            tapByCoordinate(newSessionButton)
+        }
+
+        if isTestServerMode {
+            // Wait for SessionView to load — animations disabled in test mode
+            sleep(2) // Allow navigation to complete
+            let loaded = waitForSessionViewLoaded(timeout: 10)
+            XCTAssertTrue(loaded, "SessionView should load with input bar visible")
+        } else {
+            // Real server mode: wait for tmux session
+            XCTAssertTrue(waitForSessionSyncComplete(timeout: 15), "Session sync should complete")
+            XCTAssertTrue(verifyTmuxSessionRunning(), "Tmux session should be running")
+            XCTAssertTrue(waitForClaudeReady(timeout: 15), "Claude should be ready for input")
+        }
     }
 
-    // MARK: - Tmux Verification
+    // MARK: - Test Server Injection (Tier 1)
 
-    /// Verify tmux session is running on the server
-    func verifyTmuxSessionRunning() -> Bool {
+    /// Generic POST helper for test server HTTP endpoints
+    private func postToTestServer(_ endpoint: String, payload: [String: Any]) {
         let httpPort = testServerPort + 1
-        let url = URL(string: "http://\(testServerHost):\(httpPort)/tmux_status")!
-        let semaphore = DispatchSemaphore(value: 0)
-        var sessionExists = false
+        let url = URL(string: "http://\(testServerHost):\(httpPort)\(endpoint)")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
 
-        URLSession.shared.dataTask(with: url) { data, _, _ in
-            if let data = data,
-               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let exists = json["session_exists"] as? Bool {
-                sessionExists = exists
-            }
+        let semaphore = DispatchSemaphore(value: 0)
+        URLSession.shared.dataTask(with: request) { _, _, _ in
             semaphore.signal()
         }.resume()
-
         _ = semaphore.wait(timeout: .now() + 5)
-        return sessionExists
+        sleep(1) // Wait for WebSocket broadcast to reach iOS app
     }
 
-    /// Capture tmux pane content to verify input arrived
-    func captureTmuxPane() -> String? {
-        let httpPort = testServerPort + 1
-        let url = URL(string: "http://\(testServerHost):\(httpPort)/capture_pane")!
-        let semaphore = DispatchSemaphore(value: 0)
-        var content: String?
-
-        URLSession.shared.dataTask(with: url) { data, _, _ in
-            if let data = data,
-               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let paneContent = json["content"] as? String {
-                content = paneContent
-            }
-            semaphore.signal()
-        }.resume()
-
-        _ = semaphore.wait(timeout: .now() + 5)
-        return content
+    /// Inject content blocks via test server → broadcasts as assistant_response
+    func injectContentBlocks(_ blocks: [[String: Any]]) {
+        postToTestServer("/inject_content_blocks", payload: ["blocks": blocks])
     }
 
-    /// Verify that text appears in tmux pane (voice input arrived)
-    func verifyInputInTmux(_ text: String, timeout: TimeInterval = 5.0) -> Bool {
+    /// Inject a simple text response
+    func injectTextResponse(_ text: String) {
+        injectContentBlocks([["type": "text", "text": text]])
+    }
+
+    /// Inject a tool use + result pair
+    func injectToolUse(name: String, input: [String: Any], result: String) {
+        let toolId = UUID().uuidString
+        injectContentBlocks([
+            ["type": "tool_use", "id": toolId, "name": name, "input": input],
+            ["type": "tool_result", "tool_use_id": toolId, "content": result]
+        ])
+    }
+
+    /// Inject a question prompt
+    func injectQuestionPrompt(question: String, options: [String]) -> String {
+        let requestId = UUID().uuidString
+        postToTestServer("/inject_question", payload: [
+            "request_id": requestId,
+            "question": question,
+            "options": options
+        ])
+        return requestId
+    }
+
+    /// Inject a directory listing
+    func injectDirectoryListing(path: String, entries: [[String: Any]]) {
+        postToTestServer("/inject_directory", payload: ["path": path, "entries": entries])
+    }
+
+    /// Inject file contents
+    func injectFileContents(path: String, contents: String) {
+        postToTestServer("/inject_file", payload: ["path": path, "contents": contents])
+    }
+
+    // MARK: - Permission Helpers
+
+    /// Wait for SessionView to be fully loaded (input bar visible).
+    /// Uses polling with short sleeps instead of XCTest waitForExistence
+    /// to avoid idle-wait blocking from SwiftUI continuous updates.
+    func waitForSessionViewLoaded(timeout: TimeInterval = 10) -> Bool {
         let startTime = Date()
         while Date().timeIntervalSince(startTime) < timeout {
-            if let content = captureTmuxPane(), content.contains(text) {
+            // Check for elements that only exist in SessionView
+            if app.buttons["micButton"].exists || app.textFields["messageTextField"].exists {
                 return true
             }
-            usleep(500000) // Check every 500ms
+            usleep(500000) // 500ms
         }
         return false
     }
 
-    /// Wait for Claude Code to be ready to accept input
-    /// Polls tmux pane looking for Claude's prompt indicator (❯ or the input box)
-    /// Returns true when ready, false on timeout
-    func waitForClaudeReady(timeout: TimeInterval = 15.0) -> Bool {
-        let startTime = Date()
-        // Claude Code shows these indicators when ready for input:
-        // - "❯" prompt character
-        // - "╭─" box drawing (input area border)
-        let readyIndicators = ["❯", "╭─", "│ >"]
-
-        print("⏳ Waiting for Claude Code to be ready...")
-
-        while Date().timeIntervalSince(startTime) < timeout {
-            if let content = captureTmuxPane() {
-                for indicator in readyIndicators {
-                    if content.contains(indicator) {
-                        let elapsed = Date().timeIntervalSince(startTime)
-                        print("✓ Claude ready after \(String(format: "%.1f", elapsed))s (found '\(indicator)')")
-                        return true
-                    }
-                }
-            }
-            usleep(500000) // Check every 500ms
-        }
-
-        print("✗ Claude not ready after \(timeout)s timeout")
-        return false
-    }
-
-    // MARK: - Permission Request Helpers
-
+    /// Inject a permission request via the server's /permission endpoint.
+    /// Works with both real server and test server (test server has /permission compatibility).
     func injectPermissionRequest(
         promptType: String,
         toolName: String,
@@ -447,7 +362,6 @@ class E2ETestBase: XCTestCase {
     ) -> String {
         let requestId = UUID().uuidString
 
-        // Build payload matching what the hook sends to HTTP server
         var payload: [String: Any] = [
             "tool_name": toolName,
             "timestamp": Date().timeIntervalSince1970
@@ -472,130 +386,181 @@ class E2ETestBase: XCTestCase {
             payload["permission_suggestions"] = suggestions
         }
 
-        // POST to HTTP server (port 8766) - this triggers broadcast to iOS app
         let httpPort = testServerPort + 1
         let url = URL(string: "http://\(testServerHost):\(httpPort)/permission?timeout=5")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
 
-        if let jsonData = try? JSONSerialization.data(withJSONObject: payload) {
-            request.httpBody = jsonData
-        }
-
-        // Fire and forget - don't wait for response (it would block waiting for user action)
+        // Fire and forget
         let task = URLSession.shared.dataTask(with: request)
         task.resume()
 
-        sleep(2) // Wait for HTTP request to be processed and WebSocket broadcast
+        sleep(1) // Wait for HTTP → WebSocket broadcast
 
         return requestId
     }
 
-    func waitForPermissionCard(timeout: TimeInterval = 5.0) -> Bool {
-        return app.otherElements["permissionCard"].waitForExistence(timeout: timeout)
+    /// Wait for permission card to appear.
+    /// XCTest's waitForExistence blocks on SwiftUI's idle-wait inside SessionView,
+    /// so we use an XCTNSPredicateExpectation which doesn't block the main thread.
+    func waitForPermissionCard(timeout: TimeInterval = 10.0) -> Bool {
+        let element = app.buttons["permissionOption1"]
+        let predicate = NSPredicate(format: "exists == true")
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: element)
+        let result = XCTWaiter().wait(for: [expectation], timeout: timeout)
+        return result == .completed
     }
 
-    func waitForPermissionResolved(timeout: TimeInterval = 3.0) -> Bool {
-        return app.otherElements["permissionResolved"].waitForExistence(timeout: timeout)
+    /// Wait for permission to be resolved (option button disappears).
+    func waitForPermissionResolved(timeout: TimeInterval = 5.0) -> Bool {
+        let element = app.buttons["permissionOption1"]
+        let predicate = NSPredicate(format: "exists == false")
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: element)
+        let result = XCTWaiter().wait(for: [expectation], timeout: timeout)
+        return result == .completed
     }
 
-    // Legacy helpers kept for backward compatibility
-    func waitForPermissionSheet(timeout: TimeInterval = 5.0) -> Bool {
-        return waitForPermissionCard(timeout: timeout)
-    }
+    // MARK: - Real Server Helpers (Tier 2)
 
-    func waitForPermissionSheetDismissed(timeout: TimeInterval = 3.0) -> Bool {
-        return waitForPermissionResolved(timeout: timeout)
-    }
+    /// Send voice input via WebSocket (for real Claude smoke tests)
+    func sendVoiceInput(_ text: String) {
+        let expectation = XCTestExpectation(description: "Send voice input")
+        let url = URL(string: "ws://\(testServerHost):\(testServerPort)")!
+        let task = URLSession.shared.webSocketTask(with: url)
+        task.resume()
 
-    // MARK: - Navigation Helpers
+        task.receive { [weak task] result in
+            guard let task = task else {
+                XCTFail("WebSocket task was deallocated")
+                expectation.fulfill()
+                return
+            }
 
-    /// Navigate back to Projects list from any screen
-    func navigateToProjectsList() {
-        // Try to navigate back to projects list by repeatedly tapping back buttons
-        for _ in 0..<5 {
-            // Check if we're already on Projects list (look for Add Project floating button)
-            let addProjectButton = app.buttons["Add Project"]
-            if addProjectButton.exists {
-                // Also make sure no sheet is open (no Done button visible)
-                let doneButton = app.buttons["Done"]
-                if !doneButton.exists {
-                    return
+            switch result {
+            case .success(_):
+                let message: [String: Any] = [
+                    "type": "voice_input",
+                    "text": text,
+                    "timestamp": Date().timeIntervalSince1970
+                ]
+
+                if let jsonData = try? JSONSerialization.data(withJSONObject: message),
+                   let jsonString = String(data: jsonData, encoding: .utf8) {
+                    task.send(.string(jsonString)) { error in
+                        if let error = error {
+                            XCTFail("WebSocket send failed: \(error)")
+                        }
+                        // Wait for server to process before closing
+                        DispatchQueue.global().asyncAfter(deadline: .now() + 2.0) {
+                            task.cancel(with: .goingAway, reason: nil)
+                            expectation.fulfill()
+                        }
+                    }
+                } else {
+                    XCTFail("Failed to serialize voice input")
+                    task.cancel(with: .goingAway, reason: nil)
+                    expectation.fulfill()
                 }
-            }
 
-            // Try to dismiss any sheets first
-            let doneButton = app.buttons["Done"]
-            if doneButton.exists {
-                doneButton.tap()
-                sleep(1)
-                continue
-            }
-
-            // Try back button
-            let backButton = app.navigationBars.buttons.element(boundBy: 0)
-            if backButton.exists && backButton.isEnabled {
-                backButton.tap()
-                sleep(1)
-            } else {
-                break
+            case .failure(let error):
+                XCTFail("WebSocket connection failed: \(error)")
+                expectation.fulfill()
             }
         }
-    }
 
-    /// Navigate to test project and start/resume a Claude session
-    func navigateToTestSession(resume: Bool = false) {
-        // First, ensure we're at the projects list
-        navigateToProjectsList()
-
-        // Find and tap test project (it's a Button with label starting with "projectName,")
-        let projectLabelPrefix = testProjectName + ","
-        let projectButton = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", projectLabelPrefix)).firstMatch
-        XCTAssertTrue(projectButton.waitForExistence(timeout: 5), "Test project '\(testProjectName)' should exist")
-        projectButton.tap()
+        wait(for: [expectation], timeout: 10.0)
         sleep(1)
-
-        if resume {
-            // Resume existing session
-            let sessionCell = app.cells.firstMatch
-            XCTAssertTrue(sessionCell.waitForExistence(timeout: 5), "Session should exist to resume")
-            // Use coordinate tap to avoid XCTest idle-wait timeout (SessionView has continuous SwiftUI updates)
-            tapByCoordinate(sessionCell)
-        } else {
-            // Start new session
-            let newSessionButton = app.buttons["New Session"]
-            XCTAssertTrue(newSessionButton.waitForExistence(timeout: 5), "New Session button should exist")
-            newSessionButton.tap()
-        }
-
-        XCTAssertTrue(waitForSessionSyncComplete(timeout: 15.0), "Session sync should complete")
-        XCTAssertTrue(verifyTmuxSessionRunning(), "Tmux session should be running")
-        XCTAssertTrue(waitForClaudeReady(timeout: 15.0), "Claude should be ready for input")
     }
 
-    /// Wait for SessionView sync to complete
-    /// Uses HTTP-based verification to avoid XCTest idle-wait issues with SwiftUI re-renders
-    func waitForSessionSyncComplete(timeout: TimeInterval = 15.0) -> Bool {
+    /// Verify tmux session is running on the real server
+    func verifyTmuxSessionRunning() -> Bool {
+        let httpPort = testServerPort + 1
+        let url = URL(string: "http://\(testServerHost):\(httpPort)/tmux_status")!
+        let semaphore = DispatchSemaphore(value: 0)
+        var sessionExists = false
+
+        URLSession.shared.dataTask(with: url) { data, _, _ in
+            if let data = data,
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let exists = json["session_exists"] as? Bool {
+                sessionExists = exists
+            }
+            semaphore.signal()
+        }.resume()
+
+        _ = semaphore.wait(timeout: .now() + 5)
+        return sessionExists
+    }
+
+    /// Capture tmux pane content
+    func captureTmuxPane() -> String? {
+        let httpPort = testServerPort + 1
+        let url = URL(string: "http://\(testServerHost):\(httpPort)/capture_pane")!
+        let semaphore = DispatchSemaphore(value: 0)
+        var content: String?
+
+        URLSession.shared.dataTask(with: url) { data, _, _ in
+            if let data = data,
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let paneContent = json["content"] as? String {
+                content = paneContent
+            }
+            semaphore.signal()
+        }.resume()
+
+        _ = semaphore.wait(timeout: .now() + 5)
+        return content
+    }
+
+    /// Verify text appears in tmux pane
+    func verifyInputInTmux(_ text: String, timeout: TimeInterval = 5.0) -> Bool {
         let startTime = Date()
-
-        print("⏳ Waiting for session sync to complete...")
-
-        // Use HTTP-based checks to avoid XCTest idle-wait issues
-        // SessionView has continuous SwiftUI updates that block XCTest element checks
         while Date().timeIntervalSince(startTime) < timeout {
-            // Check if tmux session is running via HTTP endpoint
-            if verifyTmuxSessionRunning() {
-                let elapsed = Date().timeIntervalSince(startTime)
-                print("✓ Session sync complete after \(String(format: "%.1f", elapsed))s - tmux running")
+            if let content = captureTmuxPane(), content.contains(text) {
                 return true
             }
-
-            usleep(500000) // Check every 500ms
+            usleep(500000)
         }
-
-        print("✗ Session sync did not complete within \(timeout)s")
         return false
     }
 
+    /// Wait for Claude Code to be ready for input
+    func waitForClaudeReady(timeout: TimeInterval = 15.0) -> Bool {
+        let startTime = Date()
+        let readyIndicators = ["❯", "╭─", "│ >"]
+
+        print("⏳ Waiting for Claude ready...")
+        while Date().timeIntervalSince(startTime) < timeout {
+            if let content = captureTmuxPane() {
+                for indicator in readyIndicators {
+                    if content.contains(indicator) {
+                        let elapsed = Date().timeIntervalSince(startTime)
+                        print("✓ Claude ready after \(String(format: "%.1f", elapsed))s")
+                        return true
+                    }
+                }
+            }
+            usleep(500000)
+        }
+        print("✗ Claude not ready after \(timeout)s")
+        return false
+    }
+
+    /// Wait for session sync to complete (real server mode)
+    func waitForSessionSyncComplete(timeout: TimeInterval = 15.0) -> Bool {
+        let startTime = Date()
+        print("⏳ Waiting for session sync...")
+        while Date().timeIntervalSince(startTime) < timeout {
+            if verifyTmuxSessionRunning() {
+                let elapsed = Date().timeIntervalSince(startTime)
+                print("✓ Session sync after \(String(format: "%.1f", elapsed))s")
+                return true
+            }
+            usleep(500000)
+        }
+        print("✗ Session sync timeout")
+        return false
+    }
 }

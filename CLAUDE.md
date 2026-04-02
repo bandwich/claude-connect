@@ -163,13 +163,19 @@ xcodebuild test -scheme ClaudeConnect \
   -only-testing:ClaudeConnectTests \
   -parallel-testing-enabled NO
 
-# 3. iOS E2E tests (may timeout, needs simulator)
+# 3. iOS E2E tests — fast (test server, ~2 min)
+cd ios/ClaudeConnect && ./run_e2e_tests.sh --fast
+
+# 3b. iOS E2E tests — smoke (real Claude, ~3 min)
+cd ios/ClaudeConnect && ./run_e2e_tests.sh --smoke
+
+# 3c. iOS E2E tests — all (both tiers)
 cd ios/ClaudeConnect && ./run_e2e_tests.sh
 ```
 
 **Run specific E2E test suite:**
 ```bash
-cd ios/ClaudeConnect && ./run_e2e_tests.sh E2EPermissionTests
+cd ios/ClaudeConnect && ./run_e2e_tests.sh --fast E2EPermissionTests
 ```
 
 ### Building iOS
