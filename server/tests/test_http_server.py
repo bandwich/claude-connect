@@ -149,12 +149,12 @@ class TestSessionFiltering:
         mock.active_sessions = {}
         return mock
 
-    def test_empty_session_id_rejected(self):
-        """Empty session ID (non-claude-connect session) is not viewed."""
+    def test_empty_session_id_routes_to_viewed(self):
+        """Empty session ID (external/adopted session) routes to viewed session."""
         from server.infra.http_server import is_viewed_session
         set_server(self._make_mock_server("viewed-session-123"))
         try:
-            assert is_viewed_session("") == False
+            assert is_viewed_session("") == True
         finally:
             set_server(None)
 

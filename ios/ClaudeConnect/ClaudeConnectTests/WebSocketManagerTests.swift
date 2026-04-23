@@ -201,8 +201,8 @@ struct WebSocketManagerTests {
 
         // Simulate callback invocation
         let mockSessions = [
-            Session(id: "s1", title: "Session 1", timestamp: 1000.0, messageCount: 5),
-            Session(id: "s2", title: "Session 2", timestamp: 2000.0, messageCount: 10)
+            Session(id: "s1", title: "Session 1", timestamp: 1000.0, messageCount: 5, folderName: nil, worktreeBranch: nil),
+            Session(id: "s2", title: "Session 2", timestamp: 2000.0, messageCount: 10, folderName: nil, worktreeBranch: nil)
         ]
 
         manager.onSessionsReceived?(mockSessions)

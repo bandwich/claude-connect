@@ -16,6 +16,7 @@ from server.infra.tmux_controller import TmuxController, session_name_for, SESSI
 
 TEST_SESSION = "claude-connect_test-session-1"
 TEST_SESSION_2 = "claude-connect_test-session-2"
+TEST_EXTERNAL_SESSION = "dispatch-test-branch"
 
 
 @pytest.fixture
@@ -24,7 +25,7 @@ def controller():
     ctrl = TmuxController()
     yield ctrl
     # Cleanup: kill test sessions if they exist
-    for name in [TEST_SESSION, TEST_SESSION_2]:
+    for name in [TEST_SESSION, TEST_SESSION_2, TEST_EXTERNAL_SESSION]:
         subprocess.run(
             ["tmux", "kill-session", "-t", name],
             capture_output=True
@@ -34,13 +35,13 @@ def controller():
 @pytest.fixture
 def ensure_no_session():
     """Ensure no test sessions exist before test"""
-    for name in [TEST_SESSION, TEST_SESSION_2]:
+    for name in [TEST_SESSION, TEST_SESSION_2, TEST_EXTERNAL_SESSION]:
         subprocess.run(
             ["tmux", "kill-session", "-t", name],
             capture_output=True
         )
     yield
-    for name in [TEST_SESSION, TEST_SESSION_2]:
+    for name in [TEST_SESSION, TEST_SESSION_2, TEST_EXTERNAL_SESSION]:
         subprocess.run(
             ["tmux", "kill-session", "-t", name],
             capture_output=True
@@ -180,3 +181,59 @@ class TestInputAndCapture:
         time.sleep(0.5)
         result = controller.send_escape(TEST_SESSION)
         assert result is True
+
+
+class TestListAllSessions:
+    """Tests for list_all_sessions — returns ALL tmux sessions, not just claude-connect_*"""
+
+    def test_list_all_includes_non_prefixed(self, controller, ensure_no_session):
+        """list_all_sessions should include sessions without claude-connect prefix"""
+        controller.start_session(TEST_SESSION, working_dir="/tmp")
+        subprocess.run(
+            ["tmux", "new-session", "-d", "-s", TEST_EXTERNAL_SESSION, "-c", "/tmp", "bash"],
+            capture_output=True
+        )
+        time.sleep(0.5)
+        all_sessions = controller.list_all_sessions()
+        assert TEST_SESSION in all_sessions
+        assert TEST_EXTERNAL_SESSION in all_sessions
+
+    def test_list_all_empty(self, controller, ensure_no_session):
+        """list_all_sessions returns empty list when no sessions"""
+        all_sessions = controller.list_all_sessions()
+        assert TEST_SESSION not in all_sessions
+        assert TEST_EXTERNAL_SESSION not in all_sessions
+
+
+class TestFindSessionById:
+    """Tests for find_session_by_id — finds tmux session running a Claude session"""
+
+    def test_finds_session_with_id_in_pane(self, controller, ensure_no_session):
+        """Should find a tmux session whose pane contains the session ID"""
+        target_id = "abc123-def456-test"
+        subprocess.run([
+            "tmux", "new-session", "-d", "-s", TEST_EXTERNAL_SESSION, "-c", "/tmp",
+            f"echo 'Session: {target_id}' && bash"
+        ], capture_output=True)
+        time.sleep(0.5)
+        found = controller.find_session_by_id(target_id)
+        assert found == TEST_EXTERNAL_SESSION
+
+    def test_returns_none_when_not_found(self, controller, ensure_no_session):
+        """Should return None when no tmux session contains the ID"""
+        controller.start_session(TEST_SESSION, working_dir="/tmp")
+        time.sleep(0.5)
+        found = controller.find_session_by_id("nonexistent-id-xyz")
+        assert found is None
+
+    def test_skips_claude_connect_sessions(self, controller, ensure_no_session):
+        """Should skip claude-connect_* sessions (server already tracks those)"""
+        target_id = "abc123-skip-test"
+        subprocess.run([
+            "tmux", "new-session", "-d", "-s", f"claude-connect_{target_id}", "-c", "/tmp",
+            f"echo 'Session: {target_id}' && bash"
+        ], capture_output=True)
+        time.sleep(0.5)
+        found = controller.find_session_by_id(target_id)
+        assert found is None
+        subprocess.run(["tmux", "kill-session", "-t", f"claude-connect_{target_id}"], capture_output=True)

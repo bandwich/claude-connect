@@ -158,6 +158,17 @@ class TmuxController:
         Returns:
             List of tmux session names matching the claude-connect prefix
         """
+        return [
+            name for name in self.list_all_sessions()
+            if name.startswith(f"{SESSION_PREFIX}_")
+        ]
+
+    def list_all_sessions(self) -> list[str]:
+        """List all tmux sessions (not just claude-connect ones).
+
+        Returns:
+            List of all tmux session names
+        """
         result = subprocess.run(
             ["tmux", "list-sessions", "-F", "#{session_name}"],
             capture_output=True,
@@ -165,10 +176,27 @@ class TmuxController:
         )
         if result.returncode != 0:
             return []
-        return [
-            name.strip() for name in result.stdout.strip().split("\n")
-            if name.strip().startswith(f"{SESSION_PREFIX}_")
-        ]
+        return [name.strip() for name in result.stdout.strip().split("\n") if name.strip()]
+
+    def find_session_by_id(self, session_id: str) -> Optional[str]:
+        """Find a non-claude-connect tmux session running a Claude session with this ID.
+
+        Scans pane content of all tmux sessions (excluding claude-connect_* ones,
+        which are already tracked by the server) looking for the session ID.
+
+        Args:
+            session_id: Claude Code session ID to search for
+
+        Returns:
+            Tmux session name if found, None otherwise
+        """
+        for name in self.list_all_sessions():
+            if name.startswith(f"{SESSION_PREFIX}_"):
+                continue
+            pane = self.capture_pane(name, include_history=False)
+            if pane and session_id in pane:
+                return name
+        return None
 
     def cleanup_all(self) -> int:
         """Kill all claude-connect tmux sessions.

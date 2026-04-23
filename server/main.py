@@ -1012,7 +1012,7 @@ class ConnectServer:
             await self.broadcast_connection_status()
             return
 
-        # Check session limit
+        # Check session limit before creating/adopting new sessions
         if len(self.active_sessions) >= MAX_ACTIVE_SESSIONS:
             await websocket.send(json.dumps({
                 "type": "session_resumed",
@@ -1020,6 +1020,35 @@ class ConnectServer:
                 "session_id": session_id,
                 "error": f"Maximum {MAX_ACTIVE_SESSIONS} active sessions reached"
             }))
+            return
+
+        # Check if this session is running in an external tmux (e.g., dispatch skill)
+        external_tmux = self.tmux.find_session_by_id(session_id)
+        if external_tmux:
+            print(f"[INFO] Found session {session_id} in external tmux: {external_tmux}")
+            self._reset_session_state()
+
+            self._active_tmux_session = external_tmux
+            self.active_session_id = session_id
+
+            ctx = SessionContext(
+                session_id=session_id,
+                folder_name=folder_name,
+                tmux_session_name=external_tmux,
+            )
+            self.active_sessions[external_tmux] = ctx
+            self.viewed_session_id = session_id
+
+            if folder_name:
+                self.active_folder_name = folder_name
+                self.switch_watched_session(folder_name, session_id)
+
+            await websocket.send(json.dumps({
+                "type": "session_resumed",
+                "success": True,
+                "session_id": session_id
+            }))
+            await self.broadcast_connection_status()
             return
 
         # Full state reset before anything else

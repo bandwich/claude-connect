@@ -128,6 +128,7 @@ class TestResumeSession:
         server = ConnectServer()
 
         server.tmux = Mock()
+        server.tmux.find_session_by_id = Mock(return_value=None)
         server.tmux.start_session = Mock(return_value=True)
         server.poll_claude_ready = AsyncMock(return_value=True)
         server.broadcast_connection_status = AsyncMock()
@@ -149,6 +150,7 @@ class TestResumeSession:
 
         server = ConnectServer()
         server.tmux = Mock()
+        server.tmux.find_session_by_id = Mock(return_value=None)
         server.tmux.start_session = Mock(return_value=True)
         server.poll_claude_ready = AsyncMock(return_value=True)
         server.broadcast_connection_status = AsyncMock()
@@ -164,6 +166,57 @@ class TestResumeSession:
         assert resume_response is not None
         assert resume_response["success"] is True
         assert resume_response["session_id"] == "test123"
+
+    @pytest.mark.asyncio
+    async def test_resume_adopts_existing_external_tmux(self):
+        """resume_session should adopt an existing external tmux instead of creating a new one"""
+        from server.main import ConnectServer
+
+        server = ConnectServer()
+        server.tmux = Mock()
+        server.tmux.find_session_by_id = Mock(return_value="dispatch-my-feature")
+        server.tmux.session_exists = Mock(return_value=True)
+        server.tmux.start_session = Mock(return_value=True)
+        server.poll_claude_ready = AsyncMock(return_value=True)
+        server.broadcast_connection_status = AsyncMock()
+
+        mock_ws = AsyncMock()
+        sent_messages = []
+        mock_ws.send = AsyncMock(side_effect=lambda msg: sent_messages.append(msg))
+
+        await server.handle_resume_session(mock_ws, {
+            "session_id": "abc123",
+            "folder_name": "test-project"
+        })
+
+        # Should NOT have created a new tmux session
+        server.tmux.start_session.assert_not_called()
+        # Should have adopted the dispatch session
+        assert server._active_tmux_session == "dispatch-my-feature"
+        assert server.active_session_id == "abc123"
+        # Should have sent success
+        responses = [json.loads(m) for m in sent_messages]
+        resume_response = next(r for r in responses if r.get("type") == "session_resumed")
+        assert resume_response["success"] is True
+
+    @pytest.mark.asyncio
+    async def test_resume_falls_through_when_no_external_tmux(self):
+        """resume_session should create new tmux when no external session found"""
+        from server.main import ConnectServer
+
+        server = ConnectServer()
+        server.tmux = Mock()
+        server.tmux.find_session_by_id = Mock(return_value=None)
+        server.tmux.start_session = Mock(return_value=True)
+        server.poll_claude_ready = AsyncMock(return_value=True)
+        server.broadcast_connection_status = AsyncMock()
+
+        mock_ws = AsyncMock()
+
+        await server.handle_resume_session(mock_ws, {"session_id": "xyz789"})
+
+        # Should have created a new tmux session as before
+        server.tmux.start_session.assert_called_once()
 
 
 class TestAddProject:
@@ -235,6 +288,7 @@ class TestActiveSessionTracking:
 
         server = ConnectServer()
         server.tmux = Mock()
+        server.tmux.find_session_by_id = Mock(return_value=None)
         server.tmux.start_session = Mock(return_value=True)
         server.poll_claude_ready = AsyncMock(return_value=True)
         server.broadcast_connection_status = AsyncMock()
@@ -949,6 +1003,7 @@ class TestResumeSessionLifecycle:
         server.active_session_id = "stale-session"
 
         server.tmux = Mock()
+        server.tmux.find_session_by_id = Mock(return_value=None)
         server.tmux.start_session = Mock(return_value=True)
         server.poll_claude_ready = AsyncMock(return_value=True)
         server.broadcast_connection_status = AsyncMock()
@@ -971,6 +1026,7 @@ class TestResumeSessionLifecycle:
 
         server = ConnectServer()
         server.tmux = Mock()
+        server.tmux.find_session_by_id = Mock(return_value=None)
         server.tmux.start_session = Mock(return_value=True)
         server.tmux.kill_session = Mock(return_value=True)
         server.poll_claude_ready = AsyncMock(return_value=False)

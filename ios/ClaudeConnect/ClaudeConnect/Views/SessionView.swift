@@ -586,20 +586,9 @@ struct SessionView: View {
                         )))
                     }
                 }
-                // Mark any tool_use blocks without results as stale
-                // (e.g., app reinstalled mid-tool, or result was missed)
-                // TODO: duplicated at ~lines 551, 645 — extract into a helper
-                for i in 0..<newItems.count {
-                    if case .toolUse(let tid, let tool, let result) = newItems[i], result == nil {
-                        let staleResult = ToolResultBlock(
-                            type: "tool_result",
-                            toolUseId: tid,
-                            content: "(result not available)",
-                            isError: false
-                        )
-                        newItems[i] = .toolUse(toolId: tid, tool: tool, result: staleResult)
-                    }
-                }
+                // Mark stale tool_use blocks — skip trailing ones for active sessions
+                let isActive = webSocketManager.activeSessionIds.contains(session.id)
+                markStaleToolUses(&newItems, isSessionActive: isActive)
                 self.items = groupAgentItems(newItems)
             }
             webSocketManager.requestSessionHistory(folderName: session.folderName ?? project.folderName, sessionId: session.id)
@@ -710,16 +699,10 @@ struct SessionView: View {
                     break
                 case .toolUse(let toolBlock):
                     DispatchQueue.main.async {
-                        // Mark any previous non-Task tool_use without a result as stale
+                        // Mark any previous non-Agent tool_use without a result as stale
                         for i in stride(from: items.count - 1, through: 0, by: -1) {
                             if case .toolUse(let tid, let tool, nil) = items[i], tool.name != "Agent" {
-                                let staleResult = ToolResultBlock(
-                                    type: "tool_result",
-                                    toolUseId: tid,
-                                    content: "(result not available)",
-                                    isError: false
-                                )
-                                items[i] = .toolUse(toolId: tid, tool: tool, result: staleResult)
+                                items[i] = .toolUse(toolId: tid, tool: tool, result: makeStaleResult(toolUseId: tid))
                             }
                         }
 
@@ -834,16 +817,10 @@ struct SessionView: View {
                                 }
                             case .toolUse(let toolBlock):
                                 DispatchQueue.main.async {
-                                    // Mark any previous non-Task tool_use without a result as stale
+                                    // Mark any previous non-Agent tool_use without a result as stale
                                     for i in stride(from: items.count - 1, through: 0, by: -1) {
                                         if case .toolUse(let tid, let tool, nil) = items[i], tool.name != "Agent" {
-                                            let staleResult = ToolResultBlock(
-                                                type: "tool_result",
-                                                toolUseId: tid,
-                                                content: "(result not available)",
-                                                isError: false
-                                            )
-                                            items[i] = .toolUse(toolId: tid, tool: tool, result: staleResult)
+                                            items[i] = .toolUse(toolId: tid, tool: tool, result: makeStaleResult(toolUseId: tid))
                                         }
                                     }
 

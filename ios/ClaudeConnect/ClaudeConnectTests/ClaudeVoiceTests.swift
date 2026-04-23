@@ -1277,3 +1277,54 @@ struct AgentGroupingTests {
         }
     }
 }
+
+
+@Suite("Stale Tool Marking Tests")
+struct StaleToolMarkingTests {
+
+    @Test func trailingToolUseNotMarkedStaleWhenSessionActive() {
+        let tool = ToolUseBlock(type: "tool_use", id: "toolu_active", name: "Bash", input: [:])
+        var items: [ConversationItem] = [
+            .textMessage(SessionHistoryMessage(role: "assistant", content: "Let me check.", timestamp: 1)),
+            .toolUse(toolId: "toolu_active", tool: tool, result: nil)
+        ]
+
+        markStaleToolUses(&items, isSessionActive: true)
+
+        if case .toolUse(_, _, let result) = items[1] {
+            #expect(result == nil, "Active session should NOT mark trailing tool_use as stale")
+        }
+    }
+
+    @Test func trailingToolUseMarkedStaleWhenSessionInactive() {
+        let tool = ToolUseBlock(type: "tool_use", id: "toolu_old", name: "Bash", input: [:])
+        var items: [ConversationItem] = [
+            .textMessage(SessionHistoryMessage(role: "assistant", content: "checking", timestamp: 1)),
+            .toolUse(toolId: "toolu_old", tool: tool, result: nil)
+        ]
+
+        markStaleToolUses(&items, isSessionActive: false)
+
+        if case .toolUse(_, _, let result) = items[1] {
+            #expect(result != nil, "Inactive session SHOULD mark trailing tool_use as stale")
+            #expect(result?.content == "(result not available)")
+        }
+    }
+
+    @Test func middleToolUseAlwaysMarkedStale() {
+        let tool1 = ToolUseBlock(type: "tool_use", id: "toolu_1", name: "Read", input: [:])
+        let tool2 = ToolUseBlock(type: "tool_use", id: "toolu_2", name: "Bash", input: [:])
+        let result2 = ToolResultBlock(type: "tool_result", toolUseId: "toolu_2", content: "ok", isError: false)
+        var items: [ConversationItem] = [
+            .toolUse(toolId: "toolu_1", tool: tool1, result: nil),
+            .toolUse(toolId: "toolu_2", tool: tool2, result: result2)
+        ]
+
+        markStaleToolUses(&items, isSessionActive: true)
+
+        if case .toolUse(_, _, let result) = items[0] {
+            #expect(result != nil, "Middle tool_use without result should be marked stale")
+            #expect(result?.content == "(result not available)")
+        }
+    }
+}

@@ -168,6 +168,27 @@ func groupAgentItems(_ items: [ConversationItem]) -> [ConversationItem] {
     return result
 }
 
+func makeStaleResult(toolUseId: String) -> ToolResultBlock {
+    ToolResultBlock(
+        type: "tool_result",
+        toolUseId: toolUseId,
+        content: "(result not available)",
+        isError: false
+    )
+}
+
+/// Mark tool_use blocks without results as stale.
+/// - For active sessions: skip the very last item if it's a result-less tool_use (still running).
+/// - For inactive sessions: mark ALL tool_uses without results (nothing more will arrive).
+func markStaleToolUses(_ items: inout [ConversationItem], isSessionActive: Bool) {
+    for i in 0..<items.count {
+        if case .toolUse(let tid, let tool, nil) = items[i] {
+            if isSessionActive && i == items.count - 1 { continue }
+            items[i] = .toolUse(toolId: tid, tool: tool, result: makeStaleResult(toolUseId: tid))
+        }
+    }
+}
+
 struct SessionHistoryResponse: Codable {
     let type: String
     let messages: [SessionHistoryMessageRich]

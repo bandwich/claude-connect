@@ -6,7 +6,6 @@
 
 
 
-
 ---
 
 ## Completed
@@ -38,6 +37,7 @@ How sessions are created, resumed, viewed, and stopped.
 - [Session lifecycle](2026-03-11/session-lifecycle-design.md) — Reliable create/resume/view/stop flows ([plan](2026-03-11/session-lifecycle-plan.md))
 - [Multi-session](2026-03-18/multi-session-design.md) — Up to 5 concurrent sessions, SessionContext, viewed vs active ([phase 1: server](2026-03-18/multi-session-phase1.md), [phase 2: iOS](2026-03-18/multi-session-phase2.md))
 - [Session list polish](2026-03-23/session-list-polish-design.md) — Hide deleted projects, active session dots, UX improvements
+- [Adopt tmux sessions](2026-04-02/adopt-tmux-sessions.md) — Adopt external tmux (dispatch) instead of creating duplicate; session-aware stale tool marking
 
 ## iOS UI
 Views, navigation, and display.

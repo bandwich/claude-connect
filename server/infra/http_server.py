@@ -57,7 +57,7 @@ def is_viewed_session(raw_session_id: str) -> bool:
     if not _server.viewed_session_id:
         return True
     if not raw_session_id:
-        return False
+        return True
 
     # Check by tmux session name (works for pending-* sessions too)
     tmux_name = session_name_for(raw_session_id)

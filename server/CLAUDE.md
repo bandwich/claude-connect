@@ -58,6 +58,8 @@ Up to `MAX_ACTIVE_SESSIONS` (5) concurrent sessions. Each is tracked as a `Sessi
 8. `view_session` switches `viewed_session_id` and transcript watcher without killing other sessions
 9. `stop_session` kills one session's tmux, removes its SessionContext
 
+**External tmux adoption** (`resume_session`): Before creating a new tmux, the server calls `TmuxController.find_session_by_id()` which scans non-`claude-connect_*` panes for the Claude session ID. If found (e.g. a session started by the `/dispatch` skill), the server adopts that tmux as-is — no new tmux is created, the existing `SessionContext` is registered in `active_sessions`. Adopted sessions don't have `CLAUDE_CONNECT_SESSION_ID` set in their tmux env, so their hook requests arrive with an empty `X-Session-Id` — `http_server.is_viewed_session()` treats empty IDs as matching the viewed session so permissions/questions still route correctly.
+
 ## Key State
 
 | Field | What it tracks | Reset |
